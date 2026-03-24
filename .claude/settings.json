@@ -1,0 +1,47 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllow": true,
+    "allowUnsandboxedCommands": false,
+    "filesystem": {
+      "allowRead": [".", "/tmp/pytest-*", "/tmp/repo-pulse-*"],
+      "allowWrite": [".", "/tmp/pytest-*", "/tmp/repo-pulse-*"]
+    },
+    "network": {
+      "allowDomains": [
+        "registry.npmjs.org",
+        "api.npmjs.org",
+        "cdn.jsdelivr.net",
+        "esm.sh",
+        "pypi.org",
+        "files.pythonhosted.org",
+        "api.github.com",
+        "github.com",
+        "api.anthropic.com",
+        "localhost",
+        "127.0.0.1"
+      ]
+    }
+  },
+  "permissions": {
+    "allow": ["Bash(*)", "Read(**)", "Edit(**)"],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~)",
+      "Bash(rm -rf $HOME)",
+      "Bash(git push *)",
+      "Bash(git push)",
+      "Bash(curl -X POST*)",
+      "Bash(wget *)",
+      "Bash(ssh *)",
+      "Bash(scp *)",
+      "Bash(sudo *)",
+      "Bash(chmod 777 *)",
+      "Bash(eval *)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.gnupg/**)",
+      "Read(~/.config/gh/**)"
+    ]
+  }
+}
