@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +17,7 @@ from app.core.config import settings
 from app.core.deps import get_current_user, get_db_session
 from app.models.collection import Collection
 from app.models.contributor import Contributor
+from app.models.user import User
 from app.models.contributor_alias import ContributorAlias
 from app.models.note import Note
 from app.models.repo import Repo
@@ -140,7 +142,7 @@ async def _upsert_contributors(
     await db.flush()
 
 
-async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False) -> None:
+async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: str | None = None) -> None:
     """Clone (or fetch) a repo, parse commits, upsert contributors, update health."""
     from app.db.database import async_session_maker
 
@@ -155,12 +157,14 @@ async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False) -> None:
 
             if force_clone or not is_cloned:
                 logger.info("Cloning %s → %s", repo.github_url, local_path)
-                await _git_service.clone_repo(repo.github_url, local_path)
+                await _git_service.clone_repo(repo.github_url, local_path, token=token)
             else:
                 logger.info("Fetching %s", local_path)
-                await _git_service.fetch_repo(local_path)
+                await _git_service.fetch_repo(local_path, token=token)
 
+            t0 = time.perf_counter()
             commits = await _git_service.parse_commits(local_path)
+            logger.debug("_index_repo: parse_commits returned %d commits in %.2fs — %s", len(commits), time.perf_counter() - t0, repo.name)
             branches = await _git_service.get_active_branches(local_path)
 
             await _upsert_contributors(db, repo_id, commits)
@@ -183,12 +187,12 @@ async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False) -> None:
             logger.exception("Failed to index repo %s (%s): %s", repo.name, repo.github_url, exc)
 
 
-async def _clone_and_index(repo_id: uuid.UUID) -> None:
-    await _index_repo(repo_id, force_clone=True)
+async def _clone_and_index(repo_id: uuid.UUID, token: str | None = None) -> None:
+    await _index_repo(repo_id, force_clone=True, token=token)
 
 
-async def _fetch_and_recompute(repo_id: uuid.UUID) -> None:
-    await _index_repo(repo_id, force_clone=False)
+async def _fetch_and_recompute(repo_id: uuid.UUID, token: str | None = None) -> None:
+    await _index_repo(repo_id, force_clone=False, token=token)
 
 
 @router.get(
@@ -281,6 +285,14 @@ async def add_repos(
             detail="Collection not found",
         )
 
+    # Look up user's GitHub token — required to clone repositories
+    user_record = await db.get(User, user_uuid)
+    if not user_record or not user_record.github_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="GitHub token not configured. Add a token in your profile to enable adding repositories.",
+        )
+
     created_repos: list[RepoRead] = []
     for url in body.urls:
         name = _derive_repo_name(url)
@@ -296,7 +308,7 @@ async def add_repos(
         )
         db.add(repo)
         await db.flush()
-        background_tasks.add_task(_clone_and_index, repo.id)
+        background_tasks.add_task(_clone_and_index, repo.id, user_record.github_token)
         created_repos.append(_repo_to_read(repo, contributor_count=0))
 
     await db.commit()
@@ -446,7 +458,14 @@ async def sync_repo(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Repo not found",
         )
-    background_tasks.add_task(_fetch_and_recompute, repo_id)
+    # Look up user's GitHub token — required to interact with GitHub
+    user_record = await db.get(User, user_uuid)
+    if not user_record or not user_record.github_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="GitHub token not configured. Add a token in your profile to enable syncing.",
+        )
+    background_tasks.add_task(_fetch_and_recompute, repo_id, user_record.github_token)
     return {"detail": "Sync started", "repo_id": str(repo_id)}
 
 
@@ -549,7 +568,12 @@ async def get_repo_commits(
         )
 
     try:
+        t0 = time.perf_counter()
         all_commits = await _git_service.parse_commits(repo.local_path)
+        logger.debug(
+            "get_repo_commits: parse_commits returned %d commits in %.2fs (limit=%d offset=%d branch=%s) — %s",
+            len(all_commits), time.perf_counter() - t0, limit, offset, branch, repo.name,
+        )
     except Exception as exc:
         logger.exception("parse_commits failed for repo %s: %s", repo.local_path, exc)
         raise HTTPException(

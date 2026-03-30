@@ -11,8 +11,12 @@ import {
   updateContributor,
   mergeContributors,
   patchRepo,
+  getPullRequests,
+  getPRStats,
+  syncPullRequests,
 } from '@/services/api'
 import type { GetCommitsParams } from '@/types'
+import { toast } from 'sonner'
 
 export const repoKeys = {
   all: ['repos'] as const,
@@ -129,5 +133,36 @@ export function usePatchRepo() {
       queryClient.invalidateQueries({ queryKey: repoKeys.detail(variables.id) })
       queryClient.invalidateQueries({ queryKey: repoKeys.health(variables.id) })
     },
+  })
+}
+
+export function usePRStats(repoId: string) {
+  return useQuery({
+    queryKey: ['pr-stats', repoId],
+    queryFn: () => getPRStats(repoId),
+    enabled: Boolean(repoId),
+    staleTime: 60_000,
+  })
+}
+
+export function usePullRequests(repoId: string, state?: string, limit = 10, offset = 0) {
+  return useQuery({
+    queryKey: ['pull-requests', repoId, state, limit, offset],
+    queryFn: () => getPullRequests(repoId, state, limit, offset),
+    enabled: Boolean(repoId),
+    staleTime: 60_000,
+  })
+}
+
+export function useSyncPullRequests(repoId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => syncPullRequests(repoId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pull-requests', repoId] })
+      queryClient.invalidateQueries({ queryKey: ['pr-stats', repoId] })
+      toast.success('Pull requests synced')
+    },
+    onError: () => toast.error('Failed to sync pull requests'),
   })
 }

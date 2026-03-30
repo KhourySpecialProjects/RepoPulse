@@ -1,0 +1,24 @@
+# Dependencies — reinstalled inside the container via npm install
+node_modules/
+
+# Build output and caches
+dist/
+.vite/
+*.tsbuildinfo
+
+# Tests — not needed in the image
+src/__tests__/
+src/mocks/
+coverage/
+
+# Environment files — injected at runtime via Docker Compose
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo

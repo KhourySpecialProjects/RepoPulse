@@ -49,6 +49,30 @@ async def _require_admin(db: AsyncSession, current_user_id: str) -> User:
     return me
 
 
+@router.post(
+    "/users/me/change-password",
+    response_model=UserDetail,
+    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
+)
+async def change_my_password(
+    body: ChangePassword,
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> UserDetail:
+    """Change the current user's password."""
+    user = await _get_user_or_404(db, uuid.UUID(current_user_id))
+    if not user.password_hash or not bcrypt.verify(body.current_password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+    user.password_hash = bcrypt.hash(body.new_password)
+    await db.flush()
+    await db.commit()
+    await db.refresh(user)
+    return _to_user_detail(user)
+
+
 @router.get(
     "/users/me",
     response_model=UserDetail,
@@ -93,6 +117,7 @@ async def patch_me(
         user.password_hash = bcrypt.hash(cp.new_password)
 
     await db.flush()
+    await db.commit()
     await db.refresh(user)
     return _to_user_detail(user)
 
@@ -221,6 +246,7 @@ async def create_user(
     )
     db.add(user)
     await db.flush()
+    await db.commit()
     await db.refresh(user)
     return _to_user_detail(user)
 
@@ -273,6 +299,7 @@ async def update_user(
         user.github_token = body.github_token if body.github_token else None
 
     await db.flush()
+    await db.commit()
     await db.refresh(user)
     return _to_user_detail(user)
 
@@ -302,6 +329,7 @@ async def delete_user(
     user = await _get_user_or_404(db, user_id)
     await db.delete(user)
     await db.flush()
+    await db.commit()
 
 
 @router.post(
@@ -323,4 +351,5 @@ async def reset_password(
     user = await _get_user_or_404(db, user_id)
     user.password_hash = bcrypt.hash(body.new_password)
     await db.flush()
+    await db.commit()
     return _to_user_read(user)

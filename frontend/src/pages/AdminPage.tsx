@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Shield, Pencil, Key, Trash2, Plus, Eye, EyeOff } from 'lucide-react'
+import { Pencil, Key, Trash2, Plus, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useUsers, useCreateUser, useUpdateUser, useDeleteUser, useResetUserPassword } from '@/hooks/useUsers'
+import { useSettings } from '@/hooks/useSettings'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -431,7 +432,8 @@ function UsersTab() {
 // ---- Admin Page ----
 export function AdminPage() {
   const { user } = useAuth()
-  const [activeTab, setActiveTab] = useState<'users' | 'llm'>('users')
+  const [activeTab, setActiveTab] = useState<'users' | 'llm' | 'system'>('users')
+  const { data: settings } = useSettings()
 
   if (user?.role !== 'admin') {
     return <Navigate to="/collections" replace />
@@ -439,19 +441,16 @@ export function AdminPage() {
 
   return (
     <motion.div
-      className="container max-w-4xl py-8"
+      className="px-6 py-6 max-w-3xl"
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
     >
-      <div className="flex items-center gap-2 mb-6">
-        <Shield className="h-5 w-5 text-rose-500" />
-        <h1 className="text-2xl font-bold">Admin Panel</h1>
-      </div>
+      <h1 className="text-xl font-semibold mb-6">Admin Panel</h1>
 
       {/* Tab nav */}
       <div className="flex gap-1 border-b border-border mb-6">
-        {(['users', 'llm'] as const).map((tab) => (
+        {(['users', 'llm', 'system'] as const).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -462,7 +461,7 @@ export function AdminPage() {
                 : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
-            {tab === 'users' ? 'Users' : 'LLM Settings'}
+            {tab === 'users' ? 'Users' : tab === 'llm' ? 'LLM Settings' : 'System'}
           </button>
         ))}
       </div>
@@ -485,11 +484,26 @@ export function AdminPage() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              LLM settings are configured in the{' '}
-              <a href="/settings" className="text-indigo-600 hover:underline">
-                Settings page
-              </a>
-              .
+              LLM provider and model are configured per-user in Settings.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {activeTab === 'system' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Repository Root</CardTitle>
+            <CardDescription>The directory where repository clones are stored</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Input
+              value={settings?.repo_root_directory ?? ''}
+              readOnly
+              className="bg-muted cursor-not-allowed font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground mt-1.5">
+              Configured via the <code className="font-mono">REPO_ROOT_DIR</code> environment variable
             </p>
           </CardContent>
         </Card>

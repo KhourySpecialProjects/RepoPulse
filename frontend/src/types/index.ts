@@ -274,3 +274,67 @@ export interface GetNotesParams {
   contributor_id?: string
   commit_hash?: string
 }
+
+export interface ScoredCommit {
+  hash: string
+  full_hash: string
+  message: string
+  author: string
+  date: string
+  score: 'good' | 'ok' | 'bad'
+  from_cache: boolean
+}
+
+export interface RepoCommitQuality {
+  repo_id: string
+  repo_name: string
+  commits: ScoredCommit[]
+  cache_hits: number
+  newly_scored: number
+}
+
+export interface CommitQualityResponse {
+  repos: RepoCommitQuality[]
+  model_used: string
+  repos_skipped: number
+  total_cache_hits: number
+  total_newly_scored: number
+}
+
+export interface PullRequest {
+  id: string
+  repo_id: string
+  pr_number: number
+  title: string
+  state: 'open' | 'closed' | 'merged'
+  author_login: string
+  created_at: string | null
+  merged_at: string | null
+  closed_at: string | null
+  html_url: string
+  reviews_requested: number
+  draft: boolean
+  fetched_at: string
+}
+
+export interface PRStats {
+  open_count: number
+  merged_last_30d: number
+  avg_days_to_merge: number | null
+  total_count: number
+  fetched_at: string | null
+}
+
+export interface PRListResponse {
+  items: PullRequest[]
+  total: number
+  limit: number
+  offset: number
+  fetched_at: string | null
+}
+
+export interface PRSyncResponse {
+  synced: number
+  repo_id: string
+  fetched_at: string
+}

@@ -17,12 +17,16 @@ venv/
 env/
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
+.mypy_cache/
+.ruff_cache/
 
 # Node
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+*.tsbuildinfo
 
 # Seed repos — local git clones, never commit
 seed-repos/

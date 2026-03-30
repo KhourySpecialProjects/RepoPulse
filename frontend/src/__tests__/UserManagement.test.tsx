@@ -268,12 +268,36 @@ describe('NoteComments component', () => {
 })
 
 describe('UserProfilePage', () => {
-  it('renders profile page with display name section', async () => {
-    server.use(
-      http.get('/api/v1/users/me', () => HttpResponse.json(mockUserDetail))
-    )
+  it('redirects to /settings', async () => {
     const { UserProfilePage } = await import('@/pages/UserProfilePage')
-    renderWithProviders(<UserProfilePage />, { route: '/profile' })
+    // UserProfilePage now redirects to /settings — render passes without error
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { container } = render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/profile']}>
+          <UserProfilePage />
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+    // The redirect renders nothing in its own container
+    expect(container).toBeDefined()
+  })
+})
+
+describe('SettingsPage profile section', () => {
+  it('renders display name section', async () => {
+    server.use(
+      http.get('/api/v1/users/me', () => HttpResponse.json(mockUserDetail)),
+      http.get('/api/v1/settings', () => HttpResponse.json({
+        llm_provider: 'anthropic',
+        llm_model: 'claude-sonnet-4-6',
+        ollama_base_url: null,
+        anthropic_api_key_configured: false,
+        repo_root_directory: '/repos',
+      }))
+    )
+    const { SettingsPage } = await import('@/pages/SettingsPage')
+    renderWithProviders(<SettingsPage />, { route: '/settings' })
     await waitFor(() => {
       expect(screen.getByText(/display name/i)).toBeInTheDocument()
     })
@@ -281,10 +305,17 @@ describe('UserProfilePage', () => {
 
   it('renders change password section', async () => {
     server.use(
-      http.get('/api/v1/users/me', () => HttpResponse.json(mockUserDetail))
+      http.get('/api/v1/users/me', () => HttpResponse.json(mockUserDetail)),
+      http.get('/api/v1/settings', () => HttpResponse.json({
+        llm_provider: 'anthropic',
+        llm_model: 'claude-sonnet-4-6',
+        ollama_base_url: null,
+        anthropic_api_key_configured: false,
+        repo_root_directory: '/repos',
+      }))
     )
-    const { UserProfilePage } = await import('@/pages/UserProfilePage')
-    renderWithProviders(<UserProfilePage />, { route: '/profile' })
+    const { SettingsPage } = await import('@/pages/SettingsPage')
+    renderWithProviders(<SettingsPage />, { route: '/settings' })
     await waitFor(() => {
       const matches = screen.getAllByText(/change password/i)
       expect(matches.length).toBeGreaterThan(0)

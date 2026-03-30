@@ -214,7 +214,7 @@ async def get_repo_summaries(
         )
     result = await db.execute(
         select(Summary)
-        .where(Summary.repo_id == repo_id)
+        .where(Summary.repo_id == repo_id, Summary.contributor_id.is_(None))
         .order_by(Summary.generated_at.desc())
     )
     summaries = result.scalars().all()

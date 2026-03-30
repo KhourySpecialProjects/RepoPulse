@@ -1,0 +1,28 @@
+# Dev/test artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Tests — not needed in the image
+tests/
+
+# Local repo clones — can be very large
+seed-repos/
+
+# Environment files — injected at runtime via Docker Compose
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo

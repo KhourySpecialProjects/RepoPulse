@@ -29,9 +29,22 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/repopulse
       - TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/repopulse_test
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://phoenix:6006
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
     depends_on:
       db:
         condition: service_healthy
+      phoenix:
+        condition: service_started
+    networks:
+      - repopulse
+
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    ports:
+      - "6006:6006"
+    volumes:
+      - phoenix_data:/root/.phoenix
     networks:
       - repopulse
 
@@ -55,6 +68,7 @@ services:
 
 volumes:
   postgres_data:
+  phoenix_data:
 
 networks:
   repopulse:

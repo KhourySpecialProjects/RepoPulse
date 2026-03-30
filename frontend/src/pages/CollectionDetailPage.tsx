@@ -5,8 +5,10 @@ import { ArrowLeft, Plus, RefreshCw, GitBranch, LayoutGrid, Pencil, Archive, Arc
 import { useCollection, useSyncCollection, useUpdateCollection } from '@/hooks/useCollections'
 import { useRepos, useAddRepos } from '@/hooks/useRepos'
 import { useAuth } from '@/hooks/useAuth'
+import { useCurrentUser } from '@/hooks/useUsers'
 import { RepoCard } from '@/components/RepoCard'
 import { CollectionAccessPanel } from '@/components/CollectionAccessPanel'
+import { CommitQualityPanel } from '@/components/CommitQualityPanel'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -37,6 +39,8 @@ export function CollectionDetailPage() {
   const updateCollectionMutation = useUpdateCollection()
 
   const { user } = useAuth()
+  const { data: currentUser } = useCurrentUser()
+  const hasToken = Boolean(currentUser?.github_token_configured)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [urlInput, setUrlInput] = useState('')
   const [addError, setAddError] = useState<string | null>(null)
@@ -114,7 +118,7 @@ export function CollectionDetailPage() {
 
   if (collectionLoading) {
     return (
-      <div className="container max-w-7xl py-8">
+      <div className="px-6 py-8">
         <div className="h-8 w-48 bg-muted rounded animate-pulse mb-6" />
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
           {[...Array(6)].map((_, i) => (
@@ -127,7 +131,7 @@ export function CollectionDetailPage() {
 
   if (!collection) {
     return (
-      <div className="container max-w-7xl py-8">
+      <div className="px-6 py-8">
         <p className="text-muted-foreground">Collection not found.</p>
       </div>
     )
@@ -135,17 +139,17 @@ export function CollectionDetailPage() {
 
   return (
     <div>
-      <div className="bg-gradient-to-r from-indigo-50 to-violet-50 border-b border-border">
-        <div className="container max-w-7xl py-6">
-          <div className="flex items-center gap-3 mb-1">
+      <div className="border-b border-border bg-white px-6 py-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => navigate('/collections')}
-              className="text-muted-foreground hover:text-indigo-600 transition-colors"
+              className="text-muted-foreground hover:text-indigo-600 transition-colors flex-shrink-0"
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
-            <h1 className="text-2xl font-bold text-foreground">{collection.name}</h1>
-            <div className="flex gap-1.5">
+            <h1 className="text-xl font-semibold text-foreground truncate">{collection.name}</h1>
+            <div className="flex gap-1.5 flex-shrink-0">
               {collection.course_tag && (
                 <span className="text-xs bg-indigo-100 text-indigo-700 rounded-full px-2 py-0.5 font-medium">
                   {collection.course_tag}
@@ -163,60 +167,60 @@ export function CollectionDetailPage() {
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-0.5 ml-1">
-              <button
-                onClick={handleEditOpen}
-                title="Edit collection"
-                className="p-1.5 rounded text-muted-foreground hover:text-indigo-600 hover:bg-indigo-100 transition-colors"
-              >
-                <Pencil className="h-4 w-4" />
-              </button>
-              <button
-                onClick={handleArchiveToggle}
-                title={collection.is_archived ? 'Unarchive collection' : 'Archive collection'}
-                className="p-1.5 rounded text-muted-foreground hover:text-amber-600 hover:bg-amber-100 transition-colors"
-              >
-                {collection.is_archived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
-              </button>
-              <button
-                onClick={() => setAccessPanelOpen((v) => !v)}
-                title="Manage access"
-                className={`p-1.5 rounded transition-colors ${accessPanelOpen ? 'text-indigo-600 bg-indigo-100' : 'text-muted-foreground hover:text-indigo-600 hover:bg-indigo-100'}`}
-              >
-                <Users className="h-4 w-4" />
-              </button>
-            </div>
           </div>
-          <p className="text-muted-foreground text-sm ml-7">
-            {collection.repo_count} repositor{collection.repo_count !== 1 ? 'ies' : 'y'}
-          </p>
-
-          {/* Access Panel */}
-          <AnimatePresence>
-            {accessPanelOpen && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden"
-              >
-                <div className="mt-4 rounded-lg border border-border bg-white p-4">
-                  <CollectionAccessPanel
-                    collectionId={collection.id}
-                    canManage={
-                      user?.role === 'admin' ||
-                      collection.owner_id === user?.id
-                    }
-                  />
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              onClick={handleEditOpen}
+              title="Edit collection"
+              className="p-1.5 rounded text-muted-foreground hover:text-indigo-600 hover:bg-indigo-100 transition-colors"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+            <button
+              onClick={handleArchiveToggle}
+              title={collection.is_archived ? 'Unarchive collection' : 'Archive collection'}
+              className="p-1.5 rounded text-muted-foreground hover:text-amber-600 hover:bg-amber-100 transition-colors"
+            >
+              {collection.is_archived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
+            </button>
+            <button
+              onClick={() => setAccessPanelOpen((v) => !v)}
+              title="Manage access"
+              className={`p-1.5 rounded transition-colors ${accessPanelOpen ? 'text-indigo-600 bg-indigo-100' : 'text-muted-foreground hover:text-indigo-600 hover:bg-indigo-100'}`}
+            >
+              <Users className="h-4 w-4" />
+            </button>
+          </div>
         </div>
+        <p className="text-muted-foreground text-sm mt-1 ml-7">
+          {collection.repo_count} repositor{collection.repo_count !== 1 ? 'ies' : 'y'}
+        </p>
+
+        {/* Access Panel */}
+        <AnimatePresence>
+          {accessPanelOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              <div className="mt-4 rounded-lg border border-border bg-gray-50 p-4">
+                <CollectionAccessPanel
+                  collectionId={collection.id}
+                  canManage={
+                    user?.role === 'admin' ||
+                    collection.owner_id === user?.id
+                  }
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
-    <div className="container max-w-7xl py-8">
+    <div className="px-6 py-6">
       <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
         <div className="flex items-center gap-2">
           <Select value={filterHealth} onValueChange={(v) => setFilterHealth(v as FilterHealth)}>
@@ -247,12 +251,18 @@ export function CollectionDetailPage() {
             variant="outline"
             size="sm"
             onClick={() => syncMutation.mutate(id ?? '')}
-            disabled={syncMutation.isPending}
+            disabled={syncMutation.isPending || !hasToken}
+            title={!hasToken ? 'Add a GitHub token in your profile to enable syncing' : undefined}
           >
             <RefreshCw className={cn('h-4 w-4 mr-2', syncMutation.isPending && 'animate-spin')} />
             Sync All
           </Button>
-          <Button size="sm" onClick={() => setDialogOpen(true)}>
+          <Button
+            size="sm"
+            onClick={() => setDialogOpen(true)}
+            disabled={!hasToken}
+            title={!hasToken ? 'Add a GitHub token in your profile to add repositories' : undefined}
+          >
             <Plus className="h-4 w-4 mr-2" />
             Add Repos
           </Button>
@@ -349,6 +359,13 @@ export function CollectionDetailPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Commit Quality Analysis */}
+      {!collection.is_archived && (
+        <div className="mt-8">
+          <CommitQualityPanel collectionId={id ?? ''} perRepo={15} />
+        </div>
+      )}
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>

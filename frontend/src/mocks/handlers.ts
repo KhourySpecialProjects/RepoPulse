@@ -15,6 +15,9 @@ import type {
   Notification,
   NotificationListResponse,
   CollectionAccessEntry,
+  PRStats,
+  PRListResponse,
+  PRSyncResponse,
 } from '@/types'
 
 const BASE = '/api/v1'
@@ -611,5 +614,35 @@ export const handlers = [
   }),
   http.post(`${BASE}/notifications/read-all`, () => {
     return HttpResponse.json({ marked_read: 0 })
+  }),
+
+  // Pull Requests
+  http.get(`${BASE}/repos/:id/pull-requests/stats`, () => {
+    const stats: PRStats = {
+      open_count: 0,
+      merged_last_30d: 0,
+      avg_days_to_merge: null,
+      total_count: 0,
+      fetched_at: null,
+    }
+    return HttpResponse.json(stats)
+  }),
+  http.get(`${BASE}/repos/:id/pull-requests`, () => {
+    const response: PRListResponse = {
+      items: [],
+      total: 0,
+      limit: 100,
+      offset: 0,
+      fetched_at: null,
+    }
+    return HttpResponse.json(response)
+  }),
+  http.post(`${BASE}/repos/:id/pull-requests/sync`, ({ params }) => {
+    const result: PRSyncResponse = {
+      synced: 0,
+      repo_id: params.id as string,
+      fetched_at: new Date().toISOString(),
+    }
+    return HttpResponse.json(result)
   }),
 ]

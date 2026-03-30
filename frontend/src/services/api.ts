@@ -27,6 +27,10 @@ import type {
   NoteComment,
   Notification,
   NotificationListResponse,
+  CommitQualityResponse,
+  PRListResponse,
+  PRStats,
+  PRSyncResponse,
 } from '@/types'
 
 const apiClient = axios.create({
@@ -269,8 +273,8 @@ export async function resetUserPassword(id: string, newPassword: string): Promis
 
 // Collection access
 export async function getCollectionAccess(collectionId: string): Promise<CollectionAccessEntry[]> {
-  const res = await apiClient.get<CollectionAccessEntry[]>(`/collections/${collectionId}/access`)
-  return res.data
+  const res = await apiClient.get<{ items: CollectionAccessEntry[]; total: number }>(`/collections/${collectionId}/access`)
+  return res.data.items
 }
 
 export async function addCollectionAccess(
@@ -327,6 +331,36 @@ export async function markNotificationRead(id: string): Promise<Notification> {
 export async function markAllNotificationsRead(): Promise<{ marked_read: number }> {
   const res = await apiClient.post<{ marked_read: number }>('/notifications/read-all')
   return res.data
+}
+
+// Commit Quality
+export async function getCommitQuality(
+  collectionId: string,
+  perRepo = 15
+): Promise<CommitQualityResponse> {
+  const res = await apiClient.get<CommitQualityResponse>(
+    `/collections/${collectionId}/commit-quality`,
+    { params: { per_repo: perRepo } }
+  )
+  return res.data
+}
+
+// Pull Requests
+export async function getPullRequests(repoId: string, state?: string, limit = 10, offset = 0): Promise<PRListResponse> {
+  const response = await apiClient.get<PRListResponse>(`/repos/${repoId}/pull-requests`, {
+    params: { ...(state ? { state } : {}), limit, offset },
+  })
+  return response.data
+}
+
+export async function getPRStats(repoId: string): Promise<PRStats> {
+  const response = await apiClient.get<PRStats>(`/repos/${repoId}/pull-requests/stats`)
+  return response.data
+}
+
+export async function syncPullRequests(repoId: string): Promise<PRSyncResponse> {
+  const response = await apiClient.post<PRSyncResponse>(`/repos/${repoId}/pull-requests/sync`)
+  return response.data
 }
 
 export default apiClient

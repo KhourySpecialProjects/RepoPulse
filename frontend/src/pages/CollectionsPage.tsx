@@ -101,30 +101,25 @@ export function CollectionsPage() {
 
   return (
     <div>
-      <div className="bg-gradient-to-r from-indigo-50 to-violet-50 border-b border-border">
-        <div className="container max-w-7xl py-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Collections</h1>
-            <p className="text-muted-foreground text-sm mt-0.5">Manage your groups of repositories</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowArchived(v => !v)}
-              className={cn(showArchived && 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100')}
-            >
-              <Archive className="h-4 w-4 mr-1.5" />
-              {showArchived ? 'Hide archived' : 'Show archived'}
-            </Button>
-            <Button size="sm" onClick={() => setDialogOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm">
-              <Plus className="h-4 w-4 mr-2" />
-              New Collection
-            </Button>
-          </div>
+      <div className="border-b border-border bg-white px-6 py-4 flex items-center justify-between">
+        <h1 className="text-xl font-semibold text-foreground">Collections</h1>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowArchived(v => !v)}
+            className={cn(showArchived && 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100')}
+          >
+            <Archive className="h-4 w-4 mr-1.5" />
+            {showArchived ? 'Hide archived' : 'Show archived'}
+          </Button>
+          <Button size="sm" onClick={() => setDialogOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm">
+            <Plus className="h-4 w-4 mr-2" />
+            New Collection
+          </Button>
         </div>
       </div>
-    <div className="container max-w-7xl py-8">
+    <div className="px-6 py-6">
 
       {isLoading && (
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">

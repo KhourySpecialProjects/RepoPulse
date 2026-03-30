@@ -1,6 +1,53 @@
 from __future__ import annotations
 
+import logging
+import os
+import sys
+
 from fastapi import FastAPI, Request, status
+
+# Uvicorn's default log config sets root to WARNING, so app.* loggers need
+# their own handler to emit INFO messages.
+# Set APP_LOG_LEVEL=DEBUG in the environment to enable debug-level timing logs.
+_log_level = logging.DEBUG if os.getenv("APP_LOG_LEVEL", "INFO").upper() == "DEBUG" else logging.INFO
+_app_logger = logging.getLogger("app")
+_app_logger.setLevel(_log_level)
+if not _app_logger.handlers:
+    _handler = logging.StreamHandler(sys.stdout)
+    _handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
+    _app_logger.addHandler(_handler)
+    _app_logger.propagate = False  # prevent double-logging through root
+
+# ---------------------------------------------------------------------------
+# OpenTelemetry tracing (opt-in via OTEL_EXPORTER_OTLP_ENDPOINT env var)
+# ---------------------------------------------------------------------------
+
+
+def _init_tracing() -> None:
+    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if not endpoint:
+        return
+
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from openinference.instrumentation.anthropic import AnthropicInstrumentor
+
+    provider = TracerProvider(
+        resource=Resource(attributes={SERVICE_NAME: "repopulse-backend"})
+    )
+    traces_endpoint = endpoint.rstrip("/") + "/v1/traces"
+    exporter = OTLPSpanExporter(endpoint=traces_endpoint)
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    trace.set_tracer_provider(provider)
+    AnthropicInstrumentor().instrument(tracer_provider=provider)
+    _app_logger.info("OpenTelemetry tracing → %s", traces_endpoint)
+
+
+_init_tracing()
+
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 

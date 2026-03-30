@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, FileText, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, CheckSquare, Square, Archive } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
 import {
   AreaChart,
   Area,
@@ -12,15 +12,15 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts'
-import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, usePatchRepo } from '@/hooks/useRepos'
+import { useQueryClient } from '@tanstack/react-query'
+import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests } from '@/hooks/useRepos'
 import { useRepoSummaries, useContributorSummaries, useGenerateSummary } from '@/hooks/useSummaries'
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '@/hooks/useNotes'
-import { useUsers } from '@/hooks/useUsers'
+import { useUsers, useCurrentUser } from '@/hooks/useUsers'
 import { useAuth } from '@/hooks/useAuth'
 import { HealthBadge } from '@/components/HealthBadge'
-import { NoteForm } from '@/components/NoteForm'
 import { CommitNotesPanel } from '@/components/CommitNotesPanel'
-import { NoteComments } from '@/components/NoteComments'
+import { NotesDrawer } from '@/components/NotesDrawer'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -31,7 +31,7 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
-import type { CreateNoteData, Summary, Contributor } from '@/types'
+import type { CreateNoteData, Summary, Contributor, Note, PullRequest } from '@/types'
 
 const PERIOD_COLORS = ['#94a3b8', '#a78bfa', '#60a5fa', '#34d399', '#f97316', '#6366f1']
 
@@ -56,20 +56,6 @@ function formatDateTime(dateStr: string): string {
   })
 }
 
-function renderNoteContent(content: string) {
-  const parts = content.split(/(@\w+)/g)
-  return parts.map((part, i) => {
-    if (part.startsWith('@') && part.length > 1) {
-      const name = part.slice(1).replace(/_/g, ' ')
-      return (
-        <span key={i} className="inline-flex items-center bg-violet-100 text-violet-700 rounded px-1 py-0.5 text-xs font-medium">
-          @{name}
-        </span>
-      )
-    }
-    return <span key={i}>{part}</span>
-  })
-}
 
 function ContributorGenerateButton({ contributorId, repoId }: { contributorId: string; repoId: string }) {
   const generateMutation = useGenerateSummary()
@@ -231,6 +217,24 @@ function SummaryHistoryModal({
   )
 }
 
+function PRStatePill({ state }: { state: string }) {
+  if (state === 'merged') return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 text-purple-700 border border-purple-200">
+      <GitMerge className="h-2.5 w-2.5" /> Merged
+    </span>
+  )
+  if (state === 'open') return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
+      <GitPullRequest className="h-2.5 w-2.5" /> Open
+    </span>
+  )
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600 border border-gray-200">
+      <GitPullRequestClosed className="h-2.5 w-2.5" /> Closed
+    </span>
+  )
+}
+
 const sectionVariants = {
   hidden: { opacity: 0, y: 12 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.22 } },
@@ -258,6 +262,7 @@ export function RepoDetailPage() {
   const [summaryExpanded, setSummaryExpanded] = useState(true)
   const [summaryHistoryOpen, setSummaryHistoryOpen] = useState(false)
   const [showArchivedNotes, setShowArchivedNotes] = useState(false)
+  const [notesPinned, setNotesPinned] = useState(false)
 
   const [checkIns, setCheckIns] = useState<string[]>(() => {
     if (!id) return []
@@ -283,27 +288,42 @@ export function RepoDetailPage() {
     setShowPastCheckIn(false)
   }
 
+  const queryClient = useQueryClient()
   const { data: repo, isLoading: repoLoading } = useRepo(id ?? '')
-  const { data: healthScore } = useRepoHealth(id ?? '')
+  const { data: healthScore, isLoading: healthLoading } = useRepoHealth(id ?? '')
   const syncMutation = useSyncRepo()
   const deleteRepoMutation = useDeleteRepo()
+  const { data: me } = useCurrentUser()
+  const hasToken = Boolean(me?.github_token_configured)
   const { data: summaries } = useRepoSummaries(id ?? '')
   const generateSummaryMutation = useGenerateSummary()
-  const { data: commitsData } = useRepoCommits(id ?? '', {
+  const { data: commitsData, isLoading: commitsLoading } = useRepoCommits(id ?? '', {
     limit: COMMITS_PER_PAGE,
     offset: commitPage * COMMITS_PER_PAGE,
   })
-  const { data: allCommitsData } = useRepoCommits(id ?? '', { limit: 500, offset: 0 })
-  const { data: contributors } = useRepoContributors(id ?? '')
+  const { data: allCommitsData, isLoading: allCommitsLoading } = useRepoCommits(id ?? '', { limit: 500, offset: 0 })
+  const { data: contributors, isLoading: contributorsLoading } = useRepoContributors(id ?? '')
   const updateContributorMutation = useUpdateContributor(id ?? '')
   const mergeContributorsMutation = useMergeContributors(id ?? '')
   const patchRepoMutation = usePatchRepo()
+  const { data: prStats } = usePRStats(id ?? '')
+  const PR_PAGE_SIZE = 10
+  const [prStateFilter, setPrStateFilter] = useState<string | undefined>(undefined)
+  const [prPage, setPrPage] = useState(0)
+  const { data: prList } = usePullRequests(id ?? '', prStateFilter, PR_PAGE_SIZE, prPage * PR_PAGE_SIZE)
+  const syncPRsMutation = useSyncPullRequests(id ?? '')
   const { data: notes } = useNotes({ repo_id: id })
   const createNoteMutation = useCreateNote()
   const updateNoteMutation = useUpdateNote()
   const deleteNoteMutation = useDeleteNote()
   const { user: currentUser } = useAuth()
   const { data: users } = useUsers(repo?.collection_id ? { collection_id: repo.collection_id } : undefined)
+
+  // Progress bar: track how many of the slow parallel queries have resolved
+  const loadingFlags = [repoLoading, healthLoading, commitsLoading, allCommitsLoading, contributorsLoading]
+  const completedCount = loadingFlags.filter((v) => !v).length
+  const loadProgress = Math.round((completedCount / loadingFlags.length) * 100)
+  const isPageLoading = loadingFlags.some(Boolean)
 
   // Map git email → merged contributor display name
   const emailToDisplayName = useMemo(() => {
@@ -657,7 +677,7 @@ export function RepoDetailPage() {
 
   if (repoLoading) {
     return (
-      <div className="container max-w-7xl py-8">
+      <div className="px-6 py-8">
         <div className="h-8 w-64 bg-muted rounded animate-pulse mb-4" />
         <div className="h-4 w-40 bg-muted rounded animate-pulse mb-8" />
         <div className="h-64 bg-muted rounded-lg animate-pulse" />
@@ -667,7 +687,7 @@ export function RepoDetailPage() {
 
   if (!repo) {
     return (
-      <div className="container max-w-7xl py-8">
+      <div className="px-6 py-8">
         <p className="text-muted-foreground">Repository not found.</p>
       </div>
     )
@@ -675,23 +695,32 @@ export function RepoDetailPage() {
 
   return (
     <div>
-      {/* Gradient header banner */}
-      <div className="bg-gradient-to-r from-indigo-50 to-violet-50 border-b border-border">
-        <div className="container max-w-7xl py-6">
-          <div className="flex items-start gap-3">
+      {/* NProgress-style loading bar */}
+      {isPageLoading && (
+        <div className="fixed top-0 left-0 right-0 z-50 h-0.5 bg-transparent pointer-events-none">
+          <div
+            className="h-full bg-indigo-500 transition-[width] duration-300 ease-out"
+            style={{ width: `${loadProgress}%` }}
+          />
+        </div>
+      )}
+      {/* Clean white page header */}
+      <div className="bg-white border-b border-border px-6 py-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3 min-w-0">
             <button
               onClick={() => navigate(-1)}
-              className="text-muted-foreground hover:text-indigo-600 transition-colors mt-1"
+              className="text-muted-foreground hover:text-indigo-600 transition-colors mt-0.5 flex-shrink-0"
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0">
               <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-2xl font-bold truncate text-foreground">{repo.name}</h1>
+                <h1 className="text-xl font-semibold truncate text-foreground">{repo.name}</h1>
                 <HealthBadge status={healthScore?.status ?? repo.health_status} />
                 {healthScore && (
                   <div className={cn(
-                    'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold border',
+                    'flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold border',
                     healthScore.composite >= 0.75
                       ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
                       : healthScore.composite >= 0.375
@@ -702,7 +731,13 @@ export function RepoDetailPage() {
                   </div>
                 )}
               </div>
-              <p className="text-sm text-muted-foreground mt-0.5 truncate">{repo.github_url}</p>
+              <div className="flex items-center gap-3 mt-0.5">
+                <p className="text-sm text-muted-foreground truncate">{repo.github_url}</p>
+                <span className="text-xs text-muted-foreground flex-shrink-0 flex items-center gap-1">
+                  <RefreshCw className="h-3 w-3" />
+                  {repo.last_synced_at ? `Synced ${formatDateTime(repo.last_synced_at)}` : 'Never synced'}
+                </span>
+              </div>
 
               {healthScore && (() => {
                 const signals = [
@@ -738,7 +773,7 @@ export function RepoDetailPage() {
                   },
                 ]
                 return (
-                  <div className="flex flex-wrap gap-2 mt-3">
+                  <div className="flex flex-wrap gap-2 mt-2">
                     {signals.map((signal) => {
                       const norm = signal.value / 2
                       const dotClass = norm >= 0.7
@@ -768,75 +803,86 @@ export function RepoDetailPage() {
                 )
               })()}
             </div>
-            <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-              {/* Row 1: navigation + history */}
-              <div className="flex items-center gap-2">
+          </div>
+          <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+            {/* Row 1: navigation + history */}
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" asChild>
+                <a href={repo.github_url} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-4 w-4 mr-1.5" />
+                  GitHub
+                </a>
+              </Button>
+              {repo.local_path && (
                 <Button variant="outline" size="sm" asChild>
-                  <a href={repo.github_url} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="h-4 w-4 mr-1.5" />
-                    GitHub
+                  <a href={`vscode://file/${repo.local_path}`}>
+                    <Code2 className="h-4 w-4 mr-1.5" />
+                    VS Code
                   </a>
                 </Button>
-                {repo.local_path && (
-                  <Button variant="outline" size="sm" asChild>
-                    <a href={`vscode://file/${repo.local_path}`}>
-                      <Code2 className="h-4 w-4 mr-1.5" />
-                      VS Code
-                    </a>
-                  </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSummaryHistoryOpen(true)}
+                className="relative"
+              >
+                <History className="h-4 w-4 mr-1.5" />
+                AI History
+                {(summaries?.length ?? 0) > 0 && (
+                  <span className="ml-1.5 bg-violet-100 text-violet-700 text-xs font-semibold rounded-full px-1.5 py-0.5 leading-none">
+                    {summaries!.length}
+                  </span>
                 )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSummaryHistoryOpen(true)}
-                  className="relative"
-                >
-                  <History className="h-4 w-4 mr-1.5" />
-                  AI History
-                  {(summaries?.length ?? 0) > 0 && (
-                    <span className="ml-1.5 bg-violet-100 text-violet-700 text-xs font-semibold rounded-full px-1.5 py-0.5 leading-none">
-                      {summaries!.length}
-                    </span>
-                  )}
-                </Button>
-              </div>
-              {/* Row 2: actions */}
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  onClick={async () => {
-                    const toastId = toast.loading('Syncing repository…')
-                    try {
-                      await syncMutation.mutateAsync(repo.id)
-                      toast.success('Sync complete — page data refreshed.', { id: toastId })
-                    } catch {
-                      toast.error('Sync failed — check backend logs for details.', { id: toastId })
-                    }
-                  }}
-                  disabled={syncMutation.isPending}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white"
-                >
-                  <RefreshCw className={cn('h-4 w-4 mr-1.5', syncMutation.isPending && 'animate-spin')} />
-                  Sync
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRemove}
-                  disabled={deleteRepoMutation.isPending}
-                  className="text-red-500 hover:text-red-600 border-red-200 hover:border-red-300"
-                >
-                  <Trash2 className="h-4 w-4 mr-1.5" />
-                  Remove
-                </Button>
-              </div>
+              </Button>
+            </div>
+            {/* Row 2: actions */}
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={async () => {
+                  const repoId = repo.id
+                  const toastId = toast.loading('Syncing repository…')
+                  try {
+                    await syncMutation.mutateAsync(repoId)
+                    toast.success('Sync started — data will refresh shortly.', { id: toastId })
+                    setTimeout(() => {
+                      queryClient.invalidateQueries({ queryKey: repoKeys.detail(repoId) })
+                      queryClient.invalidateQueries({ queryKey: repoKeys.health(repoId) })
+                      queryClient.invalidateQueries({ queryKey: repoKeys.commits(repoId) })
+                      queryClient.invalidateQueries({ queryKey: repoKeys.contributors(repoId) })
+                    }, 5000)
+                  } catch {
+                    toast.error('Sync failed — check backend logs for details.', { id: toastId })
+                  }
+                }}
+                disabled={syncMutation.isPending || !hasToken}
+                title={!hasToken ? 'Add a GitHub token in your profile to enable syncing' : undefined}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              >
+                <RefreshCw className={cn('h-4 w-4 mr-1.5', syncMutation.isPending && 'animate-spin')} />
+                Sync
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRemove}
+                disabled={deleteRepoMutation.isPending}
+                className="text-red-500 hover:text-red-600 border-red-200 hover:border-red-300"
+              >
+                <Trash2 className="h-4 w-4 mr-1.5" />
+                Remove
+              </Button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Two-column body */}
-      <div className="container max-w-7xl py-8">
+      {/* Body — flex-row when notes are pinned, flex-col otherwise */}
+      <div className={cn('px-6 py-6 flex gap-6', notesPinned ? 'flex-row items-start' : 'flex-col')}>
+
+        {/* Main sections column */}
+        <div className={cn('flex flex-col gap-6', notesPinned ? 'flex-1 min-w-0' : 'w-full')}>
         <div className="flex gap-8 items-start">
 
           {/* Left column — main content */}
@@ -1023,6 +1069,7 @@ export function RepoDetailPage() {
                     )}
                   </CardContent>
                 </Card>
+
               </div>
             </motion.div>
 
@@ -1254,6 +1301,7 @@ export function RepoDetailPage() {
               )}
             </motion.div>
 
+
           </div>
 
           {/* Right column — Contributors + Notes */}
@@ -1390,130 +1438,139 @@ export function RepoDetailPage() {
               )}
             </div>
 
-            {/* Notes panel */}
+            {/* Pull Requests panel */}
             <div className="bg-gray-50 rounded-xl border border-border p-4">
-              {/* Panel header */}
-              <div className="flex items-center gap-2 mb-4">
-                <FileText className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-sm font-semibold">Notes</h2>
-                {noteCount > 0 && (
-                  <span className="ml-auto text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full px-2 py-0.5 font-medium">
-                    {noteCount}
+              <div className="flex items-center gap-2 mb-3">
+                <GitPullRequest className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold">Pull Requests</h2>
+                <button
+                  onClick={() => syncPRsMutation.mutate()}
+                  disabled={syncPRsMutation.isPending || !hasToken}
+                  className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground hover:text-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  title={!hasToken ? 'Add a GitHub token to fetch PRs' : prStats && prStats.total_count > 0 ? 'Refresh PRs' : 'Fetch PRs from GitHub'}
+                >
+                  {syncPRsMutation.isPending
+                    ? <div className="h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                    : <RefreshCw className="h-3 w-3" />}
+                  {syncPRsMutation.isPending ? 'Syncing…' : prStats && prStats.total_count > 0 ? 'Refresh' : 'Fetch PRs'}
+                </button>
+                {prStats && prStats.total_count > 0 && (
+                  <span className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full px-2 py-0.5 font-medium">
+                    {prStats.total_count}
                   </span>
                 )}
               </div>
 
-              {/* New note form */}
-              <NoteForm
-                onSubmit={handleCreateNote}
-                isLoading={createNoteMutation.isPending}
-                users={users ?? []}
-              />
+              {/* State filter */}
+              {prStats && prStats.total_count > 0 && (
+                <div className="flex gap-1 mb-3">
+                  {(['all', 'open', 'merged', 'closed'] as const).map(s => (
+                    <button
+                      key={s}
+                      onClick={() => { setPrStateFilter(s === 'all' ? undefined : s); setPrPage(0) }}
+                      className={cn(
+                        'flex-1 py-0.5 rounded text-xs font-medium transition-colors capitalize',
+                        (s === 'all' ? !prStateFilter : prStateFilter === s)
+                          ? 'bg-indigo-100 text-indigo-700'
+                          : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                      )}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
 
-              {/* Notes list */}
-              <div className="mt-4">
-                {/* Archive toggle */}
-                {notes && notes.some(n => n.is_archived) && (
-                  <button
-                    onClick={() => setShowArchivedNotes(v => !v)}
-                    className="text-xs text-muted-foreground hover:text-foreground mb-2 flex items-center gap-1"
-                  >
-                    <Archive className="h-3 w-3" />
-                    {showArchivedNotes ? 'Hide archived' : `Show archived (${notes.filter(n => n.is_archived).length})`}
-                  </button>
-                )}
-                {!notes?.length ? (
-                  <p className="text-xs text-muted-foreground text-center py-4">
-                    No notes yet. Add the first one above.
-                  </p>
-                ) : (
-                  <div>
-                    {notes
-                      .filter(n => showArchivedNotes ? true : !n.is_archived)
-                      .map((note, index, arr) => (
-                      <div
-                        key={note.id}
-                        className={cn(
-                          'py-3',
-                          index < arr.length - 1 && 'border-b border-border',
-                          note.is_archived && 'opacity-50'
-                        )}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <p className={cn('text-sm flex-1 leading-relaxed', note.is_checked && 'line-through text-muted-foreground')}>
-                            {renderNoteContent(note.content)}
-                          </p>
-                          <div className="flex items-center gap-0.5 flex-shrink-0">
-                            {note.is_reminder && (
-                              <span className="text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-2 py-0.5 mr-1">
-                                Reminder
-                              </span>
-                            )}
-                            <button
-                              onClick={() => updateNoteMutation.mutate({ id: String(note.id), data: { is_checked: !note.is_checked } })}
-                              title={note.is_checked ? 'Uncheck' : 'Mark as done'}
-                              className={cn('p-1 rounded transition-colors', note.is_checked ? 'text-emerald-500 hover:text-emerald-600' : 'text-muted-foreground hover:text-emerald-500')}
-                            >
-                              {note.is_checked ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
-                            </button>
-                            <button
-                              onClick={() => updateNoteMutation.mutate({ id: String(note.id), data: { is_archived: !note.is_archived } })}
-                              title={note.is_archived ? 'Unarchive' : 'Archive'}
-                              className="p-1 rounded text-muted-foreground hover:text-amber-500 transition-colors"
-                            >
-                              <Archive className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              onClick={() => { if (window.confirm('Delete this note?')) deleteNoteMutation.mutate(String(note.id)) }}
-                              title="Delete note"
-                              className="p-1 rounded text-muted-foreground hover:text-red-500 transition-colors"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
+              {/* PR list */}
+              {!prStats || prStats.total_count === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">
+                  {prStats?.fetched_at
+                    ? 'No pull requests found.'
+                    : 'Click Fetch PRs above to load pull requests from GitHub.'}
+                </p>
+              ) : (
+                <div>
+                  {prList?.items.map((pr: PullRequest, index: number, arr: PullRequest[]) => (
+                    <div
+                      key={pr.id}
+                      className={cn('flex items-start gap-2 py-2', index < arr.length - 1 && 'border-b border-border')}
+                    >
+                      <span className="text-xs text-gray-400 font-mono flex-shrink-0 mt-0.5">#{pr.pr_number}</span>
+                      <div className="flex-1 min-w-0">
+                        <a
+                          href={pr.html_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-gray-700 hover:text-indigo-600 transition-colors leading-relaxed line-clamp-2"
+                          title={pr.title}
+                        >
+                          {pr.draft && <span className="text-gray-400">[Draft] </span>}
+                          {pr.title}
+                        </a>
+                        <div className="flex items-center gap-2 mt-1">
+                          <PRStatePill state={pr.state} />
+                          <span className="text-[10px] text-gray-400 truncate">{pr.author_login}</span>
+                          <span className="text-[10px] text-gray-400 flex-shrink-0 ml-auto">
+                            {pr.state === 'merged' && pr.merged_at
+                              ? formatRelativeDays(pr.merged_at)
+                              : pr.state === 'closed' && pr.closed_at
+                              ? formatRelativeDays(pr.closed_at)
+                              : pr.created_at
+                              ? formatRelativeDays(pr.created_at)
+                              : ''}
+                          </span>
                         </div>
-                        {note.reminder_context && (
-                          <p className="text-xs text-muted-foreground mt-1 italic">{note.reminder_context}</p>
-                        )}
-                        <div className="flex items-center justify-between gap-2 mt-1.5">
-                          <div className="flex items-center gap-1.5">
-                            <div
-                              className="h-5 w-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-semibold flex-shrink-0 cursor-default"
-                              title={note.author_display_name}
-                            >
-                              {note.author_display_name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
-                            </div>
-                            <p className="text-xs text-muted-foreground">{formatDateTime(note.created_at)}</p>
-                          </div>
-                          {note.commit_hash && (
-                            <button
-                              onClick={() => handleScrollToCommit(note.commit_hash!)}
-                              className="flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700 font-mono transition-colors"
-                              title="Jump to commit"
-                            >
-                              <GitCommit className="h-3 w-3" />
-                              {note.commit_hash.slice(0, 7)}
-                            </button>
-                          )}
-                        </div>
-                        {currentUser && (
-                          <NoteComments
-                            note={note}
-                            currentUserId={currentUser.id}
-                            currentUserRole={currentUser.role}
-                          />
-                        )}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                    </div>
+                  ))}
+                  {prList && prList.total > PR_PAGE_SIZE && (
+                    <div className="flex items-center justify-between pt-2 mt-1 border-t border-border">
+                      <span className="text-[10px] text-muted-foreground">
+                        {prPage * PR_PAGE_SIZE + 1}–{Math.min((prPage + 1) * PR_PAGE_SIZE, prList.total)} of {prList.total}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          disabled={prPage === 0}
+                          onClick={() => setPrPage(p => p - 1)}
+                          className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Prev
+                        </button>
+                        <button
+                          disabled={(prPage + 1) * PR_PAGE_SIZE >= prList.total}
+                          onClick={() => setPrPage(p => p + 1)}
+                          className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
-          </div>
+          </div>{/* end right column */}
 
-        </div>
-      </div>
+        </div>{/* end inner two-column flex */}
+        </div>{/* end main sections column */}
+
+        <NotesDrawer
+          repoId={id ?? ''}
+          notes={notes}
+          noteCount={noteCount}
+          showArchivedNotes={showArchivedNotes}
+          onToggleArchivedNotes={() => setShowArchivedNotes(v => !v)}
+          createNoteMutation={{ isPending: createNoteMutation.isPending, mutate: (data) => handleCreateNote(data) }}
+          updateNoteMutation={{ mutate: ({ id: noteId, data }) => updateNoteMutation.mutate({ id: noteId, data: data as Partial<Note> }) }}
+          deleteNoteMutation={{ mutate: (noteId) => { if (window.confirm('Delete this note?')) deleteNoteMutation.mutate(noteId) } }}
+          users={users}
+          currentUser={currentUser}
+          onScrollToCommit={handleScrollToCommit}
+          onPinnedChange={setNotesPinned}
+        />
+
+      </div>{/* end body flex wrapper */}
 
       <SummaryHistoryModal
         open={summaryHistoryOpen}

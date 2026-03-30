@@ -1,45 +1,53 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import git
 
-from app.core.config import settings
+logger = logging.getLogger(__name__)
 
 
 class GitService:
     """Single point of contact for all git operations via GitPython."""
 
     @staticmethod
-    def _inject_token(url: str) -> str:
-        """Embed GITHUB_TOKEN into an HTTPS GitHub URL if configured."""
-        token = settings.GITHUB_TOKEN
+    def _inject_token(url: str, token: str | None = None) -> str:
+        """Embed a GitHub token into an HTTPS GitHub URL if provided."""
         if not token or not url.startswith("https://github.com/"):
             return url
         return url.replace("https://", f"https://x-access-token:{token}@", 1)
 
-    async def clone_repo(self, github_url: str, local_path: str) -> None:
+    async def clone_repo(self, github_url: str, local_path: str, token: str | None = None) -> None:
         """Full clone of the repository (not shallow)."""
-        await asyncio.to_thread(self._clone_repo_sync, github_url, local_path)
+        await asyncio.to_thread(self._clone_repo_sync, github_url, local_path, token)
 
-    def _clone_repo_sync(self, github_url: str, local_path: str) -> None:
+    def _clone_repo_sync(self, github_url: str, local_path: str, token: str | None = None) -> None:
+        t0 = time.perf_counter()
+        logger.info("git clone %s → %s", github_url, local_path)
         path = Path(local_path)
         path.mkdir(parents=True, exist_ok=True)
-        git.Repo.clone_from(self._inject_token(github_url), str(path))
+        git.Repo.clone_from(self._inject_token(github_url, token), str(path))
+        logger.info("git clone complete in %.2fs: %s", time.perf_counter() - t0, local_path)
 
-    async def fetch_repo(self, local_path: str) -> None:
+    async def fetch_repo(self, local_path: str, token: str | None = None) -> None:
         """Fetch all remotes."""
-        await asyncio.to_thread(self._fetch_repo_sync, local_path)
+        await asyncio.to_thread(self._fetch_repo_sync, local_path, token)
 
-    def _fetch_repo_sync(self, local_path: str) -> None:
+    def _fetch_repo_sync(self, local_path: str, token: str | None = None) -> None:
+        t0 = time.perf_counter()
         repo = git.Repo(local_path)
         # Update remote URL to include token in case it changed or was cloned without one
+        logger.info("git fetch %s", local_path)
         for remote in repo.remotes:
-            remote.set_url(self._inject_token(remote.url))
+            remote.set_url(self._inject_token(remote.url, token))
             remote.fetch()
+            logger.info("git fetch complete: %s/%s", local_path, remote.name)
+        logger.debug("git fetch total: %.2fs — %s", time.perf_counter() - t0, local_path)
 
     async def parse_commits(self, local_path: str) -> list[dict[str, Any]]:
         """Parse all commits across all branches.
@@ -69,6 +77,7 @@ class GitService:
         return ref.name
 
     def _parse_commits_sync(self, local_path: str) -> list[dict[str, Any]]:
+        t0 = time.perf_counter()
         repo = git.Repo(local_path)
 
         # First pass: map each commit hash → set of branch names (local + remote)
@@ -83,6 +92,11 @@ class GitService:
                     hash_to_branches[h] = set()
                     hash_to_commit[h] = commit
                 hash_to_branches[h].add(branch_name)
+
+        logger.debug(
+            "parse_commits: found %d unique commits across %d refs in %.2fs (first pass) — %s",
+            len(hash_to_commit), len(list(self._all_refs(repo))), time.perf_counter() - t0, local_path,
+        )
 
         # Second pass: build commit records
         commits: list[dict[str, Any]] = []
@@ -118,6 +132,8 @@ class GitService:
             })
 
         commits.sort(key=lambda c: c["date"], reverse=True)
+        elapsed = time.perf_counter() - t0
+        logger.debug("parse_commits: built %d commit records in %.2fs total — %s", len(commits), elapsed, local_path)
         return commits
 
     async def get_active_branches(self, local_path: str) -> list[str]:
@@ -134,6 +150,33 @@ class GitService:
                 seen.add(name)
                 branches.append(name)
         return sorted(branches)
+
+    async def get_recent_commits(self, local_path: str, limit: int = 15) -> list[dict[str, Any]]:
+        """Get the most recent commits from HEAD without full branch traversal."""
+        return await asyncio.to_thread(self._get_recent_commits_sync, local_path, limit)
+
+    def _get_recent_commits_sync(self, local_path: str, limit: int = 15) -> list[dict[str, Any]]:
+        repo = git.Repo(local_path)
+        # After `git fetch`, the remote tracking branch (e.g. origin/main) is ahead
+        # of the local HEAD if no merge/pull was done. Prefer the tracking ref so
+        # Re-analyze reflects newly fetched commits without needing a full sync.
+        start_ref = None
+        try:
+            tracking = repo.active_branch.tracking_branch()
+            if tracking:
+                start_ref = tracking
+        except (TypeError, ValueError):
+            pass  # detached HEAD — fall back to default (HEAD)
+        commits = []
+        for commit in repo.iter_commits(start_ref, max_count=limit):
+            commits.append({
+                "hash": commit.hexsha[:7],
+                "full_hash": commit.hexsha,
+                "message": commit.message.strip().split("\n")[0],  # subject line only
+                "author": commit.author.name,
+                "date": commit.authored_datetime.isoformat(),
+            })
+        return commits
 
     async def get_contributors(self, local_path: str) -> list[dict[str, str]]:
         """Return unique (email, name) pairs from all commits across all refs."""

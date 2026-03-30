@@ -1,11 +1,12 @@
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { ExternalLink, Code2, RefreshCw, Trash2, Users, GitCommit, Bell } from 'lucide-react'
+import { ExternalLink, Code2, RefreshCw, Trash2, Users, Clock, Bell } from 'lucide-react'
 import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { HealthBadge } from '@/components/HealthBadge'
 import { useSyncRepo, useDeleteRepo } from '@/hooks/useRepos'
+import { useCurrentUser } from '@/hooks/useUsers'
 import type { Repo, HealthStatus } from '@/types'
 
 const healthBorderClass: Record<HealthStatus, string> = {
@@ -30,6 +31,8 @@ export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
   const navigate = useNavigate()
   const syncMutation = useSyncRepo()
   const deleteRepoMutation = useDeleteRepo()
+  const { data: currentUser } = useCurrentUser()
+  const hasToken = Boolean(currentUser?.github_token_configured)
 
   const sparklineData = weeklyCommits.map((count, index) => ({ week: index, commits: count }))
 
@@ -81,8 +84,8 @@ export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
               <Users className="h-3.5 w-3.5" />
               {repo.contributor_count} contributor{repo.contributor_count !== 1 ? 's' : ''}
             </span>
-            <span className="flex items-center gap-1">
-              <GitCommit className="h-3.5 w-3.5" />
+            <span className="flex items-center gap-1" title="Last synced">
+              <Clock className="h-3.5 w-3.5" />
               {formatDate(repo.last_synced_at)}
             </span>
             {repo.active_reminder_count > 0 && (
@@ -140,8 +143,8 @@ export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
               size="sm"
               className="h-7 px-2 text-xs"
               onClick={handleSync}
-              disabled={syncMutation.isPending}
-              title="Sync repository"
+              disabled={syncMutation.isPending || !hasToken}
+              title={hasToken ? "Sync repository" : "Add a GitHub token in your profile to enable syncing"}
             >
               <RefreshCw className={cn('h-3.5 w-3.5 mr-1', syncMutation.isPending && 'animate-spin')} />
               Sync

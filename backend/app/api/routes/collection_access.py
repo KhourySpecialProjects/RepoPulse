@@ -141,6 +141,7 @@ async def add_collection_access(
     )
     db.add(access)
     await db.flush()
+    await db.commit()
     await db.refresh(access)
 
     return _build_access_read(access, target_user)
@@ -196,3 +197,4 @@ async def remove_collection_access(
 
     await db.delete(access)
     await db.flush()
+    await db.commit()
