@@ -364,6 +364,15 @@ export function RepoDetailPage() {
     return stats
   }, [allCommitsData, emailToContributorId])
 
+  const sortedContributors = useMemo(() => {
+    if (!contributors) return []
+    return [...contributors].sort((a, b) => {
+      const aDate = contributorStats[a.id]?.lastCommitAt ?? a.last_commit_at ?? ''
+      const bDate = contributorStats[b.id]?.lastCommitAt ?? b.last_commit_at ?? ''
+      return bDate < aDate ? -1 : bDate > aDate ? 1 : 0
+    })
+  }, [contributors, contributorStats])
+
   const resolvedAuthor = (commit: { author_name: string; author_email: string }) =>
     emailToDisplayName[commit.author_email.toLowerCase()] ?? commit.author_name
 
@@ -1361,11 +1370,11 @@ export function RepoDetailPage() {
                 </div>
               )}
 
-              {!contributors?.length ? (
+              {!sortedContributors.length ? (
                 <p className="text-xs text-muted-foreground text-center py-4">No contributors found.</p>
               ) : (
                 <div className="flex flex-col gap-3">
-                  {contributors.map((contributor) => (
+                  {sortedContributors.map((contributor) => (
                     <div key={contributor.id} className={cn(
                       'flex items-start gap-2 rounded-lg p-1.5 -mx-1.5 transition-colors',
                       selectedContributorIds.has(contributor.id) && 'bg-indigo-50'
