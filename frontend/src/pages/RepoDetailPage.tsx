@@ -479,7 +479,7 @@ export function RepoDetailPage() {
   function handleRemove() {
     if (window.confirm('Remove this repository? This cannot be undone.')) {
       deleteRepoMutation.mutate(id ?? '', {
-        onSuccess: () => navigate(-1),
+        onSuccess: () => navigate(`/collections/${repo?.collection_id}`),
       })
     }
   }
@@ -719,7 +719,7 @@ export function RepoDetailPage() {
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-3 min-w-0">
             <button
-              onClick={() => navigate(-1)}
+              onClick={() => navigate(`/collections/${repo.collection_id}`)}
               className="text-muted-foreground hover:text-indigo-600 transition-colors mt-0.5 flex-shrink-0"
             >
               <ArrowLeft className="h-4 w-4" />
