@@ -119,7 +119,6 @@ async def _upsert_contributors(
         contributor.total_insertions = total_insertions
         contributor.total_deletions = total_deletions
         contributor.last_commit_at = last_commit_at
-        contributor.display_name = display_name
 
         existing_aliases_result = await db.execute(
             select(ContributorAlias).where(
