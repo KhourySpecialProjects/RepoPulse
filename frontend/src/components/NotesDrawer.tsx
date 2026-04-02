@@ -76,6 +76,15 @@ export function NotesDrawer({
     onPinnedChange?.(isPinned && isOpen)
   }, [isPinned, isOpen])
 
+  useEffect(() => {
+    if (!isOpen || isPinned) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setIsOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [isOpen, isPinned])
+
   const visibleNotes = notes?.filter(n => showArchivedNotes ? true : !n.is_archived) ?? []
   const hasArchivedNotes = notes?.some(n => n.is_archived) ?? false
 
