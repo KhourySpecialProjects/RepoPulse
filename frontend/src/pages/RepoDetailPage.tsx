@@ -20,6 +20,7 @@ import { useUsers, useCurrentUser } from '@/hooks/useUsers'
 import { useAuth } from '@/hooks/useAuth'
 import { HealthBadge } from '@/components/HealthBadge'
 import { CommitNotesPanel } from '@/components/CommitNotesPanel'
+import { MarkdownContent } from '@/components/MarkdownContent'
 import { NotesDrawer } from '@/components/NotesDrawer'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -92,7 +93,7 @@ function ContributorSummaryDisplay({ contributorId }: { contributorId: string })
         {expanded ? <ChevronUp className="h-3 w-3 text-muted-foreground flex-shrink-0" /> : <ChevronDown className="h-3 w-3 text-muted-foreground flex-shrink-0" />}
       </button>
       {expanded && (
-        <p className="text-xs text-foreground whitespace-pre-wrap leading-relaxed mt-1.5">{latest.content}</p>
+        <MarkdownContent content={latest.content} className="mt-1.5" />
       )}
     </div>
   )
@@ -126,7 +127,7 @@ function SummaryEntry({ summary }: { summary: Summary }) {
       </button>
       {expanded && (
         <div className="px-3 py-2.5">
-          <p className="text-sm whitespace-pre-wrap leading-relaxed">{summary.content}</p>
+          <MarkdownContent content={summary.content} />
         </div>
       )}
     </div>
@@ -929,7 +930,7 @@ export function RepoDetailPage() {
                   <CardContent>
                     {latestSummary ? (
                       <div>
-                        <p className="text-sm whitespace-pre-wrap">{latestSummary.content}</p>
+                        <MarkdownContent content={latestSummary.content} />
                         <p className="text-xs text-muted-foreground mt-3">
                           Generated {formatDateTime(latestSummary.generated_at)} · {latestSummary.model_used}
                         </p>
