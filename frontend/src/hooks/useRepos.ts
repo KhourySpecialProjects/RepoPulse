@@ -23,7 +23,10 @@ export const repoKeys = {
   byCollection: (collectionId: string) => ['repos', 'collection', collectionId] as const,
   detail: (id: string) => ['repos', 'detail', id] as const,
   health: (id: string) => ['repos', 'health', id] as const,
-  commits: (id: string, params?: GetCommitsParams) => ['repos', 'commits', id, params] as const,
+  commits: (id: string, params?: GetCommitsParams) =>
+    params !== undefined
+      ? (['repos', 'commits', id, params] as const)
+      : (['repos', 'commits', id] as const),
   contributors: (id: string) => ['repos', 'contributors', id] as const,
 }
 
