@@ -6,6 +6,7 @@ import {
   updateCollection,
   deleteCollection,
   syncCollection,
+  getCollectionCommitActivity,
 } from '@/services/api'
 import type { CreateCollectionData, UpdateCollectionData } from '@/types'
 
@@ -68,5 +69,13 @@ export function useSyncCollection() {
     onSuccess: (_result, id) => {
       queryClient.invalidateQueries({ queryKey: collectionKeys.detail(id) })
     },
+  })
+}
+
+export function useCollectionCommitActivity(collectionId: string) {
+  return useQuery({
+    queryKey: ['collections', collectionId, 'commit-activity'],
+    queryFn: () => getCollectionCommitActivity(collectionId),
+    enabled: Boolean(collectionId),
   })
 }

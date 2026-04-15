@@ -9,6 +9,7 @@ import { useCurrentUser } from '@/hooks/useUsers'
 import { RepoCard } from '@/components/RepoCard'
 import { CollectionAccessPanel } from '@/components/CollectionAccessPanel'
 import { CommitQualityPanel } from '@/components/CommitQualityPanel'
+import { CollectionCommitActivityChart } from '@/components/CollectionCommitActivityChart'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -359,6 +360,13 @@ export function CollectionDetailPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Commit Activity */}
+      {!collection.is_archived && (
+        <div className="mt-8">
+          <CollectionCommitActivityChart collectionId={id ?? ''} />
+        </div>
+      )}
 
       {/* Commit Quality Analysis */}
       {!collection.is_archived && (

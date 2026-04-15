@@ -2,6 +2,15 @@ export type UserRole = 'instructor' | 'ta' | 'admin'
 export type HealthStatus = 'green' | 'yellow' | 'red' | 'unknown'
 export type SummaryType = 'repo_overview' | 'contributor_activity' | 'health_explanation'
 
+export interface CommitActivityPoint {
+  date: string // YYYY-MM-DD
+  count: number
+}
+
+export interface CollectionCommitActivity {
+  activity: CommitActivityPoint[]
+}
+
 export interface User {
   id: string
   email: string

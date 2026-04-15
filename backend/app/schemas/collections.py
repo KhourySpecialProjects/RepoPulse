@@ -46,3 +46,12 @@ class PaginatedCollections(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class CommitActivityPoint(BaseModel):
+    date: str  # YYYY-MM-DD
+    count: int
+
+
+class CollectionCommitActivity(BaseModel):
+    activity: list[CommitActivityPoint]

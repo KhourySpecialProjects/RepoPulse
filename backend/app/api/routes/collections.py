@@ -11,9 +11,11 @@ from app.models.collection import Collection
 from app.models.repo import Repo
 from app.models.user import User
 from app.schemas.collections import (
+    CollectionCommitActivity,
     CollectionCreate,
     CollectionRead,
     CollectionUpdate,
+    CommitActivityPoint,
     PaginatedCollections,
 )
 from app.schemas.errors import ErrorResponse
@@ -280,6 +282,70 @@ async def delete_collection(
 
     await db.delete(collection)
     await db.commit()
+
+
+@router.get(
+    "/collections/{collection_id}/commit-activity",
+    response_model=CollectionCommitActivity,
+    responses={404: {"model": ErrorResponse}},
+)
+async def get_collection_commit_activity(
+    collection_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> CollectionCommitActivity:
+    user_uuid = uuid.UUID(current_user_id)
+
+    collection = await db.get(Collection, collection_id)
+    if collection is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Collection not found",
+        )
+
+    if not await can_access_collection(db, user_uuid, collection_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Collection not found",
+        )
+
+    result = await db.execute(
+        select(Repo).where(
+            Repo.collection_id == collection_id,
+            Repo.local_path.is_not(None),
+        )
+    )
+    repos = result.scalars().all()
+
+    seen_hashes: set[str] = set()
+    date_counts: dict[str, int] = {}
+
+    for repo in repos:
+        try:
+            commits = await _git_service.parse_commits(repo.local_path)
+        except Exception:
+            continue
+
+        for commit in commits:
+            commit_hash = commit.get("hash", "")
+            if commit_hash in seen_hashes:
+                continue
+            seen_hashes.add(commit_hash)
+
+            raw_date = commit.get("date")
+            if raw_date is None:
+                continue
+            date_str = raw_date.strftime("%Y-%m-%d") if hasattr(raw_date, "strftime") else str(raw_date)[:10]
+            if not date_str:
+                continue
+
+            date_counts[date_str] = date_counts.get(date_str, 0) + 1
+
+    activity = [
+        CommitActivityPoint(date=date, count=count)
+        for date, count in sorted(date_counts.items())
+    ]
+    return CollectionCommitActivity(activity=activity)
 
 
 async def _sync_all_repos(collection_id: uuid.UUID) -> None:

@@ -31,6 +31,7 @@ import type {
   PRListResponse,
   PRStats,
   PRSyncResponse,
+  CollectionCommitActivity,
 } from '@/types'
 
 const apiClient = axios.create({
@@ -109,6 +110,11 @@ export async function deleteCollection(id: string): Promise<void> {
 
 export async function syncCollection(id: string): Promise<void> {
   await apiClient.post(`/collections/${id}/sync`)
+}
+
+export async function getCollectionCommitActivity(collectionId: string): Promise<CollectionCommitActivity> {
+  const response = await apiClient.get<CollectionCommitActivity>(`/collections/${collectionId}/commit-activity`)
+  return response.data
 }
 
 // Repos
