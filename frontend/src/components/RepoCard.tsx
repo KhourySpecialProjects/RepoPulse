@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { ExternalLink, Code2, RefreshCw, Trash2, Users, Clock, Bell } from 'lucide-react'
+import { ExternalLink, Code2, RefreshCw, Trash2, Users, Clock, Bell, GitCommit } from 'lucide-react'
 import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -25,6 +25,12 @@ function formatDate(dateStr: string | null): string {
   if (!dateStr) return 'Never'
   const date = new Date(dateStr)
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function formatDateTime(dateStr: string | null): string {
+  if (!dateStr) return 'Never'
+  const date = new Date(dateStr)
+  return date.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
 export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
@@ -79,21 +85,29 @@ export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 flex-1">
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <Users className="h-3.5 w-3.5" />
-              {repo.contributor_count} contributor{repo.contributor_count !== 1 ? 's' : ''}
-            </span>
-            <span className="flex items-center gap-1" title="Last synced">
-              <Clock className="h-3.5 w-3.5" />
-              {formatDate(repo.last_synced_at)}
-            </span>
-            {repo.active_reminder_count > 0 && (
-              <span className="flex items-center gap-1 text-amber-600 font-medium">
-                <Bell className="h-3.5 w-3.5" />
-                {repo.active_reminder_count} reminder{repo.active_reminder_count !== 1 ? 's' : ''}
+          <div className="flex flex-col gap-1 text-sm text-muted-foreground">
+            <div className="flex items-center gap-4">
+              <span className="flex items-center gap-1">
+                <Users className="h-3.5 w-3.5" />
+                {repo.contributor_count} contributor{repo.contributor_count !== 1 ? 's' : ''}
               </span>
-            )}
+              {repo.active_reminder_count > 0 && (
+                <span className="flex items-center gap-1 text-amber-600 font-medium">
+                  <Bell className="h-3.5 w-3.5" />
+                  {repo.active_reminder_count} reminder{repo.active_reminder_count !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="flex items-center gap-1" title="Last synced">
+                <Clock className="h-3.5 w-3.5" />
+                {formatDate(repo.last_synced_at)}
+              </span>
+              <span className="flex items-center gap-1" title="Last commit">
+                <GitCommit className="h-3.5 w-3.5" />
+                {formatDateTime(repo.last_commit_at)}
+              </span>
+            </div>
           </div>
 
           {sparklineData.length > 0 && (

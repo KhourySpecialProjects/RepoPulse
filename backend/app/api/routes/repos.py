@@ -59,6 +59,7 @@ def _repo_to_read(repo: Repo, contributor_count: int | None = None, active_remin
         health_status=repo.health_status,
         health_score=repo.health_score,
         last_synced_at=repo.last_synced_at,
+        last_commit_at=repo.last_commit_at,
         expected_contributor_count=repo.expected_contributor_count,
         created_at=repo.created_at,
         updated_at=repo.updated_at,
@@ -180,6 +181,8 @@ async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: s
             repo.health_status = health["status"]
             repo.health_score = health
             repo.last_synced_at = datetime.utcnow()
+            if commits:
+                repo.last_commit_at = max(c["date"] for c in commits)
             await db.commit()
             logger.info("Indexed %s: %d commits, status=%s", repo.name, len(commits), health["status"])
         except Exception as exc:

@@ -29,6 +29,9 @@ class Repo(Base):
     last_synced_at: Mapped[DateTime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    last_commit_at: Mapped[DateTime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     expected_contributor_count: Mapped[int | None] = mapped_column(
         Integer, nullable=True
     )

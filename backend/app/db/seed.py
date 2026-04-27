@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import bcrypt
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -45,6 +45,10 @@ COL_DS = uuid.UUID("00000000-0000-0000-0001-000000000002")
 SEED_REPOS_BASE = "/seed-repos"
 
 
+def _days_ago(n: int) -> datetime:
+    return datetime.now(timezone.utc) - timedelta(days=n)
+
+
 def _health(
     commit_frequency: float = 2.0,
     recency: float = 2.0,
@@ -73,6 +77,7 @@ REPOS_DB = [
         "health_status": "green",
         "health_score": _health(2, 2, 2, 2, 2, "green"),
         "contributor_names": ["Alice Johnson", "Bob Smith"],
+        "last_commit_at": _days_ago(1),
     },
     {
         "name": "db-project-teamB",
@@ -80,6 +85,7 @@ REPOS_DB = [
         "health_status": "green",
         "health_score": _health(2, 2, 1, 2, 2, "green"),
         "contributor_names": ["Carol White", "Dave Brown"],
+        "last_commit_at": _days_ago(2),
     },
     {
         "name": "db-project-teamC",
@@ -87,6 +93,7 @@ REPOS_DB = [
         "health_status": "green",
         "health_score": _health(2, 2, 2, 1, 2, "green"),
         "contributor_names": ["Eve Davis", "Frank Miller"],
+        "last_commit_at": _days_ago(3),
     },
     {
         "name": "db-project-teamD",
@@ -94,6 +101,7 @@ REPOS_DB = [
         "health_status": "yellow",
         "health_score": _health(1, 1, 1, 1, 2, "yellow"),
         "contributor_names": ["Grace Wilson", "Henry Moore"],
+        "last_commit_at": _days_ago(8),
     },
     {
         "name": "db-project-teamE",
@@ -101,6 +109,7 @@ REPOS_DB = [
         "health_status": "yellow",
         "health_score": _health(1, 2, 1, 1, 1, "yellow"),
         "contributor_names": ["Iris Taylor", "Jack Anderson"],
+        "last_commit_at": _days_ago(10),
     },
     {
         "name": "db-project-teamF",
@@ -108,6 +117,7 @@ REPOS_DB = [
         "health_status": "yellow",
         "health_score": _health(1, 1, 2, 1, 1, "yellow"),
         "contributor_names": ["Karen Thomas", "Leo Jackson"],
+        "last_commit_at": _days_ago(12),
     },
     {
         "name": "db-project-teamG",
@@ -115,6 +125,7 @@ REPOS_DB = [
         "health_status": "red",
         "health_score": _health(0, 0, 0, 1, 1, "red"),
         "contributor_names": ["Mona Harris"],
+        "last_commit_at": _days_ago(28),
     },
     {
         "name": "db-project-teamH",
@@ -122,6 +133,7 @@ REPOS_DB = [
         "health_status": "red",
         "health_score": _health(0, 0, 1, 0, 0, "red"),
         "contributor_names": ["Nathan Martin"],
+        "last_commit_at": _days_ago(35),
     },
 ]
 
@@ -132,6 +144,7 @@ REPOS_DS = [
         "health_status": "green",
         "health_score": _health(2, 2, 2, 2, 2, "green"),
         "contributor_names": ["Olivia Garcia", "Paul Rodriguez"],
+        "last_commit_at": _days_ago(2),
     },
     {
         "name": "ds-project-teamB",
@@ -139,6 +152,7 @@ REPOS_DS = [
         "health_status": "green",
         "health_score": _health(2, 1, 2, 2, 2, "green"),
         "contributor_names": ["Quinn Martinez", "Rachel Lewis"],
+        "last_commit_at": _days_ago(4),
     },
     {
         "name": "ds-project-teamC",
@@ -146,6 +160,7 @@ REPOS_DS = [
         "health_status": "green",
         "health_score": _health(2, 2, 1, 2, 2, "green"),
         "contributor_names": ["Sam Lee", "Tina Walker"],
+        "last_commit_at": _days_ago(5),
     },
     {
         "name": "ds-project-teamD",
@@ -153,6 +168,7 @@ REPOS_DS = [
         "health_status": "yellow",
         "health_score": _health(1, 1, 1, 2, 1, "yellow"),
         "contributor_names": ["Uma Hall", "Victor Allen"],
+        "last_commit_at": _days_ago(9),
     },
     {
         "name": "ds-project-teamE",
@@ -160,6 +176,7 @@ REPOS_DS = [
         "health_status": "yellow",
         "health_score": _health(2, 1, 1, 1, 1, "yellow"),
         "contributor_names": ["Wendy Young", "Xander King"],
+        "last_commit_at": _days_ago(14),
     },
     {
         "name": "ds-project-teamF",
@@ -167,6 +184,7 @@ REPOS_DS = [
         "health_status": "red",
         "health_score": _health(0, 0, 0, 0, 1, "red"),
         "contributor_names": ["Yara Wright"],
+        "last_commit_at": _days_ago(30),
     },
 ]
 
@@ -266,6 +284,7 @@ async def seed() -> None:
                 health_status=repo_data["health_status"],
                 health_score=repo_data["health_score"],
                 last_synced_at=datetime.now(timezone.utc),
+                last_commit_at=repo_data.get("last_commit_at"),
             )
             db.add(repo)
             all_repo_records.append((repo, repo_data["contributor_names"]))
@@ -279,6 +298,7 @@ async def seed() -> None:
                 health_status=repo_data["health_status"],
                 health_score=repo_data["health_score"],
                 last_synced_at=datetime.now(timezone.utc),
+                last_commit_at=repo_data.get("last_commit_at"),
             )
             db.add(repo)
             all_repo_records.append((repo, repo_data["contributor_names"]))

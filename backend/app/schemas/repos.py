@@ -23,6 +23,7 @@ class RepoRead(BaseModel):
     health_status: str
     health_score: Optional[dict] = None
     last_synced_at: Optional[datetime] = None
+    last_commit_at: Optional[datetime] = None
     expected_contributor_count: Optional[int] = None
     created_at: datetime
     updated_at: datetime

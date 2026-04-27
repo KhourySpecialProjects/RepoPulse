@@ -45,6 +45,7 @@ export interface Repo {
   health_status: HealthStatus
   health_score: HealthScore | null
   last_synced_at: string | null
+  last_commit_at: string | null
   created_at: string
   updated_at: string
   contributor_count: number
