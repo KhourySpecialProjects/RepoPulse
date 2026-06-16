@@ -18,7 +18,13 @@ class GitService:
     @staticmethod
     def _inject_token(url: str, token: str | None = None) -> str:
         """Embed a GitHub token into an HTTPS GitHub URL if provided."""
-        if not token or not url.startswith("https://github.com/"):
+        if not token:
+            return url
+        # Strip any previously embedded credentials (e.g. from a prior clone/fetch)
+        # so a stale token in .git/config doesn't block fresh authentication.
+        if "@github.com/" in url:
+            url = "https://github.com/" + url.split("@github.com/", 1)[1]
+        if not url.startswith("https://github.com/"):
             return url
         return url.replace("https://", f"https://x-access-token:{token}@", 1)
 
