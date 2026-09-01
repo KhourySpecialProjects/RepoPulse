@@ -1,0 +1,63 @@
+#remove all ports, only really needed for local host dev
+#remove bind mounts, they link sync to host files, but should all be there in production
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production    #change from dev to prod
+    depends_on:
+      - backend
+    networks:
+      - repopulse
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/repopulse
+      - TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/repopulse_test
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://phoenix:6006
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+    depends_on:
+      db:
+        condition: service_healthy
+      phoenix:
+        condition: service_started
+    networks:
+      - repopulse
+
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    volumes:
+      - phoenix_data:/root/.phoenix
+    networks:
+      - repopulse
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: repopulse
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]  #change from - to [,]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - repopulse
+
+volumes:
+  postgres_data: #remove null name
+  phoenix_data: #remove null name
+
+networks:
+  repopulse:
+    driver: bridge
