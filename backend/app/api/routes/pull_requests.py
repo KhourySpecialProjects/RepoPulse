@@ -25,7 +25,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Pydantic schemas
 # ---------------------------------------------------------------------------
-# hi
+# hello
 
 class PullRequestRead(BaseModel):
     model_config = ConfigDict(from_attributes=True, protected_namespaces=())
