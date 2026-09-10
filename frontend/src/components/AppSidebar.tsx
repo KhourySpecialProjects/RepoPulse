@@ -468,15 +468,26 @@ export function AppSidebar() {
         {/* ── Header ── */}
         <div className="h-14 flex items-center justify-between flex-shrink-0 border-b border-slate-700/50 px-3">
           {!collapsed && (
-            <div className="flex items-center gap-2 min-w-0">
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              title="RepoPulse home"
+              className="flex items-center gap-2 min-w-0 rounded-md hover:opacity-80 transition-opacity"
+            >
               <GitBranch className="h-5 w-5 text-indigo-400 flex-shrink-0" />
               <span className="font-semibold text-white text-sm truncate">RepoPulse</span>
-            </div>
+            </button>
           )}
           {collapsed && (
-            <div className="flex items-center justify-center w-full">
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              title="RepoPulse home"
+              aria-label="RepoPulse home"
+              className="flex items-center justify-center w-full rounded-md hover:opacity-80 transition-opacity"
+            >
               <GitBranch className="h-5 w-5 text-indigo-400" />
-            </div>
+            </button>
           )}
           {!collapsed && (
             <button
@@ -558,9 +569,18 @@ export function AppSidebar() {
         {/* ── Collection tree ── */}
         <div className="flex-1 overflow-y-auto px-2 py-2 min-h-0">
           {!collapsed && (
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 px-3 py-1 mt-2 mb-1">
+            <button
+              type="button"
+              onClick={() => navigate('/collections')}
+              title="View all collections"
+              className={`text-xs font-semibold uppercase tracking-wider px-3 py-1 mt-2 mb-1 rounded transition-colors ${
+                location.pathname === '/collections'
+                  ? 'text-indigo-300'
+                  : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
               Collections
-            </p>
+            </button>
           )}
           <div className="flex flex-col gap-0.5">
             {collections.map((col) => (
