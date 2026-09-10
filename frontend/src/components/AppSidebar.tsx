@@ -32,7 +32,7 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from '@/components/ui/tooltip'
-import { useSidebar } from '@/contexts/SidebarContext'
+import { useSidebar, COLLAPSED_GUTTER } from '@/contexts/SidebarContext'
 import type { HealthStatus } from '@/types'
 
 // ── Health dot ──────────────────────────────────────────────────────────────
@@ -330,7 +330,6 @@ function SidebarNavItem({
   )
 }
 
-const COLLAPSED_WIDTH = 56
 const MIN_WIDTH = 160
 const MAX_WIDTH = 480
 const COLLAPSE_THRESHOLD = 120
@@ -449,13 +448,36 @@ export function AppSidebar() {
     return location.pathname.startsWith(path)
   }
 
-  const sidebarWidth = collapsed ? COLLAPSED_WIDTH : width
+  // Collapsed leaves only a slim rail holding the expand arrow. The rail is
+  // exactly COLLAPSED_GUTTER wide — the same space App reserves — so page
+  // headers butt against its right border and read as closed off rather than
+  // stopping short with a raw edge. The arrow keeps the same horizontal line as
+  // the collapse arrow it replaces (h-14 header = 56px, so top-3 + h-8 centres
+  // both at 28px).
+  if (collapsed) {
+    return (
+      <div
+        className="fixed left-0 top-0 bottom-0 z-40 bg-gray-50 border-r border-border"
+        style={{ width: COLLAPSED_GUTTER }}
+      >
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          title="Expand sidebar"
+          aria-label="Expand sidebar"
+          className="fixed left-3 top-3 z-50 flex h-8 w-8 items-center justify-center rounded-md bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 transition-colors"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+    )
+  }
 
   return (
     <TooltipProvider delayDuration={0}>
       <div
         className="fixed left-0 top-0 bottom-0 z-40 bg-slate-900 flex flex-col overflow-hidden"
-        style={{ width: sidebarWidth }}
+        style={{ width }}
       >
         {/* Drag handle */}
         <div
@@ -540,20 +562,6 @@ export function AppSidebar() {
             )}
           </AnimatePresence>
         </div>
-
-        {/* ── Collapse toggle (when collapsed, show it below bell) ── */}
-        {collapsed && (
-          <div className="px-2 pt-1 flex-shrink-0">
-            <button
-              type="button"
-              onClick={toggleCollapsed}
-              className={`w-full flex items-center justify-center py-2 rounded-md transition-colors ${NAV_DEFAULT}`}
-              title="Expand sidebar"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        )}
 
         {/* ── Collection tree ── */}
         <div className="flex-1 overflow-y-auto px-2 py-2 min-h-0">
