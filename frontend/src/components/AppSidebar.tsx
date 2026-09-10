@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useNavigate, useLocation, useParams } from 'react-router-dom'
+import { Link, useNavigate, useLocation, useParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   GitBranch,
@@ -490,20 +490,15 @@ export function AppSidebar() {
         {/* ── Header ── */}
         <div className="h-14 flex items-center justify-between flex-shrink-0 border-b border-slate-700/50 px-3">
           {!collapsed && (
-            <button
-              type="button"
-              onClick={() => navigate('/')}
-              title="RepoPulse home"
-              className="flex items-center gap-2 min-w-0 rounded-md hover:opacity-80 transition-opacity"
-            >
+            <Link to="/" aria-label="RepoPulse home dashboard" className="flex items-center gap-2 min-w-0 rounded-md hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
               <GitBranch className="h-5 w-5 text-indigo-400 flex-shrink-0" />
               <span className="font-semibold text-white text-sm truncate">RepoPulse</span>
-            </button>
+            </Link>
           )}
           {collapsed && (
-            <div className="flex items-center justify-center w-full">
+            <Link to="/" aria-label="RepoPulse home dashboard" className="flex items-center justify-center w-full rounded-md hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
               <GitBranch className="h-5 w-5 text-indigo-400" />
-            </div>
+            </Link>
           )}
           {!collapsed && (
             <button
