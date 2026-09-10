@@ -7,6 +7,7 @@ it('follows contributor IDs and restores the full graph', () => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date('2026-09-10T12:00:00Z'))
   const { rerender } = render(<ContextualActivityChart collectionId="collection" repoId="repo" selectedContributorIds={['alice']} />)
+  expect(screen.getByLabelText('Activity range').parentElement).toHaveClass('justify-end')
   expect(screen.queryByLabelText('Student activity')).not.toBeInTheDocument()
   expect(screen.getByText('Alice — commits per day')).toBeInTheDocument()
   expect(screen.getByText(/Peer comparison unavailable/)).toBeInTheDocument()

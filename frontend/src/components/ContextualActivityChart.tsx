@@ -34,7 +34,7 @@ export function ContextualActivityChart({ collectionId, repoId, children, action
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Commit Activity</CardTitle>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {actions}
           <select aria-label="Activity range" value={range} onChange={e => setRange(e.target.value)} className="rounded border bg-background p-2 text-sm">
             <option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="all">All history</option>
