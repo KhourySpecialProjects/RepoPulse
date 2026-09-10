@@ -17,7 +17,6 @@ class AppSettingsRead(BaseModel):
     health_thresholds: Optional[dict] = None
     anthropic_api_key_configured: bool = False
     ollama_base_url: Optional[str] = None
-    commit_evaluation_criteria: str
 
 
 class AppSettingsUpdate(BaseModel):
@@ -27,4 +26,3 @@ class AppSettingsUpdate(BaseModel):
     health_thresholds: Optional[dict] = None
     anthropic_api_key: Optional[str] = None
     ollama_base_url: Optional[str] = None
-    commit_evaluation_criteria: Optional[str] = None

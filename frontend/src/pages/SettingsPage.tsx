@@ -6,7 +6,6 @@ import { useCurrentUser, useUpdateCurrentUser, useChangePassword } from '@/hooks
 import { getOllamaModels } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
@@ -106,8 +105,6 @@ export function SettingsPage() {
   const [ollamaModel, setOllamaModel] = useState('')
   const [ollamaModels, setOllamaModels] = useState<string[]>([])
   const [ollamaStatus, setOllamaStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle')
-  const [commitEvaluationCriteria, setCommitEvaluationCriteria] = useState('')
-  const [criteriaError, setCriteriaError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
@@ -116,7 +113,6 @@ export function SettingsPage() {
       setProvider(p)
       setLlmModel(settings.llm_model)
       setOllamaUrl(settings.ollama_base_url || 'http://localhost:11434')
-      setCommitEvaluationCriteria(settings.commit_evaluation_criteria || '')
       if (p === 'ollama') {
         setOllamaModel(settings.llm_model)
       }
@@ -139,37 +135,19 @@ export function SettingsPage() {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
-    const trimmedCriteria = commitEvaluationCriteria.trim()
-    if (!trimmedCriteria) {
-      setCriteriaError('Criteria required')
-      return
-    }
-    setCriteriaError(null)
     const model = provider === 'ollama' ? ollamaModel : llmModel
     const updateData: Record<string, unknown> = {
       llm_provider: provider,
       llm_model: model,
       ollama_base_url: provider === 'ollama' ? ollamaUrl : null,
-      commit_evaluation_criteria: trimmedCriteria,
     }
     if (anthropicKey.trim()) {
       updateData.anthropic_api_key = anthropicKey.trim()
     }
-    try {
-      await updateMutation.mutateAsync(updateData)
-      setCommitEvaluationCriteria(trimmedCriteria)
-      setAnthropicKey('')
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2500)
-    } catch (error) {
-      const detail = (error as { response?: { data?: { detail?: string } } })
-        .response?.data?.detail
-      if (detail === 'Criteria required') {
-        setCriteriaError(detail)
-      } else {
-        toast.error('Failed to save settings')
-      }
-    }
+    await updateMutation.mutateAsync(updateData)
+    setAnthropicKey('')
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2500)
   }
 
   if (isLoading) {
@@ -562,42 +540,6 @@ export function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* AI commit evaluation criteria */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">AI Summary &amp; Commit Evaluation Instructions</CardTitle>
-            <CardDescription>
-              These instructions are included in repository summaries and used when evaluating student Git commits. Describe evaluation guidance, not an output format—the app controls the summary prose and commit-grading JSON format.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="commit-evaluation-criteria" className="text-sm font-medium">
-                Criteria
-              </label>
-              <Textarea
-                id="commit-evaluation-criteria"
-                value={commitEvaluationCriteria}
-                onChange={(e) => {
-                  setCommitEvaluationCriteria(e.target.value)
-                  if (criteriaError) setCriteriaError(null)
-                }}
-                placeholder="Describe instructions AI should follow in summaries and commit evaluations..."
-                rows={12}
-                required
-                aria-invalid={Boolean(criteriaError)}
-                aria-describedby={criteriaError ? 'commit-evaluation-criteria-error' : undefined}
-                className="min-h-[240px] resize-y font-mono text-sm"
-              />
-              {criteriaError && (
-                <p id="commit-evaluation-criteria-error" className="text-sm text-destructive">
-                  {criteriaError}
-                </p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Health Thresholds */}
         <Card>
           <CardHeader>
@@ -623,7 +565,7 @@ export function SettingsPage() {
               Settings saved
             </motion.p>
           )}
-          {updateMutation.isError && !criteriaError && (
+          {updateMutation.isError && (
             <p className="text-sm text-destructive">Failed to save settings.</p>
           )}
           <Button type="submit" disabled={updateMutation.isPending}>

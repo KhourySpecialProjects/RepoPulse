@@ -101,15 +101,7 @@ async def generate_summary(
                 {"display_name": c.display_name} for c in repo.contributors
             ],
         }
-        instructor_instructions = (
-            user_settings.commit_evaluation_criteria.strip()
-            if user_settings and user_settings.commit_evaluation_criteria
-            else None
-        )
-        content = await summary_svc.generate_repo_overview(
-            repo_data,
-            instructor_instructions=instructor_instructions,
-        )
+        content = await summary_svc.generate_repo_overview(repo_data)
 
         summary = Summary(
             repo_id=body.repo_id,

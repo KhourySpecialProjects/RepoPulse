@@ -17,8 +17,6 @@ class CommitQualityScore(Base):
     commit_hash: Mapped[str] = mapped_column(String(40), nullable=False)  # full SHA
     score: Mapped[str] = mapped_column(String(10), nullable=False)        # 'good' | 'ok' | 'bad'
     model_used: Mapped[str] = mapped_column(String(100), nullable=False)
-    # Nullable for scores created before rubric-aware caching was introduced.
-    criteria_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     scored_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     __table_args__ = (

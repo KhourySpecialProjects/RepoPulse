@@ -158,7 +158,7 @@ class GitService:
         return sorted(branches)
 
     async def get_recent_commits(self, local_path: str, limit: int = 15) -> list[dict[str, Any]]:
-        """Get recent commits and the evidence needed for quality evaluation."""
+        """Get the most recent commits from HEAD without full branch traversal."""
         return await asyncio.to_thread(self._get_recent_commits_sync, local_path, limit)
 
     def _get_recent_commits_sync(self, local_path: str, limit: int = 15) -> list[dict[str, Any]]:
@@ -174,45 +174,13 @@ class GitService:
         except (TypeError, ValueError):
             pass  # detached HEAD — fall back to default (HEAD)
         commits = []
-        branch_name = self._ref_display_name(start_ref) if start_ref is not None else "HEAD"
         for commit in repo.iter_commits(start_ref, max_count=limit):
-            try:
-                stats = commit.stats.total
-                insertions = stats.get("insertions", 0)
-                deletions = stats.get("deletions", 0)
-                files_changed = stats.get("files", 0)
-                changed_files = list(commit.stats.files.keys())
-            except Exception:
-                insertions = deletions = files_changed = 0
-                changed_files = []
-
-            try:
-                parent = commit.parents[0] if commit.parents else git.NULL_TREE
-                diff_parts = commit.diff(parent, create_patch=True)
-                diff = "\n".join(
-                    part.diff.decode("utf-8", errors="replace")
-                    if isinstance(part.diff, bytes)
-                    else str(part.diff)
-                    for part in diff_parts
-                )
-            except Exception:
-                diff = ""
-
             commits.append({
                 "hash": commit.hexsha[:7],
                 "full_hash": commit.hexsha,
                 "message": commit.message.strip().split("\n")[0],  # subject line only
-                "commit_message": commit.message.strip(),
                 "author": commit.author.name,
                 "date": commit.authored_datetime.isoformat(),
-                "branch": branch_name,
-                "branches": [branch_name],
-                "files_changed": files_changed,
-                "insertions": insertions,
-                "deletions": deletions,
-                "total_lines_changed": insertions + deletions,
-                "changed_files": changed_files,
-                "diff": diff,
             })
         return commits
 

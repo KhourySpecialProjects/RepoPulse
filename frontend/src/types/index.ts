@@ -140,7 +140,6 @@ export interface AppSettings {
   anthropic_api_key_configured: boolean
   ollama_base_url: string | null
   health_thresholds: Record<string, unknown> | null
-  commit_evaluation_criteria: string
 }
 
 export interface PaginatedResponse<T> {
@@ -271,7 +270,6 @@ export interface UpdateSettingsData {
   anthropic_api_key?: string
   ollama_base_url?: string | null
   health_thresholds?: Record<string, unknown> | null
-  commit_evaluation_criteria?: string
 }
 
 export interface GetCommitsParams {
