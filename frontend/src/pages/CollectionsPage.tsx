@@ -313,7 +313,7 @@ export function CollectionsPage() {
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={createMutation.isPending}>
+              <Button type="submit" loading={createMutation.isPending} disabled={createMutation.isPending}>
                 {createMutation.isPending ? (
                   <>
                     <RefreshCw className={cn('h-4 w-4 mr-2 animate-spin')} />
@@ -379,7 +379,7 @@ export function CollectionsPage() {
             </Button>
             <Button
               onClick={handleEditSave}
-              disabled={!editForm.name.trim() || updateCollectionMutation.isPending}
+              loading={updateCollectionMutation.isPending} disabled={!editForm.name.trim() || updateCollectionMutation.isPending}
             >
               {updateCollectionMutation.isPending ? (
                 <>

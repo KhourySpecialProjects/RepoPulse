@@ -50,6 +50,17 @@ export function CollectionDetailPage() {
   const [editOpen, setEditOpen] = useState(false)
   const [editForm, setEditForm] = useState({ name: '', course_tag: '', semester_tag: '' })
   const [accessPanelOpen, setAccessPanelOpen] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+
+  async function handleSync() {
+    setSyncing(true)
+    try {
+      await syncMutation.mutateAsync(id ?? '')
+      window.setTimeout(() => setSyncing(false), 5000)
+    } catch {
+      setSyncing(false)
+    }
+  }
 
   function handleEditOpen() {
     if (!collection) return
@@ -251,11 +262,11 @@ export function CollectionDetailPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => syncMutation.mutate(id ?? '')}
-            disabled={syncMutation.isPending || !hasToken}
+            onClick={handleSync}
+            loading={syncing || syncMutation.isPending} disabled={syncing || syncMutation.isPending || !hasToken}
             title={!hasToken ? 'Add a GitHub token in your profile to enable syncing' : undefined}
           >
-            <RefreshCw className={cn('h-4 w-4 mr-2', syncMutation.isPending && 'animate-spin')} />
+            <RefreshCw className={cn('h-4 w-4 mr-2', (syncing || syncMutation.isPending) && 'animate-spin motion-reduce:animate-none')} />
             Sync All
           </Button>
           <Button
@@ -346,7 +357,7 @@ export function CollectionDetailPage() {
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={addReposMutation.isPending}>
+              <Button type="submit" loading={addReposMutation.isPending} disabled={addReposMutation.isPending}>
                 {addReposMutation.isPending ? (
                   <>
                     <GitBranch className="h-4 w-4 mr-2 animate-pulse" />
@@ -416,7 +427,7 @@ export function CollectionDetailPage() {
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
             <Button
               onClick={handleEditSave}
-              disabled={!editForm.name.trim() || updateCollectionMutation.isPending}
+              loading={updateCollectionMutation.isPending} disabled={!editForm.name.trim() || updateCollectionMutation.isPending}
             >
               {updateCollectionMutation.isPending ? 'Saving…' : 'Save'}
             </Button>

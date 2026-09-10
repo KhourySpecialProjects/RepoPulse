@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Sparkles, ChevronDown, ChevronRight, AlertCircle } from 'lucide-react'
+import { Sparkles, ChevronDown, ChevronRight, AlertCircle, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getCommitQuality } from '@/services/api'
 import type { RepoCommitQuality, ScoredCommit } from '@/types'
@@ -130,12 +130,12 @@ export function CommitQualityPanel({ collectionId, perRepo = 15 }: CommitQuality
           size="sm"
           variant="outline"
           onClick={() => refetch()}
-          disabled={isFetching}
+          loading={isFetching} disabled={isFetching}
           className="gap-1.5"
         >
           {isFetching ? (
             <>
-              <div className="h-3.5 w-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+              <RefreshCw className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
               Analyzing…
             </>
           ) : (
@@ -158,7 +158,7 @@ export function CommitQualityPanel({ collectionId, perRepo = 15 }: CommitQuality
             className="px-5 py-8 text-center text-sm text-gray-400"
           >
             <div className="flex items-center justify-center gap-2">
-              <div className="h-4 w-4 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin" />
+              <RefreshCw className="h-4 w-4 animate-spin motion-reduce:animate-none" />
               Fetching commits and scoring with LLM…
             </div>
           </motion.div>

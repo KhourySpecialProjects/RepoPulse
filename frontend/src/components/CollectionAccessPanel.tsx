@@ -84,7 +84,7 @@ function AddAccessDialog({ collectionId, accessRole, existingUserIds, onClose }:
           </Button>
           <Button
             onClick={handleAdd}
-            disabled={!selectedUserId || addAccess.isPending}
+            loading={addAccess.isPending} disabled={!selectedUserId || addAccess.isPending}
           >
             {addAccess.isPending ? 'Adding...' : 'Add'}
           </Button>
@@ -166,15 +166,15 @@ export function CollectionAccessPanel({ collectionId, canManage = false }: Colle
                     {ACCESS_ROLE_LABELS[entry.access_role]}
                   </span>
                   {canManage && (
-                    <button
+                    <Button variant="ghost"
                       type="button"
                       onClick={() => handleRemove(entry.user_id)}
-                      disabled={removeAccess.isPending}
+                      loading={removeAccess.isPending} disabled={removeAccess.isPending}
                       className="text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-40"
                       title="Remove access"
                     >
                       <X className="h-3.5 w-3.5" />
-                    </button>
+                    </Button>
                   )}
                 </div>
               </div>

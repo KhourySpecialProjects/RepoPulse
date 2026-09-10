@@ -23,6 +23,7 @@ import { CommitNotesPanel } from '@/components/CommitNotesPanel'
 import { MarkdownContent } from '@/components/MarkdownContent'
 import { NotesDrawer } from '@/components/NotesDrawer'
 import { Button } from '@/components/ui/button'
+import { LoadingContent } from '@/components/ui/loading-content'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
@@ -68,10 +69,11 @@ function ContributorGenerateButton({ contributorId, repoId }: { contributorId: s
         contributor_id: contributorId,
       })}
       disabled={generateMutation.isPending}
+      aria-busy={generateMutation.isPending}
       className="ml-auto flex items-center gap-0.5 text-muted-foreground hover:text-violet-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
       title="Generate activity summary"
     >
-      <Sparkles className={cn('h-3 w-3', generateMutation.isPending && 'animate-pulse')} />
+      <Sparkles className={cn('h-3 w-3', generateMutation.isPending && 'animate-pulse motion-reduce:animate-none')} />
     </button>
   )
 }
@@ -293,10 +295,11 @@ export function RepoDetailPage() {
   const { data: repo, isLoading: repoLoading } = useRepo(id ?? '')
   const { data: healthScore, isLoading: healthLoading } = useRepoHealth(id ?? '')
   const syncMutation = useSyncRepo()
+  const [syncing, setSyncing] = useState(false)
   const deleteRepoMutation = useDeleteRepo()
   const { data: me } = useCurrentUser()
   const hasToken = Boolean(me?.github_token_configured)
-  const { data: summaries } = useRepoSummaries(id ?? '')
+  const { data: summaries, isLoading: summariesLoading } = useRepoSummaries(id ?? '')
   const generateSummaryMutation = useGenerateSummary()
   const { data: commitsData, isLoading: commitsLoading } = useRepoCommits(id ?? '', {
     limit: COMMITS_PER_PAGE,
@@ -716,38 +719,22 @@ export function RepoDetailPage() {
       )}
       {/* Clean white page header */}
       <div className="bg-white border-b border-border px-6 py-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-start gap-3 min-w-0">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => navigate(`/collections/${repo.collection_id}`)}
-              className="text-muted-foreground hover:text-indigo-600 transition-colors mt-0.5 flex-shrink-0"
+              aria-label="Back to collection"
+              className="text-muted-foreground hover:text-indigo-600 transition-colors flex-shrink-0"
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
-            <div className="min-w-0">
-              <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-xl font-semibold truncate text-foreground">{repo.name}</h1>
-                <HealthBadge status={healthScore?.status ?? repo.health_status} />
-                {healthScore && (
-                  <div className={cn(
-                    'flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold border',
-                    healthScore.composite >= 0.75
-                      ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
-                      : healthScore.composite >= 0.375
-                      ? 'bg-amber-100 text-amber-700 border-amber-200'
-                      : 'bg-red-100 text-red-700 border-red-200'
-                  )}>
-                    <span>Score: {Math.round(healthScore.composite * 100)}</span>
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-3 mt-0.5">
-                <p className="text-sm text-muted-foreground truncate">{repo.github_url}</p>
-                <span className="text-xs text-muted-foreground flex-shrink-0 flex items-center gap-1">
-                  <RefreshCw className="h-3 w-3" />
-                  {repo.last_synced_at ? `Synced ${formatDateTime(repo.last_synced_at)}` : 'Never synced'}
-                </span>
-              </div>
+            <div className="flex min-w-0 items-center gap-3">
+                <h1 className="min-w-0">
+                  <a href={repo.github_url} target="_blank" rel="noopener noreferrer" title="Open repository on GitHub" className="inline-flex max-w-full items-center gap-2 rounded-md border border-border px-3 py-1.5 text-lg font-semibold text-foreground transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <span className="truncate">{repo.name}</span>
+                    <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  </a>
+                </h1>
 
               {healthScore && (() => {
                 const signals = [
@@ -783,7 +770,17 @@ export function RepoDetailPage() {
                   },
                 ]
                 return (
-                  <div className="flex flex-wrap gap-2 mt-2">
+                  <details className="group relative shrink-0 text-xs text-muted-foreground">
+                    <summary className={cn('flex cursor-pointer list-none items-center gap-1.5 rounded-full border px-3 py-1 font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden', healthScore.composite >= 0.75 ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : healthScore.composite >= 0.375 ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100')}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                      Health details
+                      <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+                    </summary>
+                    <div className="absolute left-0 top-full z-30 mt-2 grid w-72 grid-cols-2 gap-3 rounded-lg border border-border bg-white p-4 shadow-lg">
+                    <div className="col-span-2 flex items-center justify-between border-b border-border pb-3">
+                      <HealthBadge status={healthScore.status ?? repo.health_status} />
+                      <span className="font-semibold text-foreground">{Math.round(healthScore.composite * 100)}/100</span>
+                    </div>
                     {signals.map((signal) => {
                       const norm = signal.value / 2
                       const dotClass = norm >= 0.7
@@ -796,33 +793,26 @@ export function RepoDetailPage() {
                           key={signal.label}
                           title={signal.tip}
                           className={cn(
-                            'flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold border cursor-default',
-                            norm >= 0.7
-                              ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
-                              : norm >= 0.4
-                              ? 'bg-amber-100 text-amber-700 border-amber-200'
-                              : 'bg-red-100 text-red-700 border-red-200'
+                            'flex items-center gap-1.5 text-xs font-medium text-foreground cursor-default'
                           )}
                         >
                           <span className={cn('h-2 w-2 rounded-full flex-shrink-0', dotClass)} />
                           <span>{signal.label}</span>
+                          <span className="sr-only">{norm >= 0.7 ? 'Healthy' : norm >= 0.4 ? 'Needs attention' : 'At risk'}</span>
                         </div>
                       )
                     })}
-                  </div>
+                    </div>
+                  </details>
                 )
               })()}
             </div>
           </div>
-          <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-            {/* Row 1: navigation + history */}
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" asChild>
-                <a href={repo.github_url} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="h-4 w-4 mr-1.5" />
-                  GitHub
-                </a>
-              </Button>
+          <span className="flex items-center justify-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
+            <RefreshCw className="h-3 w-3" />
+            {repo.last_synced_at ? `Synced ${formatDateTime(repo.last_synced_at)}` : 'Never synced'}
+          </span>
+          <div className="flex items-center justify-self-end gap-2">
               {repo.local_path && (
                 <Button variant="outline" size="sm" asChild>
                   <a href={`vscode://file/${repo.local_path}`}>
@@ -845,14 +835,12 @@ export function RepoDetailPage() {
                   </span>
                 )}
               </Button>
-            </div>
-            {/* Row 2: actions */}
-            <div className="flex items-center gap-2">
               <Button
                 size="sm"
                 onClick={async () => {
                   const repoId = repo.id
                   const toastId = toast.loading('Syncing repository…')
+                  setSyncing(true)
                   try {
                     await syncMutation.mutateAsync(repoId)
                     toast.success('Sync started — data will refresh shortly.', { id: toastId })
@@ -861,29 +849,30 @@ export function RepoDetailPage() {
                       queryClient.invalidateQueries({ queryKey: repoKeys.health(repoId) })
                       queryClient.invalidateQueries({ queryKey: repoKeys.commits(repoId) })
                       queryClient.invalidateQueries({ queryKey: repoKeys.contributors(repoId) })
+                      setSyncing(false)
                     }, 5000)
                   } catch {
+                    setSyncing(false)
                     toast.error('Sync failed — check backend logs for details.', { id: toastId })
                   }
                 }}
-                disabled={syncMutation.isPending || !hasToken}
+                loading={syncing || syncMutation.isPending} disabled={syncing || syncMutation.isPending || !hasToken}
                 title={!hasToken ? 'Add a GitHub token in your profile to enable syncing' : undefined}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white"
               >
-                <RefreshCw className={cn('h-4 w-4 mr-1.5', syncMutation.isPending && 'animate-spin')} />
+                <RefreshCw className={cn('h-4 w-4 mr-1.5', (syncing || syncMutation.isPending) && 'animate-spin motion-reduce:animate-none')} />
                 Sync
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleRemove}
-                disabled={deleteRepoMutation.isPending}
+                loading={deleteRepoMutation.isPending} disabled={deleteRepoMutation.isPending}
                 className="text-red-500 hover:text-red-600 border-red-200 hover:border-red-300"
               >
                 <Trash2 className="h-4 w-4 mr-1.5" />
                 Remove
               </Button>
-            </div>
           </div>
         </div>
       </div>
@@ -919,7 +908,7 @@ export function RepoDetailPage() {
                         size="sm"
                         variant="outline"
                         onClick={handleGenerateSummary}
-                        disabled={generateSummaryMutation.isPending}
+                        loading={generateSummaryMutation.isPending} disabled={generateSummaryMutation.isPending}
                       >
                         <Sparkles className={cn('h-4 w-4 mr-1.5', generateSummaryMutation.isPending && 'animate-pulse')} />
                         {generateSummaryMutation.isPending ? 'Generating...' : 'Generate Summary'}
@@ -928,6 +917,9 @@ export function RepoDetailPage() {
                   </CardHeader>
                   {summaryExpanded && (
                   <CardContent>
+                    {(generateSummaryMutation.isPending || summariesLoading) && (
+                      <LoadingContent label={generateSummaryMutation.isPending ? 'Generating your summary… This may take a minute.' : 'Loading summary…'} />
+                    )}
                     {latestSummary ? (
                       <div>
                         <MarkdownContent content={latestSummary.content} />
@@ -935,11 +927,11 @@ export function RepoDetailPage() {
                           Generated {formatDateTime(latestSummary.generated_at)} · {latestSummary.model_used}
                         </p>
                       </div>
-                    ) : (
+                    ) : !generateSummaryMutation.isPending && !summariesLoading ? (
                       <p className="text-sm text-muted-foreground">
                         No summary generated yet. Click "Generate Summary" to create one.
                       </p>
-                    )}
+                    ) : null}
                   </CardContent>
                   )}
                 </Card>
@@ -1357,8 +1349,10 @@ export function RepoDetailPage() {
                     <button
                       onClick={handleMerge}
                       disabled={!mergeDisplayName.trim() || mergeContributorsMutation.isPending}
+                      aria-busy={mergeContributorsMutation.isPending}
                       className="flex-1 text-xs bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded px-2 py-1.5 font-medium transition-colors"
                     >
+                      {mergeContributorsMutation.isPending && <RefreshCw className="inline-block h-3.5 w-3.5 mr-1.5 animate-spin motion-reduce:animate-none" />}
                       {mergeContributorsMutation.isPending ? 'Merging…' : 'Confirm Merge'}
                     </button>
                     <button
@@ -1396,8 +1390,8 @@ export function RepoDetailPage() {
                               onChange={e => setEditingName(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') saveDisplayName(); if (e.key === 'Escape') cancelEditing() }}
                             />
-                            <button onClick={saveDisplayName} disabled={updateContributorMutation.isPending} className="text-emerald-600 hover:text-emerald-700">
-                              <Check className="h-3.5 w-3.5" />
+                            <button onClick={saveDisplayName} aria-busy={updateContributorMutation.isPending} disabled={updateContributorMutation.isPending} className="text-emerald-600 hover:text-emerald-700">
+                              {updateContributorMutation.isPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <Check className="h-3.5 w-3.5" />}
                             </button>
                             <button onClick={cancelEditing} className="text-muted-foreground hover:text-foreground">
                               <X className="h-3.5 w-3.5" />
@@ -1456,11 +1450,12 @@ export function RepoDetailPage() {
                 <button
                   onClick={() => syncPRsMutation.mutate()}
                   disabled={syncPRsMutation.isPending || !hasToken}
+                  aria-busy={syncPRsMutation.isPending}
                   className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground hover:text-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   title={!hasToken ? 'Add a GitHub token to fetch PRs' : prStats && prStats.total_count > 0 ? 'Refresh PRs' : 'Fetch PRs from GitHub'}
                 >
                   {syncPRsMutation.isPending
-                    ? <div className="h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                    ? <RefreshCw className="h-3 w-3 animate-spin motion-reduce:animate-none" />
                     : <RefreshCw className="h-3 w-3" />}
                   {syncPRsMutation.isPending ? 'Syncing…' : prStats && prStats.total_count > 0 ? 'Refresh' : 'Fetch PRs'}
                 </button>
