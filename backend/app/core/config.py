@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     GITHUB_TOKEN: str = ""
 
+    # The single source of truth for which model the app talks to. Models get
+    # retired: when that happens every LLM feature 404s at once, and this is the
+    # one line that has to change. Overridable per-user via AppSettings, and per
+    # environment via DEFAULT_LLM_MODEL in .env.
+    DEFAULT_LLM_PROVIDER: str = "anthropic"
+    DEFAULT_LLM_MODEL: str = "claude-sonnet-5"
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
