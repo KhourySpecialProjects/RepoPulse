@@ -27,7 +27,13 @@ class CommitClassification(Base):
     __tablename__ = "commit_classifications"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    repo_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("repos.id", ondelete="CASCADE"), nullable=False)
+    # index=True yields ix_commit_classifications_repo_id, matching what
+    # migration 0014 renames/creates. The old model omitted this index while
+    # migration 0011 created it — that drift is why 0014's rename first failed
+    # on databases built by create_all.
+    repo_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("repos.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     commit_hash: Mapped[str] = mapped_column(String(40), nullable=False)  # full SHA
     score: Mapped[str | None] = mapped_column(String(10), nullable=True)          # 'good' | 'ok' | 'bad'
     commit_type: Mapped[str | None] = mapped_column(String(20), nullable=True)    # 'substantive' | 'logistical'

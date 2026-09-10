@@ -35,14 +35,54 @@ def upgrade() -> None:
         sa.Column("commit_type", sa.String(20), nullable=True),
     )
 
+    # The index and unique constraint may or may not exist under their old
+    # names. A database built by migration 0011 has both; one built by
+    # Base.metadata.create_all (app/main.py on startup, app/db/seed.py) has the
+    # constraint — the old model declared it — but *not* the index, which only
+    # ever existed in 0011. Rename what is there, create what is missing.
     op.execute(
-        "ALTER INDEX ix_commit_quality_scores_repo_id "
-        "RENAME TO ix_commit_classifications_repo_id"
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_class
+                WHERE relname = 'ix_commit_quality_scores_repo_id'
+                  AND relkind = 'i'
+            ) THEN
+                ALTER INDEX ix_commit_quality_scores_repo_id
+                    RENAME TO ix_commit_classifications_repo_id;
+            END IF;
+        END $$;
+        """
     )
     op.execute(
-        "ALTER TABLE commit_classifications "
-        "RENAME CONSTRAINT uq_commit_quality_repo_hash "
-        "TO uq_commit_classification_repo_hash"
+        "CREATE INDEX IF NOT EXISTS ix_commit_classifications_repo_id "
+        "ON commit_classifications (repo_id)"
+    )
+
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conname = 'uq_commit_quality_repo_hash'
+                  AND conrelid = 'commit_classifications'::regclass
+            ) THEN
+                ALTER TABLE commit_classifications
+                    RENAME CONSTRAINT uq_commit_quality_repo_hash
+                    TO uq_commit_classification_repo_hash;
+            ELSIF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conname = 'uq_commit_classification_repo_hash'
+                  AND conrelid = 'commit_classifications'::regclass
+            ) THEN
+                ALTER TABLE commit_classifications
+                    ADD CONSTRAINT uq_commit_classification_repo_hash
+                    UNIQUE (repo_id, commit_hash);
+            END IF;
+        END $$;
+        """
     )
 
     # Plain CHECKs rather than a PG ENUM — adding a value to an enum later
@@ -79,14 +119,38 @@ def downgrade() -> None:
         nullable=False,
     )
 
+    # Guarded for the same reason as upgrade(): the names present depend on
+    # whether this database was built by migrations or by create_all.
     op.execute(
-        "ALTER TABLE commit_classifications "
-        "RENAME CONSTRAINT uq_commit_classification_repo_hash "
-        "TO uq_commit_quality_repo_hash"
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conname = 'uq_commit_classification_repo_hash'
+                  AND conrelid = 'commit_classifications'::regclass
+            ) THEN
+                ALTER TABLE commit_classifications
+                    RENAME CONSTRAINT uq_commit_classification_repo_hash
+                    TO uq_commit_quality_repo_hash;
+            END IF;
+        END $$;
+        """
     )
     op.execute(
-        "ALTER INDEX ix_commit_classifications_repo_id "
-        "RENAME TO ix_commit_quality_scores_repo_id"
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_class
+                WHERE relname = 'ix_commit_classifications_repo_id'
+                  AND relkind = 'i'
+            ) THEN
+                ALTER INDEX ix_commit_classifications_repo_id
+                    RENAME TO ix_commit_quality_scores_repo_id;
+            END IF;
+        END $$;
+        """
     )
 
     op.rename_table("commit_classifications", "commit_quality_scores")
