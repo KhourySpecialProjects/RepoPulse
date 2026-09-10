@@ -32,7 +32,7 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from '@/components/ui/tooltip'
-import { useSidebar } from '@/contexts/SidebarContext'
+import { useSidebar, COLLAPSED_GUTTER } from '@/contexts/SidebarContext'
 import type { HealthStatus } from '@/types'
 
 // ── Health dot ──────────────────────────────────────────────────────────────
@@ -448,22 +448,28 @@ export function AppSidebar() {
     return location.pathname.startsWith(path)
   }
 
-  // Collapsed hides the sidebar entirely; all that remains is a floating arrow
-  // pinned to the same horizontal line as the collapse arrow it replaces
-  // (h-14 header = 56px tall, so top-3 + h-8 centres both at 28px). It sits on
-  // its own opaque surface, and App reserves COLLAPSED_GUTTER of space so page
-  // content never slides underneath it.
+  // Collapsed leaves only a slim rail holding the expand arrow. The rail is
+  // exactly COLLAPSED_GUTTER wide — the same space App reserves — so page
+  // headers butt against its right border and read as closed off rather than
+  // stopping short with a raw edge. The arrow keeps the same horizontal line as
+  // the collapse arrow it replaces (h-14 header = 56px, so top-3 + h-8 centres
+  // both at 28px).
   if (collapsed) {
     return (
-      <button
-        type="button"
-        onClick={toggleCollapsed}
-        title="Expand sidebar"
-        aria-label="Expand sidebar"
-        className="fixed left-3 top-3 z-50 flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white shadow-sm text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+      <div
+        className="fixed left-0 top-0 bottom-0 z-40 bg-gray-50 border-r border-border"
+        style={{ width: COLLAPSED_GUTTER }}
       >
-        <ChevronRight className="h-4 w-4" />
-      </button>
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          title="Expand sidebar"
+          aria-label="Expand sidebar"
+          className="fixed left-3 top-3 z-50 flex h-8 w-8 items-center justify-center rounded-md bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 transition-colors"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
     )
   }
 
