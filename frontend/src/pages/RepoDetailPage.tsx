@@ -1,17 +1,8 @@
+import { ContextualActivityChart } from '@/components/ContextualActivityChart'
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceLine,
-} from 'recharts'
 import { useQueryClient } from '@tanstack/react-query'
 import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests } from '@/hooks/useRepos'
 import { useRepoSummaries, useContributorSummaries, useGenerateSummary } from '@/hooks/useSummaries'
@@ -34,7 +25,6 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { CreateNoteData, Summary, Contributor, Note, PullRequest } from '@/types'
 
-const PERIOD_COLORS = ['#94a3b8', '#a78bfa', '#60a5fa', '#34d399', '#f97316', '#6366f1']
 
 function formatRelativeDays(isoStr: string): string {
   const days = Math.floor((Date.now() - new Date(isoStr).getTime()) / 86400000)
@@ -245,7 +235,6 @@ export function RepoDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [commitPage, setCommitPage] = useState(0)
-  const [chartRange, setChartRange] = useState<'7d' | '30d' | '90d' | 'all'>('7d')
   const [activeCommitHash, setActiveCommitHash] = useState<string | null>(null)
   const [highlightedCommitHash, setHighlightedCommitHash] = useState<string | null>(null)
   const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
@@ -527,97 +516,6 @@ export function RepoDetailPage() {
       setExpectedCount('')
     }
   }, [repo?.expected_contributor_count])
-
-  const commitChartData = useMemo(() => {
-    const allCommits = allCommitsData?.items ?? []
-    const now = new Date()
-    const todayTs = now.getTime()
-    const cutoff = chartRange === '7d' ? new Date(todayTs - 7 * 86400000)
-      : chartRange === '30d' ? new Date(todayTs - 30 * 86400000)
-      : chartRange === '90d' ? new Date(todayTs - 90 * 86400000)
-      : null
-
-    const rangeStart = cutoff ?? (allCommits.length > 0
-      ? new Date(Math.min(...allCommits.map(c => new Date(c.date).getTime())))
-      : new Date(todayTs - 7 * 86400000))
-    const rangeStartTs = rangeStart.getTime()
-
-    const filtered = cutoff ? allCommits.filter(c => new Date(c.date) >= cutoff) : allCommits
-    const groupByWeek = chartRange === '90d' || chartRange === 'all'
-
-    const byBucket: Record<string, { ts: number; commits: number; latestDate: string }> = {}
-    filtered.forEach((c) => {
-      const d = new Date(c.date)
-      let key: string
-      let ts: number
-      if (groupByWeek) {
-        const day = d.getDay()
-        const monday = new Date(d)
-        monday.setDate(d.getDate() - ((day + 6) % 7))
-        key = monday.toISOString().slice(0, 10)
-        ts = monday.getTime()
-      } else {
-        key = c.date.slice(0, 10)
-        ts = new Date(key + 'T12:00:00Z').getTime()
-      }
-      const prev = byBucket[key] ?? { ts, commits: 0, latestDate: '' }
-      byBucket[key] = {
-        ts,
-        commits: prev.commits + 1,
-        latestDate: c.date > prev.latestDate ? c.date : prev.latestDate,
-      }
-    })
-
-    const points: { ts: number; date: string; commits: number }[] = Object.values(byBucket)
-      .sort((a, b) => a.ts - b.ts)
-      .map(({ ts, commits, latestDate }) => ({
-        ts,
-        date: latestDate.slice(0, 10),
-        commits,
-      }))
-
-    // Anchor the left edge at rangeStart so gradient percentages align with the axis domain
-    if (points.length === 0 || points[0].ts > rangeStartTs + 86400000) {
-      points.unshift({ ts: rangeStartTs, date: rangeStart.toISOString().slice(0, 10), commits: 0 })
-    }
-
-    return { points, rangeStartTs, todayTs }
-  }, [allCommitsData, chartRange])
-
-  const gradientStops = useMemo(() => {
-    const { rangeStartTs, todayTs } = commitChartData
-    const duration = todayTs - rangeStartTs
-    const inRange = checkIns
-      .map(ci => new Date(ci).getTime())
-      .filter(ts => ts > rangeStartTs && ts < todayTs)
-      .sort((a, b) => a - b)
-
-    const boundaries = [rangeStartTs, ...inRange, todayTs]
-    const numPeriods = boundaries.length - 1
-
-    // Most recent period gets the last (indigo) color; older periods get earlier colors
-    const periodColors = Array.from({ length: numPeriods }, (_, i) => {
-      const colorIdx = PERIOD_COLORS.length - numPeriods + i
-      return PERIOD_COLORS[Math.max(0, colorIdx)]
-    })
-
-    if (numPeriods === 1 || duration <= 0) {
-      return [
-        { offset: '0%', color: periodColors[0] },
-        { offset: '100%', color: periodColors[0] },
-      ]
-    }
-
-    const stops: { offset: string; color: string }[] = []
-    stops.push({ offset: '0%', color: periodColors[0] })
-    for (let i = 1; i < boundaries.length - 1; i++) {
-      const pct = ((boundaries[i] - rangeStartTs) / duration * 100).toFixed(2) + '%'
-      stops.push({ offset: pct, color: periodColors[i - 1] })
-      stops.push({ offset: pct, color: periodColors[i] })
-    }
-    stops.push({ offset: '100%', color: periodColors[numPeriods - 1] })
-    return stops
-  }, [commitChartData, checkIns])
 
   const commitNoteStats = (notes ?? []).reduce<Record<string, { total: number; reminders: number }>>(
     (acc, note) => {
@@ -944,11 +842,9 @@ export function RepoDetailPage() {
                   )}
                 </Card>
 
-                <Card>
-                  <CardHeader className="pb-2">
+                <ContextualActivityChart key={id} collectionId={repo.collection_id} repoId={repo.id}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <CardTitle className="text-base">Commit Activity</CardTitle>
                         {checkIns.length > 0 && (
                           <span className="text-xs text-muted-foreground">
                             Last checked: {formatRelativeDays(checkIns[checkIns.length - 1])}
@@ -976,20 +872,7 @@ export function RepoDetailPage() {
                         >
                           <CalendarPlus className="h-3.5 w-3.5" />
                         </button>
-                        {(['7d', '30d', '90d', 'all'] as const).map((r) => (
-                          <button
-                            key={r}
-                            onClick={() => setChartRange(r)}
-                            className={cn(
-                              'text-xs px-2 py-1 rounded border transition-colors',
-                              chartRange === r
-                                ? 'bg-indigo-600 text-white border-indigo-600'
-                                : 'text-muted-foreground border-border hover:border-indigo-300'
-                            )}
-                          >
-                            {r === 'all' ? 'All' : r}
-                          </button>
-                        ))}
+
                       </div>
                     </div>
                     {showPastCheckIn && (
@@ -1016,69 +899,7 @@ export function RepoDetailPage() {
                         </button>
                       </div>
                     )}
-                  </CardHeader>
-                  <CardContent>
-                    {commitChartData.points.filter(p => p.commits > 0).length > 0 ? (
-                      <div className="h-48">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={commitChartData.points}>
-                            <defs>
-                              <linearGradient id="periodGradient" x1="0" y1="0" x2="1" y2="0">
-                                {gradientStops.map((stop, i) => (
-                                  <stop key={i} offset={stop.offset} stopColor={stop.color} stopOpacity={1} />
-                                ))}
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                            <XAxis
-                              type="number"
-                              dataKey="ts"
-                              scale="time"
-                              domain={[commitChartData.rangeStartTs, commitChartData.todayTs]}
-                              tickCount={6}
-                              tick={{ fontSize: 11 }}
-                              tickFormatter={(ts: number) =>
-                                new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                              }
-                            />
-                            <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                            <Tooltip
-                              labelFormatter={(ts: number) =>
-                                new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                              }
-                              formatter={(v: number) => [v, 'Commits']}
-                            />
-                            {checkIns
-                              .map(ci => new Date(ci).getTime())
-                              .filter(ts => ts > commitChartData.rangeStartTs && ts < commitChartData.todayTs)
-                              .map((ts, i) => (
-                                <ReferenceLine
-                                  key={i}
-                                  x={ts}
-                                  stroke="#6366f1"
-                                  strokeDasharray="4 2"
-                                  strokeWidth={1.5}
-                                  label={{ value: '✓', position: 'insideTopRight', fontSize: 10, fill: '#6366f1' }}
-                                />
-                              ))}
-                            <Area
-                              type="monotone"
-                              dataKey="commits"
-                              stroke="url(#periodGradient)"
-                              fill="url(#periodGradient)"
-                              fillOpacity={0.2}
-                              strokeWidth={2}
-                            />
-                          </AreaChart>
-                        </ResponsiveContainer>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground py-8 text-center">
-                        No commits in the selected range.
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
+                </ContextualActivityChart>
 
               </div>
             </motion.div>
