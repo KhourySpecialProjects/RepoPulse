@@ -836,7 +836,6 @@ export function RepoDetailPage() {
                 </Card>
 
                 <ContextualActivityChart key={id} collectionId={repo.collection_id} repoId={repo.id}
-                  selectedContributorIds={Array.from(selectedContributorIds)}
                   actions={<>
                         <button
                           onClick={handleCheckIn}
@@ -937,6 +936,46 @@ export function RepoDetailPage() {
                             className="text-xs px-1.5 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
                           >
                             {showAllBranches ? 'Show less' : `+${allBranches.length - MAX_FILTER_CHIPS} more`}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {allAuthors.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground mr-1">Author:</span>
+                        <button
+                          onClick={() => setSelectedAuthors(new Set())}
+                          aria-pressed={selectedAuthors.size === 0}
+                          className={cn(
+                            'text-xs px-1.5 py-0.5 rounded border transition-colors',
+                            selectedAuthors.size === 0
+                              ? 'bg-violet-600 text-white border-violet-600'
+                              : 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
+                          )}
+                        >
+                          All
+                        </button>
+                        {(showAllAuthors ? allAuthors : allAuthors.slice(0, MAX_FILTER_CHIPS)).map(a => (
+                          <button
+                            key={a}
+                            onClick={() => toggleAuthor(a)}
+                            aria-pressed={selectedAuthors.has(a)}
+                            className={cn(
+                              'text-xs px-1.5 py-0.5 rounded border transition-colors',
+                              selectedAuthors.has(a)
+                                ? 'bg-violet-600 text-white border-violet-600'
+                                : 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
+                            )}
+                          >
+                            {a}
+                          </button>
+                        ))}
+                        {allAuthors.length > MAX_FILTER_CHIPS && (
+                          <button
+                            onClick={() => setShowAllAuthors(v => !v)}
+                            className="text-xs px-1.5 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
+                          >
+                            {showAllAuthors ? 'Show less' : `+${allAuthors.length - MAX_FILTER_CHIPS} more`}
                           </button>
                         )}
                       </div>
