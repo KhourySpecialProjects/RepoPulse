@@ -10,12 +10,18 @@ _SYSTEM_PROMPT = (
     "actionable summaries for instructors. Be specific and objective."
 )
 
+REPO_OVERVIEW_MAX_TOKENS = 2048
+
 
 class SummaryService:
     def __init__(self, llm: LLMService) -> None:
         self._llm = llm
 
-    async def generate_repo_overview(self, repo_data: dict[str, Any]) -> str:
+    async def generate_repo_overview(
+        self,
+        repo_data: dict[str, Any],
+        instructor_instructions: str | None = None,
+    ) -> str:
         """Generate a high-level overview of a repository."""
         name = repo_data.get("name", "Unknown")
         github_url = repo_data.get("github_url", "")
@@ -69,7 +75,17 @@ class SummaryService:
             if c.get("date")
         )
 
+        instructions = (instructor_instructions or "").strip()
+        instructor_instructions_block = instructions or "No additional instructor instructions."
+
         prompt = f"""Provide a concise overview of the following student GitHub repository for an instructor.
+
+Additional instructor instructions for this summary:
+<instructor_instructions>
+{instructor_instructions_block}
+</instructor_instructions>
+
+Follow the additional instructor instructions while preserving the repository evidence and the requested summary format.
 
 Repository: {name}
 URL: {github_url}
@@ -87,11 +103,24 @@ Commits per contributor (top 10):
 Recent commit messages:
 {recent_messages}
 
-Write 2-4 paragraphs covering: overall activity level and timeline, collaboration patterns, \
-code quality signals from commit messages, code churn and its implications, \
-and any concerns the instructor should be aware of."""
+Format the response as exactly four sections, each with a bold Markdown heading and one concise paragraph:
+**Overall Activity and Timeline**
+**Collaboration and Code Quality**
+**Technical Strengths and Risks**
+**Instructor Takeaway**
 
-        return await self._llm.generate(prompt, system=_SYSTEM_PROMPT, max_tokens=600)
+Cover overall activity level and timeline, collaboration patterns, code quality signals from commit messages, \
+code churn and its implications, and concerns the instructor should be aware of.
+
+This request is for the repository overview only. Return prose paragraphs only.
+Do not return JSON, a commit-grading object, a grading rubric, or markdown code fences.
+Finish with a complete sentence."""
+
+        return await self._llm.generate(
+            prompt,
+            system=_SYSTEM_PROMPT,
+            max_tokens=REPO_OVERVIEW_MAX_TOKENS,
+        )
 
     async def generate_contributor_activity(
         self, contributor_data: dict[str, Any]

@@ -24,6 +24,7 @@ def _settings_to_read(s: AppSettings) -> AppSettingsRead:
         health_thresholds=s.health_thresholds,
         anthropic_api_key_configured=bool(s.anthropic_api_key),
         ollama_base_url=s.ollama_base_url,
+        commit_evaluation_criteria=s.commit_evaluation_criteria,
     )
 
 
@@ -62,6 +63,16 @@ async def update_settings(
     app_settings = await _get_or_create_settings(db, user_uuid)
 
     update_data = body.model_dump(exclude_unset=True)
+    if "commit_evaluation_criteria" in update_data:
+        criteria = update_data["commit_evaluation_criteria"]
+        if not isinstance(criteria, str) or not criteria.strip():
+            raise HTTPException(
+                status_code=422,
+                detail="Criteria required",
+            )
+        # Keep the persisted rubric canonical while preserving all internal
+        # whitespace and line breaks that the professor entered.
+        update_data["commit_evaluation_criteria"] = criteria.strip()
     for field, value in update_data.items():
         setattr(app_settings, field, value)
 
