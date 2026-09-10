@@ -4,6 +4,7 @@ import { AnimatePresence } from 'framer-motion'
 import { useAuth } from '@/hooks/useAuth'
 import { LoginPage } from '@/pages/LoginPage'
 import { CollectionsPage } from '@/pages/CollectionsPage'
+import { DashboardPage } from '@/pages/DashboardPage'
 import { CollectionDetailPage } from '@/pages/CollectionDetailPage'
 import { RepoDetailPage } from '@/pages/RepoDetailPage'
 import { SettingsPage } from '@/pages/SettingsPage'
@@ -43,13 +44,13 @@ function AppRoutes() {
       <Routes location={location} key={location.pathname}>
         <Route
           path="/login"
-          element={isAuthenticated ? <Navigate to="/collections" replace /> : <LoginPage />}
+          element={isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />}
         />
         <Route
           path="/"
           element={
             <ProtectedRoute>
-              <Navigate to="/collections" replace />
+              <DashboardPage />
             </ProtectedRoute>
           }
         />
