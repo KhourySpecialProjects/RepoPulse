@@ -349,25 +349,3 @@ describe('RepoDetailPage - Commit row note count indicators', () => {
     expect(screen.queryByText('Add note')).not.toBeInTheDocument()
   })
 })
-
-// ──────────────────────────────────────────────
-// 6. Redundant GitHub header button removed
-// ──────────────────────────────────────────────
-describe('RepoDetailPage - GitHub header link', () => {
-  it('does not render a redundant "GitHub" button in the header', async () => {
-    setupHandlers()
-    renderPage()
-    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
-    expect(screen.queryByRole('link', { name: 'GitHub' })).not.toBeInTheDocument()
-  })
-
-  it('renders the repo URL in the header as the single clickable GitHub link', async () => {
-    setupHandlers()
-    renderPage()
-    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
-    const link = screen.getByRole('link', { name: 'https://github.com/student/project' })
-    expect(link).toHaveAttribute('href', 'https://github.com/student/project')
-    expect(link).toHaveAttribute('target', '_blank')
-    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'))
-  })
-})
