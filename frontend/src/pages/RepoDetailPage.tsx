@@ -842,16 +842,8 @@ export function RepoDetailPage() {
                   )}
                 </Card>
 
-                <ContextualActivityChart key={id} collectionId={repo.collection_id} repoId={repo.id}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        {checkIns.length > 0 && (
-                          <span className="text-xs text-muted-foreground">
-                            Last checked: {formatRelativeDays(checkIns[checkIns.length - 1])}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1">
+                <ContextualActivityChart key={id} collectionId={repo.collection_id} repoId={repo.id}
+                  actions={<>
                         <button
                           onClick={handleCheckIn}
                           title="Record a check-in now"
@@ -873,8 +865,9 @@ export function RepoDetailPage() {
                           <CalendarPlus className="h-3.5 w-3.5" />
                         </button>
 
-                      </div>
-                    </div>
+                  </>}
+                >
+                  {checkIns.length > 0 && <p className="text-xs text-muted-foreground">Last checked: {formatRelativeDays(checkIns[checkIns.length - 1])}</p>}
                     {showPastCheckIn && (
                       <div className="flex items-center gap-2 mt-2 pt-2 border-t">
                         <input
@@ -958,6 +951,7 @@ export function RepoDetailPage() {
                         <span className="text-xs text-muted-foreground mr-1">Author:</span>
                         <button
                           onClick={() => setSelectedAuthors(new Set())}
+                          aria-pressed={selectedAuthors.size === 0}
                           className={cn(
                             'text-xs px-1.5 py-0.5 rounded border transition-colors',
                             selectedAuthors.size === 0
@@ -971,6 +965,7 @@ export function RepoDetailPage() {
                           <button
                             key={a}
                             onClick={() => toggleAuthor(a)}
+                            aria-pressed={selectedAuthors.has(a)}
                             className={cn(
                               'text-xs px-1.5 py-0.5 rounded border transition-colors',
                               selectedAuthors.has(a)
