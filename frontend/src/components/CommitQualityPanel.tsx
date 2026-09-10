@@ -12,10 +12,18 @@ const SCORE_CONFIG = {
   bad:  { label: 'Bad',  className: 'bg-red-100 text-red-700 border-red-200' },
 }
 
+const UNSCORED = { label: '—', className: 'bg-gray-100 text-gray-400 border-gray-200' }
+
 function ScorePill({ score }: { score: ScoredCommit['score'] }) {
-  const cfg = SCORE_CONFIG[score] ?? SCORE_CONFIG.ok
+  // Falling back to OK here would undo the whole point of the backend
+  // returning null: an unscored commit would be indistinguishable from a
+  // genuinely mediocre one.
+  const cfg = (score && SCORE_CONFIG[score]) || UNSCORED
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${cfg.className}`}>
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${cfg.className}`}
+      title={score ? undefined : 'Not scored yet'}
+    >
       {cfg.label}
     </span>
   )
