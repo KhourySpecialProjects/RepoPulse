@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -36,6 +36,12 @@ class Contributor(Base):
     last_commit_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+    merge_history: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+
+    @property
+    def can_unmerge(self) -> bool:
+        return bool(self.merge_history)
 
     # Relationships
     repo: Mapped[object] = relationship(
