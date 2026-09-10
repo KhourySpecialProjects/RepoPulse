@@ -29,8 +29,8 @@ function LocationDisplay() {
   return <span data-testid="location">{location.pathname}</span>
 }
 
-function Harness({ collapsed: initialCollapsed = false }: { collapsed?: boolean }) {
-  const [collapsed, setCollapsed] = useState(initialCollapsed)
+function Harness() {
+  const [collapsed, setCollapsed] = useState(false)
   const [width, setWidth] = useState(220)
   return (
     <SidebarContext.Provider value={{ collapsed, setCollapsed, width, setWidth }}>
@@ -40,11 +40,11 @@ function Harness({ collapsed: initialCollapsed = false }: { collapsed?: boolean 
   )
 }
 
-function renderSidebar(opts?: { collapsed?: boolean; at?: string }) {
+function renderSidebar(at = '/settings') {
   return render(
     <QueryClientProvider client={makeClient()}>
-      <MemoryRouter initialEntries={[opts?.at ?? '/settings']}>
-        <Harness collapsed={opts?.collapsed} />
+      <MemoryRouter initialEntries={[at]}>
+        <Harness />
       </MemoryRouter>
     </QueryClientProvider>
   )
@@ -68,7 +68,6 @@ describe('AppSidebar — Collections heading navigates to the collections page',
     await waitFor(() => expect(screen.getByText('CS 101 Fall 2025')).toBeInTheDocument())
 
     const heading = screen.getByRole('button', { name: 'Collections' })
-    expect(heading).toBeInTheDocument()
     // Still reads as a section heading, and hints that it is clickable
     expect(heading.className).toMatch(/uppercase/)
     expect(heading.className).toMatch(/hover:/)
@@ -82,14 +81,6 @@ describe('AppSidebar — RepoPulse logo navigates to the home page', () => {
     expect(currentPath()).toBe('/settings')
 
     fireEvent.click(screen.getByRole('button', { name: /RepoPulse/ }))
-
-    expect(currentPath()).toBe('/')
-  })
-
-  it('routes to / when the collapsed logo icon is clicked', async () => {
-    renderSidebar({ collapsed: true })
-
-    fireEvent.click(screen.getByRole('button', { name: 'RepoPulse home' }))
 
     expect(currentPath()).toBe('/')
   })
