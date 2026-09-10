@@ -296,3 +296,17 @@ it('filters commits by selected contributors and aliases, combines branches, and
   fireEvent.click(screen.getByRole('checkbox', { name: 'Select all contributors' }))
   expect(within(screen.getByRole('region', { name: 'Commit list' })).getByText('Change number 0')).toBeInTheDocument()
 })
+
+it('places Pull Requests above a sticky, scrollable Contributors panel', async () => {
+  server.use(
+    http.get('/api/v1/repos/:id', () => HttpResponse.json(mockRepo)),
+    http.get('/api/v1/repos/:id/contributors', () => HttpResponse.json(mockContributorsEnriched)),
+  )
+  renderPage()
+  const contributorsHeading = await screen.findByRole('heading', { name: 'Contributors' })
+  const pullRequestsHeading = screen.getByRole('heading', { name: 'Pull Requests' })
+  expect(pullRequestsHeading.compareDocumentPosition(contributorsHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  const panel = contributorsHeading.parentElement!.parentElement!
+  expect(panel).toHaveClass('sticky', 'top-6', 'overflow-y-auto', 'max-h-[calc(100vh-3rem)]')
+  expect(panel.parentElement).toHaveClass('self-stretch')
+})

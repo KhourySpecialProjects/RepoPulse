@@ -1120,11 +1120,124 @@ export function RepoDetailPage() {
 
           </div>
 
-          {/* Right column — Contributors + Notes */}
-          <div className="w-80 xl:w-96 flex-shrink-0 flex flex-col gap-6">
+          {/* Right column — Pull Requests + Contributors */}
+          <div className="w-80 xl:w-96 flex-shrink-0 self-stretch flex flex-col gap-6">
+
+            {/* Pull Requests panel */}
+            <div className="bg-gray-50 rounded-xl border border-border p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <GitPullRequest className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold">Pull Requests</h2>
+                <button
+                  onClick={() => syncPRsMutation.mutate()}
+                  disabled={syncPRsMutation.isPending || !hasToken}
+                  aria-busy={syncPRsMutation.isPending}
+                  className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground hover:text-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  title={!hasToken ? 'Add a GitHub token to fetch PRs' : prStats && prStats.total_count > 0 ? 'Refresh PRs' : 'Fetch PRs from GitHub'}
+                >
+                  {syncPRsMutation.isPending
+                    ? <RefreshCw className="h-3 w-3 animate-spin motion-reduce:animate-none" />
+                    : <RefreshCw className="h-3 w-3" />}
+                  {syncPRsMutation.isPending ? 'Syncing…' : prStats && prStats.total_count > 0 ? 'Refresh' : 'Fetch PRs'}
+                </button>
+                {prStats && prStats.total_count > 0 && (
+                  <span className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full px-2 py-0.5 font-medium">
+                    {prStats.total_count}
+                  </span>
+                )}
+              </div>
+
+              {/* State filter */}
+              {prStats && prStats.total_count > 0 && (
+                <div className="flex gap-1 mb-3">
+                  {(['all', 'open', 'merged', 'closed'] as const).map(s => (
+                    <button
+                      key={s}
+                      onClick={() => { setPrStateFilter(s === 'all' ? undefined : s); setPrPage(0) }}
+                      className={cn(
+                        'flex-1 py-0.5 rounded text-xs font-medium transition-colors capitalize',
+                        (s === 'all' ? !prStateFilter : prStateFilter === s)
+                          ? 'bg-indigo-100 text-indigo-700'
+                          : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                      )}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* PR list */}
+              {!prStats || prStats.total_count === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">
+                  {prStats?.fetched_at
+                    ? 'No pull requests found.'
+                    : 'Click Fetch PRs above to load pull requests from GitHub.'}
+                </p>
+              ) : (
+                <div>
+                  {prList?.items.map((pr: PullRequest, index: number, arr: PullRequest[]) => (
+                    <div
+                      key={pr.id}
+                      className={cn('flex items-start gap-2 py-2', index < arr.length - 1 && 'border-b border-border')}
+                    >
+                      <span className="text-xs text-gray-400 font-mono flex-shrink-0 mt-0.5">#{pr.pr_number}</span>
+                      <div className="flex-1 min-w-0">
+                        <a
+                          href={pr.html_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-gray-700 hover:text-indigo-600 transition-colors leading-relaxed line-clamp-2"
+                          title={pr.title}
+                        >
+                          {pr.draft && <span className="text-gray-400">[Draft] </span>}
+                          {pr.title}
+                        </a>
+                        <div className="flex items-center gap-2 mt-1">
+                          <PRStatePill state={pr.state} />
+                          <span className="text-[10px] text-gray-400 truncate">{pr.author_login}</span>
+                          <span className="text-[10px] text-gray-400 flex-shrink-0 ml-auto">
+                            {pr.state === 'merged' && pr.merged_at
+                              ? formatRelativeDays(pr.merged_at)
+                              : pr.state === 'closed' && pr.closed_at
+                              ? formatRelativeDays(pr.closed_at)
+                              : pr.created_at
+                              ? formatRelativeDays(pr.created_at)
+                              : ''}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {prList && prList.total > PR_PAGE_SIZE && (
+                    <div className="flex items-center justify-between pt-2 mt-1 border-t border-border">
+                      <span className="text-[10px] text-muted-foreground">
+                        {prPage * PR_PAGE_SIZE + 1}–{Math.min((prPage + 1) * PR_PAGE_SIZE, prList.total)} of {prList.total}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          disabled={prPage === 0}
+                          onClick={() => setPrPage(p => p - 1)}
+                          className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Prev
+                        </button>
+                        <button
+                          disabled={(prPage + 1) * PR_PAGE_SIZE >= prList.total}
+                          onClick={() => setPrPage(p => p + 1)}
+                          className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* Contributors panel */}
-            <div className="bg-gray-50 rounded-xl border border-border p-4">
+            <div className="sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto shrink-0 bg-gray-50 rounded-xl border border-border p-4">
               <div className="flex items-center gap-2 mb-3">
                 <User className="h-4 w-4 text-muted-foreground" />
                 <h2 className="text-sm font-semibold">Contributors</h2>
@@ -1267,119 +1380,6 @@ export function RepoDetailPage() {
                       </div>
                     </div>
                   ))}
-                </div>
-              )}
-            </div>
-
-            {/* Pull Requests panel */}
-            <div className="bg-gray-50 rounded-xl border border-border p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <GitPullRequest className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-sm font-semibold">Pull Requests</h2>
-                <button
-                  onClick={() => syncPRsMutation.mutate()}
-                  disabled={syncPRsMutation.isPending || !hasToken}
-                  aria-busy={syncPRsMutation.isPending}
-                  className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground hover:text-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  title={!hasToken ? 'Add a GitHub token to fetch PRs' : prStats && prStats.total_count > 0 ? 'Refresh PRs' : 'Fetch PRs from GitHub'}
-                >
-                  {syncPRsMutation.isPending
-                    ? <RefreshCw className="h-3 w-3 animate-spin motion-reduce:animate-none" />
-                    : <RefreshCw className="h-3 w-3" />}
-                  {syncPRsMutation.isPending ? 'Syncing…' : prStats && prStats.total_count > 0 ? 'Refresh' : 'Fetch PRs'}
-                </button>
-                {prStats && prStats.total_count > 0 && (
-                  <span className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full px-2 py-0.5 font-medium">
-                    {prStats.total_count}
-                  </span>
-                )}
-              </div>
-
-              {/* State filter */}
-              {prStats && prStats.total_count > 0 && (
-                <div className="flex gap-1 mb-3">
-                  {(['all', 'open', 'merged', 'closed'] as const).map(s => (
-                    <button
-                      key={s}
-                      onClick={() => { setPrStateFilter(s === 'all' ? undefined : s); setPrPage(0) }}
-                      className={cn(
-                        'flex-1 py-0.5 rounded text-xs font-medium transition-colors capitalize',
-                        (s === 'all' ? !prStateFilter : prStateFilter === s)
-                          ? 'bg-indigo-100 text-indigo-700'
-                          : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                      )}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* PR list */}
-              {!prStats || prStats.total_count === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-4">
-                  {prStats?.fetched_at
-                    ? 'No pull requests found.'
-                    : 'Click Fetch PRs above to load pull requests from GitHub.'}
-                </p>
-              ) : (
-                <div>
-                  {prList?.items.map((pr: PullRequest, index: number, arr: PullRequest[]) => (
-                    <div
-                      key={pr.id}
-                      className={cn('flex items-start gap-2 py-2', index < arr.length - 1 && 'border-b border-border')}
-                    >
-                      <span className="text-xs text-gray-400 font-mono flex-shrink-0 mt-0.5">#{pr.pr_number}</span>
-                      <div className="flex-1 min-w-0">
-                        <a
-                          href={pr.html_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-gray-700 hover:text-indigo-600 transition-colors leading-relaxed line-clamp-2"
-                          title={pr.title}
-                        >
-                          {pr.draft && <span className="text-gray-400">[Draft] </span>}
-                          {pr.title}
-                        </a>
-                        <div className="flex items-center gap-2 mt-1">
-                          <PRStatePill state={pr.state} />
-                          <span className="text-[10px] text-gray-400 truncate">{pr.author_login}</span>
-                          <span className="text-[10px] text-gray-400 flex-shrink-0 ml-auto">
-                            {pr.state === 'merged' && pr.merged_at
-                              ? formatRelativeDays(pr.merged_at)
-                              : pr.state === 'closed' && pr.closed_at
-                              ? formatRelativeDays(pr.closed_at)
-                              : pr.created_at
-                              ? formatRelativeDays(pr.created_at)
-                              : ''}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {prList && prList.total > PR_PAGE_SIZE && (
-                    <div className="flex items-center justify-between pt-2 mt-1 border-t border-border">
-                      <span className="text-[10px] text-muted-foreground">
-                        {prPage * PR_PAGE_SIZE + 1}–{Math.min((prPage + 1) * PR_PAGE_SIZE, prList.total)} of {prList.total}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          disabled={prPage === 0}
-                          onClick={() => setPrPage(p => p - 1)}
-                          className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                        >
-                          Prev
-                        </button>
-                        <button
-                          disabled={(prPage + 1) * PR_PAGE_SIZE >= prList.total}
-                          onClick={() => setPrPage(p => p + 1)}
-                          className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                        >
-                          Next
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
