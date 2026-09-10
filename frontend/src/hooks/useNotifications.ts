@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getNotifications,
+  getReminders,
   getUnreadCount,
   markNotificationRead,
   markAllNotificationsRead,
@@ -23,6 +24,15 @@ export function useUnreadCount() {
     queryKey: ['notifications', 'unread-count'],
     queryFn: getUnreadCount,
     refetchInterval: 30_000,
+    staleTime: 15_000,
+  })
+}
+
+/** The current user's outstanding reminders, for the notifications panel. */
+export function useReminders() {
+  return useQuery({
+    queryKey: ['notifications', 'reminders'],
+    queryFn: getReminders,
     staleTime: 15_000,
   })
 }

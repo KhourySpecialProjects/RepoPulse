@@ -24,3 +24,22 @@ class NotificationListResponse(BaseModel):
     items: list[NotificationRead]
     total: int
     unread_count: int
+
+
+class ReminderRead(BaseModel):
+    """An outstanding reminder, as shown in the notifications panel."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    content: str
+    remind_at: Optional[datetime] = None
+    reminder_context: Optional[str] = None
+    repo_id: Optional[uuid.UUID] = None
+    commit_hash: Optional[str] = None
+    created_at: datetime
+
+
+class ReminderListResponse(BaseModel):
+    items: list[ReminderRead]
+    total: int

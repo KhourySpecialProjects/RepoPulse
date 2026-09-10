@@ -27,6 +27,7 @@ import type {
   NoteComment,
   Notification,
   NotificationListResponse,
+  ReminderListResponse,
   CommitQualityResponse,
   PRListResponse,
   PRStats,
@@ -331,6 +332,11 @@ export async function getUnreadCount(): Promise<{ unread_count: number }> {
 
 export async function markNotificationRead(id: string): Promise<Notification> {
   const res = await apiClient.post<Notification>(`/notifications/${id}/read`)
+  return res.data
+}
+
+export async function getReminders(): Promise<ReminderListResponse> {
+  const res = await apiClient.get<ReminderListResponse>('/notifications/reminders')
   return res.data
 }
 

@@ -10,7 +10,13 @@ from app.core.deps import get_current_user, get_db_session
 from app.models.note import Note
 from app.models.notification import Notification
 from app.schemas.errors import ErrorResponse
-from app.schemas.notifications import NotificationListResponse, NotificationRead
+from app.schemas.notifications import (
+    NotificationListResponse,
+    NotificationRead,
+    ReminderListResponse,
+    ReminderRead,
+)
+from app.services.notification_service import fire_due_reminders
 
 router = APIRouter()
 
@@ -44,6 +50,7 @@ async def list_notifications(
     current_user_id: str = Depends(get_current_user),
 ) -> NotificationListResponse:
     user_uuid = uuid.UUID(current_user_id)
+    await fire_due_reminders(db, user_uuid)
 
     # Total unread count (always, regardless of pagination/filter)
     unread_count_result = await db.execute(
@@ -113,6 +120,7 @@ async def get_unread_count(
     current_user_id: str = Depends(get_current_user),
 ) -> dict:
     user_uuid = uuid.UUID(current_user_id)
+    await fire_due_reminders(db, user_uuid)
 
     result = await db.execute(
         select(func.count()).select_from(Notification).where(
@@ -122,6 +130,51 @@ async def get_unread_count(
     )
     count = result.scalar_one()
     return {"unread_count": count}
+
+
+@router.get(
+    "/reminders",
+    response_model=ReminderListResponse,
+)
+async def list_active_reminders(
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> ReminderListResponse:
+    """The current user's outstanding reminders, soonest due first.
+
+    Undated reminders sort last so scheduled work leads the list. Reminders are
+    created and removed through the notes endpoints; this is the read side of
+    the reminders panel.
+    """
+    user_uuid = uuid.UUID(current_user_id)
+
+    result = await db.execute(
+        select(Note)
+        .where(
+            Note.author_id == user_uuid,
+            Note.is_reminder.is_(True),
+            Note.is_checked.is_(False),
+            Note.is_archived.is_(False),
+        )
+        .order_by(Note.remind_at.asc().nullslast(), Note.created_at.desc())
+    )
+    notes = result.scalars().all()
+
+    return ReminderListResponse(
+        items=[
+            ReminderRead(
+                id=note.id,
+                content=note.content,
+                remind_at=note.remind_at,
+                reminder_context=note.reminder_context,
+                repo_id=note.repo_id,
+                commit_hash=note.commit_hash,
+                created_at=note.created_at,
+            )
+            for note in notes
+        ],
+        total=len(notes),
+    )
 
 
 @router.patch(

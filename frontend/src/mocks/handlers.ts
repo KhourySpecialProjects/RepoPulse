@@ -221,6 +221,7 @@ const mockNotes: Note[] = [
     content: 'Good progress so far. Alice is carrying most of the load — check in with Bob.',
     is_reminder: true,
     reminder_context: 'Check in at next office hours',
+    remind_at: null,
     is_checked: false,
     is_archived: false,
     created_at: '2025-10-10T10:00:00Z',
@@ -466,6 +467,7 @@ export const handlers = [
       content: body.content ?? '',
       is_reminder: body.is_reminder ?? false,
       reminder_context: body.reminder_context ?? null,
+      remind_at: body.remind_at ?? null,
       is_checked: false,
       is_archived: false,
       created_at: new Date().toISOString(),
@@ -600,6 +602,9 @@ export const handlers = [
       unread_count: 0,
     }
     return HttpResponse.json(response)
+  }),
+  http.get(`${BASE}/notifications/reminders`, () => {
+    return HttpResponse.json({ items: [], total: 0 })
   }),
   http.get(`${BASE}/notifications/unread-count`, () => {
     return HttpResponse.json({ unread_count: 0 })

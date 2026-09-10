@@ -13,6 +13,7 @@ from app.db.database import Base
 class NotificationType(str, enum.Enum):
     mention = "mention"
     note_comment = "note_comment"
+    reminder = "reminder"
 
 
 class Notification(Base):

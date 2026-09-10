@@ -29,6 +29,11 @@ class Note(Base):
     commit_hash: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     is_reminder: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     reminder_context: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # When the reminder should fire. NULL means the reminder has no due date and
+    # will never produce a notification.
+    remind_at: Mapped[DateTime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     is_checked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     created_at: Mapped[DateTime] = mapped_column(

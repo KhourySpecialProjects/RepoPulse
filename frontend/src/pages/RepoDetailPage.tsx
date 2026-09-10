@@ -453,11 +453,12 @@ export function RepoDetailPage() {
     setMergeDisplayName(selected[0]?.display_name ?? '')
   }
 
-  async function handleCreateNote(values: { content: string; is_reminder: boolean; reminder_context: string }) {
+  async function handleCreateNote(values: { content: string; is_reminder: boolean; reminder_context: string; remind_at: string | null }) {
     const noteData: CreateNoteData = {
       content: values.content,
       is_reminder: values.is_reminder,
       reminder_context: values.reminder_context || null,
+      remind_at: values.remind_at,
       repo_id: id ?? null,
     }
     await createNoteMutation.mutateAsync(noteData)

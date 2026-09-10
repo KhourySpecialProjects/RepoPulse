@@ -114,6 +114,7 @@ export interface Note {
   content: string
   is_reminder: boolean
   reminder_context: string | null
+  remind_at: string | null
   is_checked: boolean
   is_archived: boolean
   created_at: string
@@ -175,6 +176,7 @@ export interface CreateNoteData {
   content: string
   is_reminder: boolean
   reminder_context?: string | null
+  remind_at?: string | null
   repo_id?: string | null
   contributor_id?: string | null
   commit_hash?: string | null
@@ -184,6 +186,7 @@ export interface UpdateNoteData {
   content?: string
   is_reminder?: boolean
   reminder_context?: string | null
+  remind_at?: string | null
   is_checked?: boolean
   is_archived?: boolean
 }
@@ -242,7 +245,7 @@ export interface CollectionAccessEntry {
 
 export interface Notification {
   id: string
-  type: 'mention' | 'note_comment'
+  type: 'mention' | 'note_comment' | 'reminder'
   note_id: string | null
   comment_id: string | null
   is_read: boolean
@@ -255,6 +258,22 @@ export interface NotificationListResponse {
   items: Notification[]
   total: number
   unread_count: number
+}
+
+/** An outstanding reminder, as shown in the notifications panel. */
+export interface Reminder {
+  id: string
+  content: string
+  remind_at: string | null
+  reminder_context: string | null
+  repo_id: string | null
+  commit_hash: string | null
+  created_at: string
+}
+
+export interface ReminderListResponse {
+  items: Reminder[]
+  total: number
 }
 
 export interface GenerateSummaryData {
