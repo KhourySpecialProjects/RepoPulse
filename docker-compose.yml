@@ -14,7 +14,7 @@ services:
       - backend
     networks:
       - repopulse
-
+#recommit
   backend:
     build:
       context: ./backend
@@ -58,6 +58,9 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Runs only when postgres_data is empty (fresh volume). Creates
+      # repopulse_test. Existing volumes: use `make test-db`.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s

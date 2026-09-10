@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { ExternalLink, Code2, RefreshCw, Trash2, Users, Clock, Bell, GitCommit } from 'lucide-react'
@@ -37,6 +38,7 @@ export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
   const navigate = useNavigate()
   const syncMutation = useSyncRepo()
   const deleteRepoMutation = useDeleteRepo()
+  const [syncing, setSyncing] = useState(false)
   const { data: currentUser } = useCurrentUser()
   const hasToken = Boolean(currentUser?.github_token_configured)
 
@@ -52,9 +54,15 @@ export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
     }
   }
 
-  function handleSync(e: React.MouseEvent) {
+  async function handleSync(e: React.MouseEvent) {
     e.stopPropagation()
-    syncMutation.mutate(repo.id)
+    setSyncing(true)
+    try {
+      await syncMutation.mutateAsync(repo.id)
+      window.setTimeout(() => setSyncing(false), 5000)
+    } catch {
+      setSyncing(false)
+    }
   }
 
   function handleRemove(e: React.MouseEvent) {
@@ -157,10 +165,10 @@ export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
               size="sm"
               className="h-7 px-2 text-xs"
               onClick={handleSync}
-              disabled={syncMutation.isPending || !hasToken}
+              loading={syncing || syncMutation.isPending} disabled={syncing || syncMutation.isPending || !hasToken}
               title={hasToken ? "Sync repository" : "Add a GitHub token in your profile to enable syncing"}
             >
-              <RefreshCw className={cn('h-3.5 w-3.5 mr-1', syncMutation.isPending && 'animate-spin')} />
+              <RefreshCw className={cn('h-3.5 w-3.5 mr-1', (syncing || syncMutation.isPending) && 'animate-spin motion-reduce:animate-none')} />
               Sync
             </Button>
             <Button
@@ -168,7 +176,7 @@ export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
               size="sm"
               className="h-7 px-2 text-xs text-red-500 hover:text-red-600"
               onClick={handleRemove}
-              disabled={deleteRepoMutation.isPending}
+              loading={deleteRepoMutation.isPending} disabled={deleteRepoMutation.isPending}
               title="Remove repository"
             >
               <Trash2 className="h-3.5 w-3.5 mr-1" />

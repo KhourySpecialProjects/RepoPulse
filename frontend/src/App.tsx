@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import { useAuth } from '@/hooks/useAuth'
 import { LoginPage } from '@/pages/LoginPage'
+import { HomePage } from '@/pages/HomePage'
 import { CollectionsPage } from '@/pages/CollectionsPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { CollectionDetailPage } from '@/pages/CollectionDetailPage'
@@ -11,7 +12,7 @@ import { SettingsPage } from '@/pages/SettingsPage'
 import { UserProfilePage } from '@/pages/UserProfilePage'
 import { AdminPage } from '@/pages/AdminPage'
 import { AppSidebar } from '@/components/AppSidebar'
-import { SidebarContext } from '@/contexts/SidebarContext'
+import { SidebarContext, COLLAPSED_GUTTER } from '@/contexts/SidebarContext'
 
 interface ProtectedRouteProps {
   children: React.ReactNode
@@ -108,7 +109,6 @@ function AppRoutes() {
   )
 }
 
-const COLLAPSED_WIDTH = 56
 const DEFAULT_WIDTH = 220
 
 export function App() {
@@ -137,7 +137,9 @@ export function App() {
     )
   }
 
-  const marginLeft = collapsed ? COLLAPSED_WIDTH : width
+  // Collapsed hides the sidebar, but keep a gutter clear so the floating
+  // expand arrow doesn't overlap page content (e.g. header back arrows)
+  const marginLeft = collapsed ? COLLAPSED_GUTTER : width
 
   return (
     <SidebarContext.Provider value={{ collapsed, setCollapsed, width, setWidth }}>

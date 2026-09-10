@@ -51,6 +51,7 @@ In dev mode, click any of the three user cards on the login screen.
 ```bash
 make test           # run all tests (backend + frontend)
 make test-backend   # backend tests only
+make test-db        # create the test database (see note below)
 make test-smoke     # fast import/startup smoke tests (no DB needed)
 make test-frontend  # frontend tests only
 make test-watch     # frontend tests in watch mode
@@ -63,6 +64,23 @@ make shell-backend  # bash shell in backend container
 make shell-db       # psql shell in database container
 make logs           # tail all container logs
 ```
+
+### The test database
+
+The backend suite connects to a separate `repopulse_test` database, not the
+`repopulse` one the app uses. `db/init/01-create-test-db.sql` creates it
+automatically — but Postgres only runs `/docker-entrypoint-initdb.d/` scripts
+when the data directory is empty, so that covers a **fresh** `postgres_data`
+volume only.
+
+If you already had a volume before this script existed, create it once:
+
+```bash
+make test-db
+```
+
+Without it, every DB-backed test errors at fixture setup with
+`asyncpg.exceptions.InvalidCatalogNameError: database "repopulse_test" does not exist`.
 
 ## Project Structure
 

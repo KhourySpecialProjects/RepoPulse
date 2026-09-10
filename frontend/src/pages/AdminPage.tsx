@@ -128,7 +128,7 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
             <Button variant="outline" type="button" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={createUser.isPending}>
+            <Button type="submit" loading={createUser.isPending} disabled={createUser.isPending}>
               {createUser.isPending ? 'Creating...' : 'Create User'}
             </Button>
           </DialogFooter>
@@ -211,7 +211,7 @@ function EditUserDialog({ user, onClose }: { user: UserDetail; onClose: () => vo
             <Button variant="outline" type="button" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={updateUser.isPending}>
+            <Button type="submit" loading={updateUser.isPending} disabled={updateUser.isPending}>
               {updateUser.isPending ? 'Saving...' : 'Save'}
             </Button>
           </DialogFooter>
@@ -270,7 +270,7 @@ function ResetPasswordDialog({ user, onClose }: { user: UserDetail; onClose: () 
             <Button variant="outline" type="button" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={resetPassword.isPending || newPassword.length < 8}>
+            <Button type="submit" loading={resetPassword.isPending} disabled={resetPassword.isPending || newPassword.length < 8}>
               {resetPassword.isPending ? 'Resetting...' : 'Reset Password'}
             </Button>
           </DialogFooter>
@@ -306,7 +306,7 @@ function DeleteConfirmDialog({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="destructive" onClick={onConfirm} disabled={isPending}>
+          <Button variant="destructive" onClick={onConfirm} loading={isPending} disabled={isPending}>
             {isPending ? 'Deleting...' : 'Delete'}
           </Button>
         </DialogFooter>

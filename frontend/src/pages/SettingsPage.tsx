@@ -211,7 +211,7 @@ export function SettingsPage() {
               />
               <Button
                 type="submit"
-                disabled={updateCurrentUser.isPending || !displayName.trim()}
+                loading={updateCurrentUser.isPending} disabled={updateCurrentUser.isPending || !displayName.trim()}
               >
                 {displayNameSaved ? (
                   <>
@@ -276,7 +276,7 @@ export function SettingsPage() {
                 <Button
                   type="submit"
                   variant="outline"
-                  disabled={updateCurrentUser.isPending}
+                  loading={updateCurrentUser.isPending} disabled={updateCurrentUser.isPending}
                 >
                   {githubToken ? 'Update Token' : 'Clear Token'}
                 </Button>
@@ -367,7 +367,7 @@ export function SettingsPage() {
               <div className="flex justify-end">
                 <Button
                   type="submit"
-                  disabled={
+                  loading={changePassword.isPending} disabled={
                     changePassword.isPending ||
                     !currentPassword ||
                     !newPassword ||
@@ -484,7 +484,7 @@ export function SettingsPage() {
                       variant="outline"
                       size="sm"
                       onClick={testOllamaConnection}
-                      disabled={ollamaStatus === 'loading'}
+                      loading={ollamaStatus === 'loading'} disabled={ollamaStatus === 'loading'}
                       className="whitespace-nowrap"
                     >
                       <RefreshCw className={cn('h-3.5 w-3.5 mr-1.5', ollamaStatus === 'loading' && 'animate-spin')} />
@@ -568,7 +568,7 @@ export function SettingsPage() {
           {updateMutation.isError && (
             <p className="text-sm text-destructive">Failed to save settings.</p>
           )}
-          <Button type="submit" disabled={updateMutation.isPending}>
+          <Button type="submit" loading={updateMutation.isPending} disabled={updateMutation.isPending}>
             <Save className="h-4 w-4 mr-2" />
             {updateMutation.isPending ? 'Saving...' : 'Save Settings'}
           </Button>

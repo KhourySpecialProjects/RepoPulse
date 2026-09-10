@@ -1,4 +1,4 @@
-.PHONY: up down build logs test test-backend test-frontend test-watch test-smoke seed migrate shell-backend shell-db
+.PHONY: up down build logs test test-backend test-db test-frontend test-watch test-smoke seed migrate shell-backend shell-db
 
 up:
 	docker compose up
@@ -19,6 +19,16 @@ test:
 
 test-backend:
 	docker compose exec backend pytest -v
+
+# Create the test database the backend suite connects to (TEST_DATABASE_URL).
+# db/init/ only runs on a fresh postgres_data volume, so existing volumes need
+# this one-off. Idempotent — Postgres has no CREATE DATABASE IF NOT EXISTS.
+test-db:
+	@docker compose exec db psql -U postgres -tc \
+		"SELECT 1 FROM pg_database WHERE datname='repopulse_test'" \
+		| grep -q 1 \
+		|| docker compose exec db psql -U postgres -c "CREATE DATABASE repopulse_test"
+	@echo "repopulse_test ready"
 
 test-smoke:
 	docker compose exec backend pytest tests/test_smoke.py -v

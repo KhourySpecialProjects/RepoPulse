@@ -1,17 +1,8 @@
+import { ContextualActivityChart } from '@/components/ContextualActivityChart'
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceLine,
-} from 'recharts'
 import { useQueryClient } from '@tanstack/react-query'
 import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests } from '@/hooks/useRepos'
 import { useRepoSummaries, useContributorSummaries, useGenerateSummary } from '@/hooks/useSummaries'
@@ -23,6 +14,7 @@ import { CommitNotesPanel } from '@/components/CommitNotesPanel'
 import { MarkdownContent } from '@/components/MarkdownContent'
 import { NotesDrawer } from '@/components/NotesDrawer'
 import { Button } from '@/components/ui/button'
+import { LoadingContent } from '@/components/ui/loading-content'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
@@ -34,7 +26,6 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { CreateNoteData, Summary, Contributor, Note, PullRequest } from '@/types'
 
-const PERIOD_COLORS = ['#94a3b8', '#a78bfa', '#60a5fa', '#34d399', '#f97316', '#6366f1']
 
 function formatRelativeDays(isoStr: string): string {
   const days = Math.floor((Date.now() - new Date(isoStr).getTime()) / 86400000)
@@ -68,10 +59,11 @@ function ContributorGenerateButton({ contributorId, repoId }: { contributorId: s
         contributor_id: contributorId,
       })}
       disabled={generateMutation.isPending}
+      aria-busy={generateMutation.isPending}
       className="ml-auto flex items-center gap-0.5 text-muted-foreground hover:text-violet-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
       title="Generate activity summary"
     >
-      <Sparkles className={cn('h-3 w-3', generateMutation.isPending && 'animate-pulse')} />
+      <Sparkles className={cn('h-3 w-3', generateMutation.isPending && 'animate-pulse motion-reduce:animate-none')} />
     </button>
   )
 }
@@ -245,7 +237,6 @@ export function RepoDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [commitPage, setCommitPage] = useState(0)
-  const [chartRange, setChartRange] = useState<'7d' | '30d' | '90d' | 'all'>('7d')
   const [activeCommitHash, setActiveCommitHash] = useState<string | null>(null)
   const [highlightedCommitHash, setHighlightedCommitHash] = useState<string | null>(null)
   const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
@@ -257,7 +248,9 @@ export function RepoDetailPage() {
   const [editingName, setEditingName] = useState('')
   const [mergeDisplayName, setMergeDisplayName] = useState('')
   const [expectedCount, setExpectedCount] = useState<string>('')
-  const COMMITS_PER_PAGE = 20
+  const [COMMITS_PER_PAGE, setCommitsPerPage] = useState(10)
+  const [commitPageSizeOption, setCommitPageSizeOption] = useState('10')
+  const [customCommitPageSize, setCustomCommitPageSize] = useState('20')
   const MAX_FILTER_CHIPS = 8
 
   const [summaryExpanded, setSummaryExpanded] = useState(true)
@@ -293,10 +286,11 @@ export function RepoDetailPage() {
   const { data: repo, isLoading: repoLoading } = useRepo(id ?? '')
   const { data: healthScore, isLoading: healthLoading } = useRepoHealth(id ?? '')
   const syncMutation = useSyncRepo()
+  const [syncing, setSyncing] = useState(false)
   const deleteRepoMutation = useDeleteRepo()
   const { data: me } = useCurrentUser()
   const hasToken = Boolean(me?.github_token_configured)
-  const { data: summaries } = useRepoSummaries(id ?? '')
+  const { data: summaries, isLoading: summariesLoading } = useRepoSummaries(id ?? '')
   const generateSummaryMutation = useGenerateSummary()
   const { data: commitsData, isLoading: commitsLoading } = useRepoCommits(id ?? '', {
     limit: COMMITS_PER_PAGE,
@@ -528,97 +522,6 @@ export function RepoDetailPage() {
     }
   }, [repo?.expected_contributor_count])
 
-  const commitChartData = useMemo(() => {
-    const allCommits = allCommitsData?.items ?? []
-    const now = new Date()
-    const todayTs = now.getTime()
-    const cutoff = chartRange === '7d' ? new Date(todayTs - 7 * 86400000)
-      : chartRange === '30d' ? new Date(todayTs - 30 * 86400000)
-      : chartRange === '90d' ? new Date(todayTs - 90 * 86400000)
-      : null
-
-    const rangeStart = cutoff ?? (allCommits.length > 0
-      ? new Date(Math.min(...allCommits.map(c => new Date(c.date).getTime())))
-      : new Date(todayTs - 7 * 86400000))
-    const rangeStartTs = rangeStart.getTime()
-
-    const filtered = cutoff ? allCommits.filter(c => new Date(c.date) >= cutoff) : allCommits
-    const groupByWeek = chartRange === '90d' || chartRange === 'all'
-
-    const byBucket: Record<string, { ts: number; commits: number; latestDate: string }> = {}
-    filtered.forEach((c) => {
-      const d = new Date(c.date)
-      let key: string
-      let ts: number
-      if (groupByWeek) {
-        const day = d.getDay()
-        const monday = new Date(d)
-        monday.setDate(d.getDate() - ((day + 6) % 7))
-        key = monday.toISOString().slice(0, 10)
-        ts = monday.getTime()
-      } else {
-        key = c.date.slice(0, 10)
-        ts = new Date(key + 'T12:00:00Z').getTime()
-      }
-      const prev = byBucket[key] ?? { ts, commits: 0, latestDate: '' }
-      byBucket[key] = {
-        ts,
-        commits: prev.commits + 1,
-        latestDate: c.date > prev.latestDate ? c.date : prev.latestDate,
-      }
-    })
-
-    const points: { ts: number; date: string; commits: number }[] = Object.values(byBucket)
-      .sort((a, b) => a.ts - b.ts)
-      .map(({ ts, commits, latestDate }) => ({
-        ts,
-        date: latestDate.slice(0, 10),
-        commits,
-      }))
-
-    // Anchor the left edge at rangeStart so gradient percentages align with the axis domain
-    if (points.length === 0 || points[0].ts > rangeStartTs + 86400000) {
-      points.unshift({ ts: rangeStartTs, date: rangeStart.toISOString().slice(0, 10), commits: 0 })
-    }
-
-    return { points, rangeStartTs, todayTs }
-  }, [allCommitsData, chartRange])
-
-  const gradientStops = useMemo(() => {
-    const { rangeStartTs, todayTs } = commitChartData
-    const duration = todayTs - rangeStartTs
-    const inRange = checkIns
-      .map(ci => new Date(ci).getTime())
-      .filter(ts => ts > rangeStartTs && ts < todayTs)
-      .sort((a, b) => a - b)
-
-    const boundaries = [rangeStartTs, ...inRange, todayTs]
-    const numPeriods = boundaries.length - 1
-
-    // Most recent period gets the last (indigo) color; older periods get earlier colors
-    const periodColors = Array.from({ length: numPeriods }, (_, i) => {
-      const colorIdx = PERIOD_COLORS.length - numPeriods + i
-      return PERIOD_COLORS[Math.max(0, colorIdx)]
-    })
-
-    if (numPeriods === 1 || duration <= 0) {
-      return [
-        { offset: '0%', color: periodColors[0] },
-        { offset: '100%', color: periodColors[0] },
-      ]
-    }
-
-    const stops: { offset: string; color: string }[] = []
-    stops.push({ offset: '0%', color: periodColors[0] })
-    for (let i = 1; i < boundaries.length - 1; i++) {
-      const pct = ((boundaries[i] - rangeStartTs) / duration * 100).toFixed(2) + '%'
-      stops.push({ offset: pct, color: periodColors[i - 1] })
-      stops.push({ offset: pct, color: periodColors[i] })
-    }
-    stops.push({ offset: '100%', color: periodColors[numPeriods - 1] })
-    return stops
-  }, [commitChartData, checkIns])
-
   const commitNoteStats = (notes ?? []).reduce<Record<string, { total: number; reminders: number }>>(
     (acc, note) => {
       if (!note.commit_hash) return acc
@@ -716,38 +619,22 @@ export function RepoDetailPage() {
       )}
       {/* Clean white page header */}
       <div className="bg-white border-b border-border px-6 py-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-start gap-3 min-w-0">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => navigate(`/collections/${repo.collection_id}`)}
-              className="text-muted-foreground hover:text-indigo-600 transition-colors mt-0.5 flex-shrink-0"
+              aria-label="Back to collection"
+              className="text-muted-foreground hover:text-indigo-600 transition-colors flex-shrink-0"
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
-            <div className="min-w-0">
-              <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-xl font-semibold truncate text-foreground">{repo.name}</h1>
-                <HealthBadge status={healthScore?.status ?? repo.health_status} />
-                {healthScore && (
-                  <div className={cn(
-                    'flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold border',
-                    healthScore.composite >= 0.75
-                      ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
-                      : healthScore.composite >= 0.375
-                      ? 'bg-amber-100 text-amber-700 border-amber-200'
-                      : 'bg-red-100 text-red-700 border-red-200'
-                  )}>
-                    <span>Score: {Math.round(healthScore.composite * 100)}</span>
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-3 mt-0.5">
-                <p className="text-sm text-muted-foreground truncate">{repo.github_url}</p>
-                <span className="text-xs text-muted-foreground flex-shrink-0 flex items-center gap-1">
-                  <RefreshCw className="h-3 w-3" />
-                  {repo.last_synced_at ? `Synced ${formatDateTime(repo.last_synced_at)}` : 'Never synced'}
-                </span>
-              </div>
+            <div className="flex min-w-0 items-center gap-3">
+                <h1 className="min-w-0">
+                  <a href={repo.github_url} target="_blank" rel="noopener noreferrer" title="Open repository on GitHub" className="inline-flex max-w-full items-center gap-2 rounded-md border border-border px-3 py-1.5 text-lg font-semibold text-foreground transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <span className="truncate">{repo.name}</span>
+                    <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  </a>
+                </h1>
 
               {healthScore && (() => {
                 const signals = [
@@ -783,7 +670,17 @@ export function RepoDetailPage() {
                   },
                 ]
                 return (
-                  <div className="flex flex-wrap gap-2 mt-2">
+                  <details className="group relative shrink-0 text-xs text-muted-foreground">
+                    <summary className={cn('flex cursor-pointer list-none items-center gap-1.5 rounded-full border px-3 py-1 font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden', healthScore.composite >= 0.75 ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : healthScore.composite >= 0.375 ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100')}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                      Health details
+                      <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+                    </summary>
+                    <div className="absolute left-0 top-full z-30 mt-2 grid w-72 grid-cols-2 gap-3 rounded-lg border border-border bg-white p-4 shadow-lg">
+                    <div className="col-span-2 flex items-center justify-between border-b border-border pb-3">
+                      <HealthBadge status={healthScore.status ?? repo.health_status} />
+                      <span className="font-semibold text-foreground">{Math.round(healthScore.composite * 100)}/100</span>
+                    </div>
                     {signals.map((signal) => {
                       const norm = signal.value / 2
                       const dotClass = norm >= 0.7
@@ -796,33 +693,26 @@ export function RepoDetailPage() {
                           key={signal.label}
                           title={signal.tip}
                           className={cn(
-                            'flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold border cursor-default',
-                            norm >= 0.7
-                              ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
-                              : norm >= 0.4
-                              ? 'bg-amber-100 text-amber-700 border-amber-200'
-                              : 'bg-red-100 text-red-700 border-red-200'
+                            'flex items-center gap-1.5 text-xs font-medium text-foreground cursor-default'
                           )}
                         >
                           <span className={cn('h-2 w-2 rounded-full flex-shrink-0', dotClass)} />
                           <span>{signal.label}</span>
+                          <span className="sr-only">{norm >= 0.7 ? 'Healthy' : norm >= 0.4 ? 'Needs attention' : 'At risk'}</span>
                         </div>
                       )
                     })}
-                  </div>
+                    </div>
+                  </details>
                 )
               })()}
             </div>
           </div>
-          <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-            {/* Row 1: navigation + history */}
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" asChild>
-                <a href={repo.github_url} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="h-4 w-4 mr-1.5" />
-                  GitHub
-                </a>
-              </Button>
+          <span className="flex items-center justify-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
+            <RefreshCw className="h-3 w-3" />
+            {repo.last_synced_at ? `Synced ${formatDateTime(repo.last_synced_at)}` : 'Never synced'}
+          </span>
+          <div className="flex items-center justify-self-end gap-2">
               {repo.local_path && (
                 <Button variant="outline" size="sm" asChild>
                   <a href={`vscode://file/${repo.local_path}`}>
@@ -845,14 +735,12 @@ export function RepoDetailPage() {
                   </span>
                 )}
               </Button>
-            </div>
-            {/* Row 2: actions */}
-            <div className="flex items-center gap-2">
               <Button
                 size="sm"
                 onClick={async () => {
                   const repoId = repo.id
                   const toastId = toast.loading('Syncing repository…')
+                  setSyncing(true)
                   try {
                     await syncMutation.mutateAsync(repoId)
                     toast.success('Sync started — data will refresh shortly.', { id: toastId })
@@ -861,29 +749,30 @@ export function RepoDetailPage() {
                       queryClient.invalidateQueries({ queryKey: repoKeys.health(repoId) })
                       queryClient.invalidateQueries({ queryKey: repoKeys.commits(repoId) })
                       queryClient.invalidateQueries({ queryKey: repoKeys.contributors(repoId) })
+                      setSyncing(false)
                     }, 5000)
                   } catch {
+                    setSyncing(false)
                     toast.error('Sync failed — check backend logs for details.', { id: toastId })
                   }
                 }}
-                disabled={syncMutation.isPending || !hasToken}
+                loading={syncing || syncMutation.isPending} disabled={syncing || syncMutation.isPending || !hasToken}
                 title={!hasToken ? 'Add a GitHub token in your profile to enable syncing' : undefined}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white"
               >
-                <RefreshCw className={cn('h-4 w-4 mr-1.5', syncMutation.isPending && 'animate-spin')} />
+                <RefreshCw className={cn('h-4 w-4 mr-1.5', (syncing || syncMutation.isPending) && 'animate-spin motion-reduce:animate-none')} />
                 Sync
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleRemove}
-                disabled={deleteRepoMutation.isPending}
+                loading={deleteRepoMutation.isPending} disabled={deleteRepoMutation.isPending}
                 className="text-red-500 hover:text-red-600 border-red-200 hover:border-red-300"
               >
                 <Trash2 className="h-4 w-4 mr-1.5" />
                 Remove
               </Button>
-            </div>
           </div>
         </div>
       </div>
@@ -919,7 +808,7 @@ export function RepoDetailPage() {
                         size="sm"
                         variant="outline"
                         onClick={handleGenerateSummary}
-                        disabled={generateSummaryMutation.isPending}
+                        loading={generateSummaryMutation.isPending} disabled={generateSummaryMutation.isPending}
                       >
                         <Sparkles className={cn('h-4 w-4 mr-1.5', generateSummaryMutation.isPending && 'animate-pulse')} />
                         {generateSummaryMutation.isPending ? 'Generating...' : 'Generate Summary'}
@@ -928,6 +817,9 @@ export function RepoDetailPage() {
                   </CardHeader>
                   {summaryExpanded && (
                   <CardContent>
+                    {(generateSummaryMutation.isPending || summariesLoading) && (
+                      <LoadingContent label={generateSummaryMutation.isPending ? 'Generating your summary… This may take a minute.' : 'Loading summary…'} />
+                    )}
                     {latestSummary ? (
                       <div>
                         <MarkdownContent content={latestSummary.content} />
@@ -935,20 +827,18 @@ export function RepoDetailPage() {
                           Generated {formatDateTime(latestSummary.generated_at)} · {latestSummary.model_used}
                         </p>
                       </div>
-                    ) : (
+                    ) : !generateSummaryMutation.isPending && !summariesLoading ? (
                       <p className="text-sm text-muted-foreground">
                         No summary generated yet. Click "Generate Summary" to create one.
                       </p>
-                    )}
+                    ) : null}
                   </CardContent>
                   )}
                 </Card>
 
-                <Card>
-                  <CardHeader className="pb-2">
+                <ContextualActivityChart key={id} collectionId={repo.collection_id} repoId={repo.id}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <CardTitle className="text-base">Commit Activity</CardTitle>
                         {checkIns.length > 0 && (
                           <span className="text-xs text-muted-foreground">
                             Last checked: {formatRelativeDays(checkIns[checkIns.length - 1])}
@@ -976,20 +866,7 @@ export function RepoDetailPage() {
                         >
                           <CalendarPlus className="h-3.5 w-3.5" />
                         </button>
-                        {(['7d', '30d', '90d', 'all'] as const).map((r) => (
-                          <button
-                            key={r}
-                            onClick={() => setChartRange(r)}
-                            className={cn(
-                              'text-xs px-2 py-1 rounded border transition-colors',
-                              chartRange === r
-                                ? 'bg-indigo-600 text-white border-indigo-600'
-                                : 'text-muted-foreground border-border hover:border-indigo-300'
-                            )}
-                          >
-                            {r === 'all' ? 'All' : r}
-                          </button>
-                        ))}
+
                       </div>
                     </div>
                     {showPastCheckIn && (
@@ -1016,79 +893,18 @@ export function RepoDetailPage() {
                         </button>
                       </div>
                     )}
-                  </CardHeader>
-                  <CardContent>
-                    {commitChartData.points.filter(p => p.commits > 0).length > 0 ? (
-                      <div className="h-48">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={commitChartData.points}>
-                            <defs>
-                              <linearGradient id="periodGradient" x1="0" y1="0" x2="1" y2="0">
-                                {gradientStops.map((stop, i) => (
-                                  <stop key={i} offset={stop.offset} stopColor={stop.color} stopOpacity={1} />
-                                ))}
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                            <XAxis
-                              type="number"
-                              dataKey="ts"
-                              scale="time"
-                              domain={[commitChartData.rangeStartTs, commitChartData.todayTs]}
-                              tickCount={6}
-                              tick={{ fontSize: 11 }}
-                              tickFormatter={(ts: number) =>
-                                new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                              }
-                            />
-                            <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                            <Tooltip
-                              labelFormatter={(ts: number) =>
-                                new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                              }
-                              formatter={(v: number) => [v, 'Commits']}
-                            />
-                            {checkIns
-                              .map(ci => new Date(ci).getTime())
-                              .filter(ts => ts > commitChartData.rangeStartTs && ts < commitChartData.todayTs)
-                              .map((ts, i) => (
-                                <ReferenceLine
-                                  key={i}
-                                  x={ts}
-                                  stroke="#6366f1"
-                                  strokeDasharray="4 2"
-                                  strokeWidth={1.5}
-                                  label={{ value: '✓', position: 'insideTopRight', fontSize: 10, fill: '#6366f1' }}
-                                />
-                              ))}
-                            <Area
-                              type="monotone"
-                              dataKey="commits"
-                              stroke="url(#periodGradient)"
-                              fill="url(#periodGradient)"
-                              fillOpacity={0.2}
-                              strokeWidth={2}
-                            />
-                          </AreaChart>
-                        </ResponsiveContainer>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground py-8 text-center">
-                        No commits in the selected range.
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
+                </ContextualActivityChart>
 
               </div>
             </motion.div>
 
             {/* Commits section */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible" transition={{ delay: 0.1 }}>
-              <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                <GitCommit className="h-4 w-4 text-muted-foreground" />
-                Commits
-              </h2>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Commits</CardTitle>
+                </CardHeader>
+                <CardContent>
               {!allCommitsData?.items.length ? (
                 <p className="text-muted-foreground text-sm">No commits found.</p>
               ) : (
@@ -1171,20 +987,53 @@ export function RepoDetailPage() {
                       </div>
                     )}
                   </div>
-                  {totalCommitPages > 1 && (
-                    <div className="flex items-center justify-between py-1">
+                    <div className="flex flex-wrap items-center justify-between gap-3 py-1">
                       <p className="text-xs text-muted-foreground">
                         {filteredCommits.length} commit{filteredCommits.length !== 1 ? 's' : ''}
                         {filteredCommits.length !== (allCommitsData?.items.length ?? 0) && (
                           <span> (of {allCommitsData?.items.length ?? 0})</span>
                         )}
                       </p>
-                      {renderCommitPagination()}
+                      <div className="flex flex-wrap items-center gap-3">
+                        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                          Commits per page
+                          <select
+                            aria-label="Commits per page"
+                            className="h-8 rounded-md border border-border bg-background px-2 text-foreground"
+                            value={commitPageSizeOption}
+                            onChange={event => {
+                              const value = event.target.value
+                              setCommitPageSizeOption(value)
+                              if (value !== 'custom') {
+                                setCommitsPerPage(Number(value))
+                                setCommitPage(0)
+                              }
+                            }}
+                          >
+                            <option value="5">5</option>
+                            <option value="10">10</option>
+                            <option value="15">15</option>
+                            <option value="custom">Custom</option>
+                          </select>
+                        </label>
+                        {commitPageSizeOption === 'custom' && (
+                          <form className="flex items-center gap-2" onSubmit={event => {
+                            event.preventDefault()
+                            const value = Number(customCommitPageSize)
+                            if (!Number.isInteger(value) || value < 1 || value > 500) return
+                            setCommitsPerPage(value)
+                            setCommitPage(0)
+                          }}>
+                            <input aria-label="Custom commits per page" type="number" min="1" max="500" step="1" required value={customCommitPageSize} onChange={event => setCustomCommitPageSize(event.target.value)} className="h-8 w-20 rounded-md border border-border bg-background px-2 text-xs" />
+                            <Button type="submit" variant="outline" size="sm" className="h-8">Apply</Button>
+                          </form>
+                        )}
+                        {renderCommitPagination()}
+                      </div>
                     </div>
-                  )}
-                  <div className="overflow-x-auto">
+                  <div key={`${commitPage}-${COMMITS_PER_PAGE}`} role="region" aria-label="Commit list" tabIndex={0} className="max-h-[560px] overflow-auto overscroll-contain rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     <table className="w-full text-sm">
-                      <thead>
+                      <thead className="sticky top-0 z-10 bg-card">
                         <tr className="border-b text-muted-foreground text-xs">
                           <th className="text-left pb-2 font-medium">Commit</th>
                           <th className="text-left pb-2 font-medium">Author</th>
@@ -1309,6 +1158,8 @@ export function RepoDetailPage() {
                   </div>
                 </div>
               )}
+                </CardContent>
+              </Card>
             </motion.div>
 
 
@@ -1357,8 +1208,10 @@ export function RepoDetailPage() {
                     <button
                       onClick={handleMerge}
                       disabled={!mergeDisplayName.trim() || mergeContributorsMutation.isPending}
+                      aria-busy={mergeContributorsMutation.isPending}
                       className="flex-1 text-xs bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded px-2 py-1.5 font-medium transition-colors"
                     >
+                      {mergeContributorsMutation.isPending && <RefreshCw className="inline-block h-3.5 w-3.5 mr-1.5 animate-spin motion-reduce:animate-none" />}
                       {mergeContributorsMutation.isPending ? 'Merging…' : 'Confirm Merge'}
                     </button>
                     <button
@@ -1396,8 +1249,8 @@ export function RepoDetailPage() {
                               onChange={e => setEditingName(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') saveDisplayName(); if (e.key === 'Escape') cancelEditing() }}
                             />
-                            <button onClick={saveDisplayName} disabled={updateContributorMutation.isPending} className="text-emerald-600 hover:text-emerald-700">
-                              <Check className="h-3.5 w-3.5" />
+                            <button onClick={saveDisplayName} aria-busy={updateContributorMutation.isPending} disabled={updateContributorMutation.isPending} className="text-emerald-600 hover:text-emerald-700">
+                              {updateContributorMutation.isPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <Check className="h-3.5 w-3.5" />}
                             </button>
                             <button onClick={cancelEditing} className="text-muted-foreground hover:text-foreground">
                               <X className="h-3.5 w-3.5" />
@@ -1456,11 +1309,12 @@ export function RepoDetailPage() {
                 <button
                   onClick={() => syncPRsMutation.mutate()}
                   disabled={syncPRsMutation.isPending || !hasToken}
+                  aria-busy={syncPRsMutation.isPending}
                   className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground hover:text-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   title={!hasToken ? 'Add a GitHub token to fetch PRs' : prStats && prStats.total_count > 0 ? 'Refresh PRs' : 'Fetch PRs from GitHub'}
                 >
                   {syncPRsMutation.isPending
-                    ? <div className="h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                    ? <RefreshCw className="h-3 w-3 animate-spin motion-reduce:animate-none" />
                     : <RefreshCw className="h-3 w-3" />}
                   {syncPRsMutation.isPending ? 'Syncing…' : prStats && prStats.total_count > 0 ? 'Refresh' : 'Fetch PRs'}
                 </button>
