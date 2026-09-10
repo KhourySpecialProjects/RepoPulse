@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/mocks/server'
@@ -71,6 +71,11 @@ function setup(opts?: {
   )
 }
 
+function LocationDisplay() {
+  const location = useLocation()
+  return <span data-testid="location">{location.pathname}</span>
+}
+
 function renderSidebar(width = 220) {
   return render(
     <QueryClientProvider client={makeClient()}>
@@ -79,6 +84,7 @@ function renderSidebar(width = 220) {
           value={{ collapsed: false, setCollapsed: () => {}, width, setWidth: () => {} }}
         >
           <AppSidebar />
+          <LocationDisplay />
         </SidebarContext.Provider>
       </MemoryRouter>
     </QueryClientProvider>
@@ -127,73 +133,17 @@ describe('Notifications button — unread count badge', () => {
 })
 
 // ──────────────────────────────────────────────
-// 2. Dropdown must escape the sidebar's overflow-hidden
+// 2. The bell navigates rather than opening a popup
 // ──────────────────────────────────────────────
-describe('Notifications dropdown — not clipped by the sidebar', () => {
-  it('renders the dropdown outside the sidebar panel', async () => {
-    setup({ items: [notif('n1')] })
-    const { container } = renderSidebar()
-
-    fireEvent.click(bell())
-
-    const panel = await screen.findByTestId('notification-dropdown')
-    // The sidebar root is overflow-hidden, so anything rendered inside it and
-    // positioned beyond its width is clipped away and invisible.
-    const sidebarRoot = container.querySelector('.fixed.left-0.top-0.bottom-0')
-    expect(sidebarRoot).not.toBeNull()
-    expect(sidebarRoot!.contains(panel)).toBe(false)
-  })
-
-  it('stacks the dropdown above its click-catching backdrop', async () => {
+describe('Notifications button — navigation', () => {
+  it('routes to the notifications page and opens no popup', async () => {
     setup({ items: [notif('n1')] })
     renderSidebar()
 
     fireEvent.click(bell())
 
-    const panel = await screen.findByTestId('notification-dropdown')
-    const backdrop = screen.getByTestId('notification-backdrop')
-    const zOf = (el: HTMLElement) => Number(getComputedStyle(el).zIndex)
-    expect(zOf(panel)).toBeGreaterThan(zOf(backdrop))
-  })
-
-  it('closes when the backdrop is clicked', async () => {
-    setup({ items: [notif('n1')] })
-    renderSidebar()
-
-    fireEvent.click(bell())
-    await screen.findByTestId('notification-dropdown')
-
-    fireEvent.click(screen.getByTestId('notification-backdrop'))
-
-    await waitFor(() =>
-      expect(screen.queryByTestId('notification-dropdown')).not.toBeInTheDocument()
-    )
-  })
-})
-
-// ──────────────────────────────────────────────
-// 3. Marking read must reach the real endpoints
-// ──────────────────────────────────────────────
-describe('Notifications — marking read', () => {
-  it('marks a single notification read via PATCH', async () => {
-    const onPatchRead = vi.fn()
-    setup({ items: [notif('n1')], onPatchRead })
-    renderSidebar()
-
-    fireEvent.click(bell())
-    fireEvent.click(await screen.findByText('You were mentioned'))
-
-    await waitFor(() => expect(onPatchRead).toHaveBeenCalledWith('n1'))
-  })
-
-  it('marks everything read via the mark-all-read endpoint', async () => {
-    const onMarkAll = vi.fn()
-    setup({ items: [notif('n1')], onMarkAll })
-    renderSidebar()
-
-    fireEvent.click(bell())
-    fireEvent.click(await screen.findByText('Mark all read'))
-
-    await waitFor(() => expect(onMarkAll).toHaveBeenCalled())
+    expect(screen.getByTestId('location')).toHaveTextContent('/notifications')
+    expect(screen.queryByTestId('notification-dropdown')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('notification-backdrop')).not.toBeInTheDocument()
   })
 })

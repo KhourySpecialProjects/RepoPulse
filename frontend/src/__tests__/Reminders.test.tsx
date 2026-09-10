@@ -5,10 +5,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/mocks/server'
 import { NoteForm } from '@/components/NoteForm'
-import { AppSidebar } from '@/components/AppSidebar'
-import { SidebarContext } from '@/contexts/SidebarContext'
+import { ActiveRemindersPanel } from '@/components/ActiveRemindersPanel'
 import { formatReminderCountdown } from '@/lib/reminders'
-import type { Reminder, Notification } from '@/types'
+import type { Reminder } from '@/types'
 
 vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => ({
@@ -113,7 +112,7 @@ describe('NoteForm — reminder due date', () => {
 })
 
 // ──────────────────────────────────────────────
-// 3. Notification dropdown: reminders panel
+// 3. ActiveRemindersPanel (rendered on the notifications page)
 // ──────────────────────────────────────────────
 const futureReminder: Reminder = {
   id: 'rem-1',
@@ -125,47 +124,20 @@ const futureReminder: Reminder = {
   created_at: '2026-09-01T10:00:00Z',
 }
 
-const mentionNotification: Notification = {
-  id: 'notif-1',
-  type: 'mention',
-  note_id: 'note-1',
-  comment_id: null,
-  is_read: false,
-  created_at: '2026-09-10T11:00:00Z',
-  note_content_preview: 'Hey @Mark can you check this',
-  repo_id: 'repo-1',
+const overdueReminder: Reminder = {
+  ...futureReminder,
+  id: 'rem-2',
+  content: 'Chase missing submission',
+  remind_at: '2020-01-01T10:00:00Z',
 }
 
-const reminderNotification: Notification = {
-  id: 'notif-2',
-  type: 'reminder',
-  note_id: 'rem-1',
-  comment_id: null,
-  is_read: false,
-  created_at: '2026-09-10T11:30:00Z',
-  note_content_preview: 'Review Bob PR',
-  repo_id: 'repo-1',
-}
-
-function setupNotificationHandlers(opts?: {
-  notifications?: Notification[]
+function setupReminderHandlers(opts?: {
   reminders?: Reminder[]
   onDelete?: (id: string) => void
   onCreate?: (body: unknown) => void
 }) {
-  const notifications = opts?.notifications ?? []
   const reminders = opts?.reminders ?? []
   server.use(
-    http.get('/api/v1/notifications', () =>
-      HttpResponse.json({
-        items: notifications,
-        total: notifications.length,
-        unread_count: notifications.filter((n) => !n.is_read).length,
-      })
-    ),
-    http.get('/api/v1/notifications/unread-count', () =>
-      HttpResponse.json({ unread_count: notifications.filter((n) => !n.is_read).length })
-    ),
     http.get('/api/v1/notifications/reminders', () =>
       HttpResponse.json({ items: reminders, total: reminders.length })
     ),
@@ -180,62 +152,46 @@ function setupNotificationHandlers(opts?: {
   )
 }
 
-function renderSidebar() {
+function renderPanel() {
   return render(
     <QueryClientProvider client={makeClient()}>
-      <MemoryRouter initialEntries={['/collections']}>
-        <SidebarContext.Provider
-          value={{ collapsed: false, setCollapsed: () => {}, width: 220, setWidth: () => {} }}
-        >
-          <AppSidebar />
-        </SidebarContext.Provider>
+      <MemoryRouter>
+        <ActiveRemindersPanel />
       </MemoryRouter>
     </QueryClientProvider>
   )
 }
 
-async function openNotifications() {
-  renderSidebar()
-  fireEvent.click(await screen.findByRole('button', { name: /notifications/i }))
-  // 'Active reminders' is unique to the dropdown; 'Notifications' also matches
-  // the sidebar nav button that opened it.
-  await waitFor(() => expect(screen.getByText(/active reminders/i)).toBeInTheDocument())
-}
-
-describe('NotificationDropdown — reminder notifications', () => {
-  beforeEach(() => localStorage.clear())
-
-  it('labels a fired reminder distinctly from a mention', async () => {
-    setupNotificationHandlers({ notifications: [mentionNotification, reminderNotification] })
-    await openNotifications()
-
-    expect(await screen.findByText('Reminder due')).toBeInTheDocument()
-    expect(screen.getByText('You were mentioned')).toBeInTheDocument()
-  })
-})
-
-describe('NotificationDropdown — active reminders panel', () => {
+describe('ActiveRemindersPanel', () => {
   beforeEach(() => localStorage.clear())
 
   it('lists active reminders with a countdown', async () => {
-    setupNotificationHandlers({ reminders: [futureReminder] })
-    await openNotifications()
+    setupReminderHandlers({ reminders: [futureReminder] })
+    renderPanel()
 
     expect(await screen.findByText('Review Bob PR')).toBeInTheDocument()
     expect(screen.getByText(/in \d+d/)).toBeInTheDocument()
   })
 
+  it('flags an overdue reminder', async () => {
+    setupReminderHandlers({ reminders: [overdueReminder] })
+    renderPanel()
+
+    expect(await screen.findByText('Chase missing submission')).toBeInTheDocument()
+    expect(screen.getByText(/overdue/i)).toBeInTheDocument()
+  })
+
   it('shows an empty state when there are no active reminders', async () => {
-    setupNotificationHandlers({ reminders: [] })
-    await openNotifications()
+    setupReminderHandlers({ reminders: [] })
+    renderPanel()
 
     expect(await screen.findByText(/no active reminders/i)).toBeInTheDocument()
   })
 
   it('removes a reminder via its delete control', async () => {
     const onDelete = vi.fn()
-    setupNotificationHandlers({ reminders: [futureReminder], onDelete })
-    await openNotifications()
+    setupReminderHandlers({ reminders: [futureReminder], onDelete })
+    renderPanel()
 
     await screen.findByText('Review Bob PR')
     fireEvent.click(screen.getByTitle('Remove reminder'))
@@ -243,10 +199,10 @@ describe('NotificationDropdown — active reminders panel', () => {
     await waitFor(() => expect(onDelete).toHaveBeenCalledWith('rem-1'))
   })
 
-  it('creates a reminder from the panel with content and due date', async () => {
+  it('creates a reminder with content and due date', async () => {
     const onCreate = vi.fn()
-    setupNotificationHandlers({ reminders: [], onCreate })
-    await openNotifications()
+    setupReminderHandlers({ reminders: [], onCreate })
+    renderPanel()
 
     fireEvent.click(await screen.findByTitle('New reminder'))
     fireEvent.change(screen.getByPlaceholderText(/remind me to/i), {
@@ -266,8 +222,8 @@ describe('NotificationDropdown — active reminders panel', () => {
 
   it('will not create a reminder with empty content', async () => {
     const onCreate = vi.fn()
-    setupNotificationHandlers({ reminders: [], onCreate })
-    await openNotifications()
+    setupReminderHandlers({ reminders: [], onCreate })
+    renderPanel()
 
     fireEvent.click(await screen.findByTitle('New reminder'))
     fireEvent.click(screen.getByRole('button', { name: 'Add reminder' }))

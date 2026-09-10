@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate, useLocation, useParams } from 'react-router-dom'
-import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   GitBranch,
@@ -14,37 +13,18 @@ import {
   Settings,
   Shield,
   LogOut,
-  X,
-  MessageSquare,
-  AtSign,
-  Clock,
-  Plus,
-  Trash2,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useCollections } from '@/hooks/useCollections'
 import { useRepos, useRepo } from '@/hooks/useRepos'
-import {
-  useUnreadCount,
-  useNotifications,
-  useMarkNotificationRead,
-  useMarkAllNotificationsRead,
-  useReminders,
-} from '@/hooks/useNotifications'
+import { useUnreadCount } from '@/hooks/useNotifications'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
   TooltipProvider,
 } from '@/components/ui/tooltip'
-import { useCreateNote, useDeleteNote } from '@/hooks/useNotes'
 import { useSidebar, COLLAPSED_GUTTER } from '@/contexts/SidebarContext'
-import { cn } from '@/lib/utils'
-import {
-  formatReminderCountdown,
-  isReminderOverdue,
-  localInputToIso,
-} from '@/lib/reminders'
 import type { HealthStatus } from '@/types'
 
 // ── Health dot ──────────────────────────────────────────────────────────────
@@ -60,253 +40,6 @@ const NAV_BASE =
   'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer select-none'
 const NAV_DEFAULT = 'text-slate-300 hover:text-white hover:bg-slate-800'
 const NAV_ACTIVE = 'bg-indigo-600/20 text-indigo-300'
-
-// ── Notification dropdown ────────────────────────────────────────────────────
-function NotificationDropdown({ onClose }: { onClose: () => void }) {
-  const navigate = useNavigate()
-  const { collapsed, width } = useSidebar()
-  // Sit just clear of the sidebar; it is fixed-position, so this is a
-  // viewport coordinate rather than an offset within the sidebar.
-  const leftOffset = (collapsed ? COLLAPSED_GUTTER : width) + 8
-  const { data: notificationsData } = useNotifications({ limit: 20 })
-  const { data: unreadData } = useUnreadCount()
-  const markRead = useMarkNotificationRead()
-  const markAllRead = useMarkAllNotificationsRead()
-
-  const unreadCount = unreadData?.unread_count ?? 0
-  const notifications = notificationsData?.items ?? []
-
-  function formatTimeAgo(isoStr: string): string {
-    const ms = Date.now() - new Date(isoStr).getTime()
-    const minutes = Math.floor(ms / 60000)
-    if (minutes < 1) return 'just now'
-    if (minutes < 60) return `${minutes}m ago`
-    const hours = Math.floor(minutes / 60)
-    if (hours < 24) return `${hours}h ago`
-    const days = Math.floor(hours / 24)
-    return `${days}d ago`
-  }
-
-  async function handleNotificationClick(id: string, repoId: string | null) {
-    await markRead.mutateAsync(id)
-    onClose()
-    if (repoId) navigate(`/repos/${repoId}`)
-  }
-
-  async function handleMarkAllRead() {
-    await markAllRead.mutateAsync()
-  }
-
-  return (
-    <motion.div
-      data-testid="notification-dropdown"
-      initial={{ opacity: 0, x: -8, scale: 0.96 }}
-      animate={{ opacity: 1, x: 0, scale: 1 }}
-      exit={{ opacity: 0, x: -8, scale: 0.96 }}
-      transition={{ duration: 0.15 }}
-      style={{ left: leftOffset, top: 56, zIndex: 70 }}
-      className="fixed w-80 max-h-[80vh] overflow-y-auto bg-white border border-border rounded-xl shadow-xl"
-    >
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
-        <span className="text-sm font-semibold text-foreground">
-          Notifications
-          {unreadCount > 0 && (
-            <span className="ml-1.5 text-xs font-normal text-amber-600">
-              {unreadCount} unread
-            </span>
-          )}
-        </span>
-        <div className="flex items-center gap-1">
-          {unreadCount > 0 && (
-            <button
-              type="button"
-              onClick={handleMarkAllRead}
-              className="text-xs text-indigo-600 hover:text-indigo-700 transition-colors px-1.5 py-0.5 rounded"
-            >
-              Mark all read
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground p-0.5"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-      <ActiveRemindersPanel />
-
-      <div className="max-h-80 overflow-y-auto">
-        {notifications.length === 0 ? (
-          <div className="py-8 text-center text-muted-foreground">
-            <Bell className="h-6 w-6 mx-auto mb-2 opacity-30" />
-            <p className="text-sm">No notifications</p>
-          </div>
-        ) : (
-          notifications.map((notif) => (
-            <button
-              key={notif.id}
-              type="button"
-              onClick={() => handleNotificationClick(notif.id, notif.repo_id)}
-              className={`w-full text-left flex items-start gap-3 px-3 py-2.5 hover:bg-muted/50 transition-colors border-b border-border/50 last:border-0 ${
-                !notif.is_read ? 'bg-indigo-50/50' : ''
-              }`}
-            >
-              <div className="flex-shrink-0 mt-0.5">
-                {notif.type === 'mention' ? (
-                  <AtSign className="h-4 w-4 text-violet-500" />
-                ) : notif.type === 'reminder' ? (
-                  <Clock className="h-4 w-4 text-amber-500" />
-                ) : (
-                  <MessageSquare className="h-4 w-4 text-indigo-500" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-foreground">
-                  {notif.type === 'mention'
-                    ? 'You were mentioned'
-                    : notif.type === 'reminder'
-                      ? 'Reminder due'
-                      : 'New comment on your note'}
-                </p>
-                {notif.note_content_preview && (
-                  <p className="text-xs text-muted-foreground truncate mt-0.5">
-                    {notif.note_content_preview}
-                  </p>
-                )}
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  {formatTimeAgo(notif.created_at)}
-                </p>
-              </div>
-              {!notif.is_read && (
-                <div className="flex-shrink-0 w-2 h-2 rounded-full bg-amber-500 mt-1.5" />
-              )}
-            </button>
-          ))
-        )}
-      </div>
-    </motion.div>
-  )
-}
-
-// ── Active reminders panel ───────────────────────────────────────────────────
-function ActiveRemindersPanel() {
-  const { data, isLoading } = useReminders()
-  const createNote = useCreateNote()
-  const deleteNote = useDeleteNote()
-  const [content, setContent] = useState('')
-  const [dueLocal, setDueLocal] = useState('')
-  const [adding, setAdding] = useState(false)
-
-  const reminders = data?.items ?? []
-
-  async function handleAdd() {
-    if (!content.trim()) return
-    await createNote.mutateAsync({
-      content: content.trim(),
-      is_reminder: true,
-      remind_at: localInputToIso(dueLocal),
-    })
-    setContent('')
-    setDueLocal('')
-    setAdding(false)
-  }
-
-  return (
-    <div className="border-b border-border bg-muted/30">
-      <div className="flex items-center justify-between px-3 py-2">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Active reminders
-          {reminders.length > 0 && (
-            <span className="ml-1.5 font-normal normal-case">({reminders.length})</span>
-          )}
-        </span>
-        <button
-          type="button"
-          onClick={() => setAdding((v) => !v)}
-          title={adding ? 'Cancel' : 'New reminder'}
-          className="text-muted-foreground hover:text-indigo-600 transition-colors p-0.5"
-        >
-          {adding ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
-        </button>
-      </div>
-
-      {adding && (
-        <div className="flex flex-col gap-1.5 px-3 pb-2">
-          <input
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="Remind me to..."
-            className="h-7 rounded-md border border-input bg-background px-2 text-xs"
-          />
-          <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
-            <span className="flex-shrink-0">Due</span>
-            <input
-              type="datetime-local"
-              aria-label="Due"
-              value={dueLocal}
-              onChange={(e) => setDueLocal(e.target.value)}
-              className="flex-1 h-7 rounded-md border border-input bg-background px-2 text-[11px]"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={handleAdd}
-            disabled={!content.trim() || createNote.isPending}
-            className="h-7 rounded-md bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            Add reminder
-          </button>
-        </div>
-      )}
-
-      {isLoading ? (
-        <p className="px-3 pb-2 text-xs text-muted-foreground">Loading reminders...</p>
-      ) : reminders.length === 0 ? (
-        <p className="px-3 pb-2 text-xs text-muted-foreground">No active reminders</p>
-      ) : (
-        <ul className="max-h-40 overflow-y-auto">
-          {reminders.map((reminder) => {
-            const overdue = isReminderOverdue(reminder.remind_at)
-            return (
-              <li
-                key={reminder.id}
-                className="flex items-start gap-2 px-3 py-1.5 border-t border-border/50"
-              >
-                <Clock
-                  className={cn(
-                    'h-3.5 w-3.5 flex-shrink-0 mt-0.5',
-                    overdue ? 'text-red-500' : 'text-amber-500'
-                  )}
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-foreground truncate">{reminder.content}</p>
-                  <p
-                    className={cn(
-                      'text-[10px]',
-                      overdue ? 'text-red-600 font-medium' : 'text-muted-foreground'
-                    )}
-                  >
-                    {formatReminderCountdown(reminder.remind_at)}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => deleteNote.mutate(reminder.id)}
-                  title="Remove reminder"
-                  className="flex-shrink-0 text-muted-foreground hover:text-red-500 transition-colors p-0.5"
-                >
-                  <Trash2 className="h-3 w-3" />
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-    </div>
-  )
-}
 
 // ── Collection tree item ──────────────────────────────────────────────────────
 function CollectionTreeItem({
@@ -510,7 +243,6 @@ export function AppSidebar() {
   })
 
   // Notification bell state
-  const [notifOpen, setNotifOpen] = useState(false)
   const { data: unreadData } = useUnreadCount()
   const unreadCount = unreadData?.unread_count ?? 0
   const badgeText = unreadCount > 99 ? '99+' : String(unreadCount)
@@ -664,7 +396,7 @@ export function AppSidebar() {
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={() => setNotifOpen((v) => !v)}
+                  onClick={() => navigate('/notifications')}
                   aria-label={unreadLabel}
                   className={`relative w-full flex items-center justify-center py-2 rounded-md transition-colors ${NAV_DEFAULT}`}
                 >
@@ -684,9 +416,11 @@ export function AppSidebar() {
           ) : (
             <button
               type="button"
-              onClick={() => setNotifOpen((v) => !v)}
+              onClick={() => navigate('/notifications')}
               aria-label={unreadLabel}
-              className={`relative w-full ${NAV_BASE} ${NAV_DEFAULT}`}
+              className={`relative w-full ${NAV_BASE} ${
+                location.pathname === '/notifications' ? NAV_ACTIVE : NAV_DEFAULT
+              }`}
             >
               <Bell className="h-4 w-4 flex-shrink-0" />
               <span className="truncate">Notifications</span>
@@ -701,27 +435,6 @@ export function AppSidebar() {
             </button>
           )}
 
-          {createPortal(
-            <>
-              {notifOpen && (
-                <div
-                  data-testid="notification-backdrop"
-                  style={{ zIndex: 60 }}
-                  className="fixed inset-0"
-                  onClick={() => setNotifOpen(false)}
-                />
-              )}
-              <AnimatePresence>
-                {notifOpen && (
-                  <NotificationDropdown
-                    key="notification-dropdown"
-                    onClose={() => setNotifOpen(false)}
-                  />
-                )}
-              </AnimatePresence>
-            </>,
-            document.body
-          )}
         </div>
 
         {/* ── Collection tree ── */}
