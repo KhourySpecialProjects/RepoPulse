@@ -609,7 +609,7 @@ export const handlers = [
   http.get(`${BASE}/notifications/unread-count`, () => {
     return HttpResponse.json({ unread_count: 0 })
   }),
-  http.post(`${BASE}/notifications/:id/read`, ({ params }) => {
+  http.patch(`${BASE}/notifications/:id/read`, ({ params }) => {
     const notif: Notification = {
       id: params.id as string,
       type: 'note_comment',
@@ -622,7 +622,7 @@ export const handlers = [
     }
     return HttpResponse.json(notif)
   }),
-  http.post(`${BASE}/notifications/read-all`, () => {
+  http.post(`${BASE}/notifications/mark-all-read`, () => {
     return HttpResponse.json({ marked_read: 0 })
   }),
 

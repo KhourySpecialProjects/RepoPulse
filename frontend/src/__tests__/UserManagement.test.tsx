@@ -155,9 +155,13 @@ describe('API: user management endpoints', () => {
     expect(result.items).toHaveLength(1)
   })
 
-  it('markAllNotificationsRead posts to /notifications/read-all', async () => {
+  // The backend route is POST /notifications/mark-all-read; the client used to
+  // call /read-all, which 404s, so nothing was ever marked read.
+  it('markAllNotificationsRead posts to /notifications/mark-all-read', async () => {
     server.use(
-      http.post('/api/v1/notifications/read-all', () => HttpResponse.json({ marked_read: 3 }))
+      http.post('/api/v1/notifications/mark-all-read', () =>
+        HttpResponse.json({ marked_read: 3 })
+      )
     )
     const { markAllNotificationsRead } = await import('@/services/api')
     const result = await markAllNotificationsRead()

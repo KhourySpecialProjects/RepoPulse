@@ -331,7 +331,7 @@ export async function getUnreadCount(): Promise<{ unread_count: number }> {
 }
 
 export async function markNotificationRead(id: string): Promise<Notification> {
-  const res = await apiClient.post<Notification>(`/notifications/${id}/read`)
+  const res = await apiClient.patch<Notification>(`/notifications/${id}/read`)
   return res.data
 }
 
@@ -341,7 +341,7 @@ export async function getReminders(): Promise<ReminderListResponse> {
 }
 
 export async function markAllNotificationsRead(): Promise<{ marked_read: number }> {
-  const res = await apiClient.post<{ marked_read: number }>('/notifications/read-all')
+  const res = await apiClient.post<{ marked_read: number }>('/notifications/mark-all-read')
   return res.data
 }
 

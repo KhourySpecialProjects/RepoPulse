@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate, useLocation, useParams } from 'react-router-dom'
+import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   GitBranch,
@@ -63,6 +64,10 @@ const NAV_ACTIVE = 'bg-indigo-600/20 text-indigo-300'
 // ── Notification dropdown ────────────────────────────────────────────────────
 function NotificationDropdown({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate()
+  const { collapsed, width } = useSidebar()
+  // Sit just clear of the sidebar; it is fixed-position, so this is a
+  // viewport coordinate rather than an offset within the sidebar.
+  const leftOffset = (collapsed ? COLLAPSED_GUTTER : width) + 8
   const { data: notificationsData } = useNotifications({ limit: 20 })
   const { data: unreadData } = useUnreadCount()
   const markRead = useMarkNotificationRead()
@@ -94,11 +99,13 @@ function NotificationDropdown({ onClose }: { onClose: () => void }) {
 
   return (
     <motion.div
+      data-testid="notification-dropdown"
       initial={{ opacity: 0, x: -8, scale: 0.96 }}
       animate={{ opacity: 1, x: 0, scale: 1 }}
       exit={{ opacity: 0, x: -8, scale: 0.96 }}
       transition={{ duration: 0.15 }}
-      className="absolute left-full top-0 ml-2 w-80 z-50 bg-white border border-border rounded-xl shadow-xl overflow-hidden"
+      style={{ left: leftOffset, top: 56, zIndex: 70 }}
+      className="fixed w-80 max-h-[80vh] overflow-y-auto bg-white border border-border rounded-xl shadow-xl"
     >
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
         <span className="text-sm font-semibold text-foreground">
@@ -506,6 +513,9 @@ export function AppSidebar() {
   const [notifOpen, setNotifOpen] = useState(false)
   const { data: unreadData } = useUnreadCount()
   const unreadCount = unreadData?.unread_count ?? 0
+  const badgeText = unreadCount > 99 ? '99+' : String(unreadCount)
+  const unreadLabel =
+    unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'
 
   // Auto-expand collection containing the active repo
   useEffect(() => {
@@ -655,12 +665,16 @@ export function AppSidebar() {
                 <button
                   type="button"
                   onClick={() => setNotifOpen((v) => !v)}
+                  aria-label={unreadLabel}
                   className={`relative w-full flex items-center justify-center py-2 rounded-md transition-colors ${NAV_DEFAULT}`}
                 >
                   <Bell className="h-4 w-4" />
                   {unreadCount > 0 && (
-                    <span className="absolute top-1 right-2 min-w-[14px] h-3.5 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center px-1">
-                      {unreadCount > 99 ? '99+' : unreadCount}
+                    <span
+                      data-testid="unread-badge"
+                      className="absolute top-1 right-2 min-w-[14px] h-3.5 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center px-1"
+                    >
+                      {badgeText}
                     </span>
                   )}
                 </button>
@@ -671,31 +685,43 @@ export function AppSidebar() {
             <button
               type="button"
               onClick={() => setNotifOpen((v) => !v)}
+              aria-label={unreadLabel}
               className={`relative w-full ${NAV_BASE} ${NAV_DEFAULT}`}
             >
               <Bell className="h-4 w-4 flex-shrink-0" />
               <span className="truncate">Notifications</span>
               {unreadCount > 0 && (
-                <span className="ml-auto min-w-[18px] h-4 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center px-1">
-                  {unreadCount > 99 ? '99+' : unreadCount}
+                <span
+                  data-testid="unread-badge"
+                  className="ml-auto min-w-[18px] h-4 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center px-1"
+                >
+                  {badgeText}
                 </span>
               )}
             </button>
           )}
 
-          <AnimatePresence>
-            {notifOpen && (
-              <>
+          {createPortal(
+            <>
+              {notifOpen && (
                 <div
-                  className="fixed inset-0 z-40"
+                  data-testid="notification-backdrop"
+                  style={{ zIndex: 60 }}
+                  className="fixed inset-0"
                   onClick={() => setNotifOpen(false)}
                 />
-                <div className="relative z-50">
-                  <NotificationDropdown onClose={() => setNotifOpen(false)} />
-                </div>
-              </>
-            )}
-          </AnimatePresence>
+              )}
+              <AnimatePresence>
+                {notifOpen && (
+                  <NotificationDropdown
+                    key="notification-dropdown"
+                    onClose={() => setNotifOpen(false)}
+                  />
+                )}
+              </AnimatePresence>
+            </>,
+            document.body
+          )}
         </div>
 
         {/* ── Collection tree ── */}
