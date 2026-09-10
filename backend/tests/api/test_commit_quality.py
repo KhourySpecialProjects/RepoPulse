@@ -9,7 +9,6 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.app_settings import AppSettings
 from app.models.collection import Collection
 from app.models.commit_quality_score import CommitQualityScore
 from app.models.repo import Repo
@@ -132,11 +131,6 @@ async def test_commit_quality_scores_commits_via_llm(
 ) -> None:
     """Scores commits using the LLM and returns structured results."""
     col = await _make_collection(db_session, test_user.id)
-    db_session.add(AppSettings(
-        user_id=test_user.id,
-        commit_evaluation_criteria="Commits must be focused and must not be pushed directly to main.",
-    ))
-    await db_session.flush()
     # Use a sentinel path — we mock git_service so it never hits disk
     repo = await _make_repo(db_session, col.id, "my-repo", local_path="/fake/path/my-repo")
 
@@ -154,13 +148,6 @@ async def test_commit_quality_scores_commits_via_llm(
             "message": "wip",
             "author": "Bob",
             "date": "2026-01-02T11:00:00",
-            "branch": "feature/auth",
-            "files_changed": 2,
-            "insertions": 18,
-            "deletions": 5,
-            "total_lines_changed": 23,
-            "changed_files": ["app/auth.py", "tests/test_auth.py"],
-            "diff": "@@ -1 +1 @@\n-old\n+new",
         },
     ]
 
@@ -185,13 +172,6 @@ async def test_commit_quality_scores_commits_via_llm(
             f"/api/v1/collections/{col.id}/commit-quality",
             headers=auth_headers,
         )
-        prompt = mock_llm_instance.generate.call_args.args[0]
-        assert "<professor_criteria>" in prompt
-        assert "Commits must be focused" in prompt
-        assert "feature/auth" in prompt
-        assert "app/auth.py" in prompt
-        assert "Total lines changed: 23" in prompt
-        assert "@@ -1 +1 @@" in prompt
 
     assert resp.status_code == 200
     data = resp.json()

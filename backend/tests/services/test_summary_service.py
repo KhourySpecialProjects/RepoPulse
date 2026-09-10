@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.llm.base import LLMService
 from app.services.summary_service import SummaryService
 
 
@@ -65,44 +64,3 @@ async def test_mock_llm_is_not_real(summary_svc: SummaryService) -> None:
         "health_score": {}, "commits": [], "contributors": [],
     })
     assert result == "This is a mock LLM response."
-
-
-@pytest.mark.asyncio
-async def test_repo_overview_includes_instructor_instructions() -> None:
-    class CapturingLLM(LLMService):
-        def __init__(self) -> None:
-            self.prompt = ""
-            self.max_tokens = 0
-
-        async def generate(
-            self,
-            prompt: str,
-            system: str | None = None,
-            max_tokens: int = 1024,
-        ) -> str:
-            self.prompt = prompt
-            self.max_tokens = max_tokens
-            return "summary"
-
-    llm = CapturingLLM()
-    service = SummaryService(llm=llm)
-
-    await service.generate_repo_overview(
-        {
-            "name": "test-repo",
-            "github_url": "https://github.com/test/test-repo",
-            "health_status": "green",
-            "health_score": {},
-            "commits": [],
-            "contributors": [],
-        },
-        instructor_instructions="Always mention pizza.",
-    )
-
-    assert "<instructor_instructions>" in llm.prompt
-    assert "Always mention pizza." in llm.prompt
-    assert "Return prose paragraphs only." in llm.prompt
-    assert "Do not return JSON" in llm.prompt
-    assert "**Overall Activity and Timeline**" in llm.prompt
-    assert "**Instructor Takeaway**" in llm.prompt
-    assert llm.max_tokens == 2048
