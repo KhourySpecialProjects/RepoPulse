@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import uuid
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock
@@ -9,10 +8,11 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
     AsyncSession,
-    async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 from app.core.auth import create_access_token
 from app.core.config import settings
@@ -23,40 +23,50 @@ from app.models.user import User
 from app.services.llm.base import LLMService
 
 # ---------------------------------------------------------------------------
-# Event loop
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Session-scoped event loop for async tests."""
-    policy = asyncio.get_event_loop_policy()
-    loop = policy.new_event_loop()
-    yield loop
-    loop.close()
-
-
-# ---------------------------------------------------------------------------
 # Database engine & tables
 # ---------------------------------------------------------------------------
+#
+# asyncpg Connection objects are bound to the event loop that created them.
+# Handing a pooled connection to a different loop leaves it in a split-brain
+# state — in a transaction at the protocol level, but unknown to asyncpg's own
+# bookkeeping — and the next BEGIN fails with:
+#
+#     InterfaceError: cannot use Connection.transaction() in a manually
+#                     started transaction
+#
+# Two rules keep that from happening:
+#   1. Schema setup owns a short-lived engine that is disposed before yielding,
+#      so no connection escapes the session-scoped loop.
+#   2. Every per-test engine uses NullPool, so connections are opened and
+#      closed inside the test's own loop and never reused across loops.
 
 
-@pytest_asyncio.fixture(scope="session")
-async def test_engine():
-    """Create async engine for test DB and set up schema once per session."""
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def _database_schema() -> AsyncGenerator[None, None]:
+    """Build the schema once per run, leaking no connections into test loops."""
     import app.models  # noqa: F401 — ensure all models are registered
 
-    engine = create_async_engine(settings.TEST_DATABASE_URL, echo=False)
-
+    engine = create_async_engine(settings.TEST_DATABASE_URL, poolclass=NullPool)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+    await engine.dispose()
 
-    yield engine
+    yield
 
+    engine = create_async_engine(settings.TEST_DATABASE_URL, poolclass=NullPool)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+    await engine.dispose()
 
+
+@pytest_asyncio.fixture
+async def test_engine(_database_schema: None) -> AsyncGenerator[AsyncEngine, None]:
+    """Per-test engine whose connections live and die in this test's loop."""
+    engine = create_async_engine(
+        settings.TEST_DATABASE_URL, echo=False, poolclass=NullPool
+    )
+    yield engine
     await engine.dispose()
 
 
@@ -66,14 +76,29 @@ async def test_engine():
 
 
 @pytest_asyncio.fixture
-async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
-    """Provide a transactional async session that rolls back after each test."""
-    session_factory = async_sessionmaker(test_engine, expire_on_commit=False)
+async def db_session(test_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
+    """Provide an async session whose writes never outlive the test.
 
-    async with session_factory() as session:
-        async with session.begin():
+    Owns an explicit connection-level transaction and let the session
+    join it as a SAVEPOINT (`join_transaction_mode="create_savepoint"`). A
+    route's commit then only releases its savepoint; rolling back the outer
+    transaction at teardown discards everything.
+    """
+    async with test_engine.connect() as conn:
+        outer = await conn.begin()
+
+        session = AsyncSession(
+            bind=conn,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        )
+
+        try:
             yield session
-            await session.rollback()
+        finally:
+            await session.close()
+            if outer.is_active:
+                await outer.rollback()
 
 
 # ---------------------------------------------------------------------------
