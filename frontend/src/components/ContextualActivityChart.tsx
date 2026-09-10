@@ -9,7 +9,7 @@ import type { ContextActivityPoint } from '@/types'
 function ActivityTooltip({ active, payload }: { active?: boolean; payload?: { payload?: ContextActivityPoint }[] }) {
   const point = payload?.[0]?.payload
   if (!active || !point) return null
-  return <div className="max-w-xs rounded border bg-background p-3 text-sm shadow-md"><p className="font-medium">{point.date}: {point.count} commits</p><p>{point.context || 'No significant pattern detected on this day.'}</p></div>
+  return <div className="max-w-xs rounded border bg-background p-3 text-sm shadow-md"><p className="font-medium">{point.date}: {point.count} commits</p>{point.context && <p>{point.context}</p>}</div>
 }
 
 export function ContextualActivityChart({ collectionId, repoId, children }: { collectionId: string; repoId: string; children?: ReactNode }) {
@@ -27,6 +27,7 @@ export function ContextualActivityChart({ collectionId, repoId, children }: { co
   const peers = data?.repositories.filter(r => r.id !== repoId && r.available).map(r => r.activity) ?? []
   const points = contextualizeActivity(activity, peers, historyStart, today).filter(p => p.date >= start)
   const annotations = points.filter(p => p.context)
+  const normalPoint = annotations.length === 0 ? points[points.length - 1] : undefined
   return <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
     <Card>
       <CardHeader>
@@ -55,13 +56,14 @@ export function ContextualActivityChart({ collectionId, repoId, children }: { co
                 <YAxis allowDecimals={false} />
                 <Tooltip content={<ActivityTooltip />} />
                 <Area dataKey="count" type="linear" stroke="#6366f1" fill="#6366f1" fillOpacity={0.15} />
+                {normalPoint && <ReferenceDot x={normalPoint.date} y={normalPoint.count} r={0} label={{ value: '✓', position: 'top', fill: '#16a34a', fontSize: 20 }} />}
                 {annotations.map(p => <ReferenceDot key={p.date} x={p.date} y={p.count} r={6} fill="#d97706" stroke="#fff" />)}
               </AreaChart>
             </ResponsiveContainer>
           </div>
-          <div className="mt-3 max-h-48 space-y-2 overflow-auto" aria-label="Significant activity periods">
-            {annotations.length ? annotations.map(p => <details key={p.date} className="rounded border p-2 text-sm"><summary className="cursor-pointer font-medium">{p.date} — {p.count ? 'Unusual burst' : 'Quiet period'}</summary><p className="mt-2">{p.context}</p></details>) : <p className="text-sm text-muted-foreground">No significant patterns detected in this range.</p>}
-          </div>
+          {annotations.length > 0 && <div className="mt-3 max-h-48 space-y-2 overflow-auto" aria-label="Significant activity periods">
+            {annotations.map(p => <details key={p.date} className="rounded border p-2 text-sm"><summary className="cursor-pointer font-medium">{p.date} — {p.count ? 'Unusual burst' : 'Quiet period'}</summary><p className="mt-2">{p.context}</p></details>)}
+          </div>}
         </>}
       </CardContent>
     </Card>

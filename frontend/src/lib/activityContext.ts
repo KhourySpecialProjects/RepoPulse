@@ -8,6 +8,7 @@ export function contextualizeActivity(activity: CommitActivityPoint[], peers: Co
     const date = new Date(ts).toISOString().slice(0, 10)
     points.push({ date, ts, count: counts.get(date) ?? 0, context: '' })
   }
+  const total = points.reduce((sum, point) => sum + point.count, 0)
   let quietStart = -1
   points.forEach((point, i) => {
     if (!point.count && quietStart < 0) quietStart = i
@@ -16,13 +17,14 @@ export function contextualizeActivity(activity: CommitActivityPoint[], peers: Co
       const from = points[quietStart].date
       const eligible = peers.filter(peer => peer.some(p => p.date <= from && p.count > 0))
       const active = eligible.filter(peer => peer.some(p => p.date >= from && p.date <= point.date && p.count > 0)).length
-      const interval = `${i - quietStart + 1} days without commits (${from} to ${point.date}).`
-      point.context = `${interval} ${!eligible.length ? 'Peer comparison unavailable for this interval.' : active ? `Potential issue: ${active} of ${eligible.length} other repositories had commits in the same interval; ${eligible.length - active} were also quiet. Check in with the student or team.` : `All ${eligible.length} other repositories were also quiet over this interval; this may reflect a shared pause.`}`
+      const interval = `${i - quietStart + 1} days without commits.`
+      point.context = `${interval} ${!eligible.length ? 'Peer comparison unavailable.' : active ? `Potential issue: ${active} of ${eligible.length} peer repos were active. Consider a check-in.` : `All ${eligible.length} peer repos were also quiet. Likely a shared pause.`}`
     }
     const prior = points.slice(Math.max(0, i - 7), i)
     const average = prior.reduce((sum, p) => sum + p.count, 0) / prior.length
     if (prior.length >= 7 && point.count >= 10 && point.count >= Math.max(1, average) * 3) {
-      point.context = `Unusual burst: ${point.count} commits, compared with ${average.toFixed(1)} per day over the preceding week. This may reflect batched commits or a deadline; commit counts alone cannot establish the cause.`
+      const finalPush = i >= points.length - 2 && point.count >= total * 0.8
+      point.context = `Unusual burst of ${point.count} commits. This may reflect ${finalPush ? 'a deadline push' : 'batched commits'}.`
     }
   })
   return points

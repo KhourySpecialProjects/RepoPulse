@@ -24,3 +24,16 @@ describe('activity context', () => {
     expect(contextualizeActivity(days([10, 10, 10, 10]), [], '2026-09-01', '2026-09-04').every(p => !p.context)).toBe(true)
   })
 })
+
+it('keeps quiet explanations short without date spans', () => {
+  const result = contextualizeActivity([{ date: '2026-09-01', count: 1 }], [], '2026-09-01', '2026-09-05')
+  expect(result[4].context).toBe('4 days without commits. Peer comparison unavailable.')
+})
+it('chooses only deadline wording for a concentrated final burst', () => {
+  const result = contextualizeActivity([{ date: '2026-09-01', count: 1 }, { date: '2026-09-08', count: 30 }], [], '2026-09-01', '2026-09-09')
+  expect(result[7].context).toBe('Unusual burst of 30 commits. This may reflect a deadline push.')
+})
+it('chooses only batched wording for an earlier burst', () => {
+  const result = contextualizeActivity([{ date: '2026-09-01', count: 1 }, { date: '2026-09-08', count: 30 }], [], '2026-09-01', '2026-09-15')
+  expect(result[7].context).toBe('Unusual burst of 30 commits. This may reflect batched commits.')
+})
