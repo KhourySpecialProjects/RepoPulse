@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import { useAuth } from '@/hooks/useAuth'
 import { LoginPage } from '@/pages/LoginPage'
+import { HomePage } from '@/pages/HomePage'
 import { CollectionsPage } from '@/pages/CollectionsPage'
 import { CollectionDetailPage } from '@/pages/CollectionDetailPage'
 import { RepoDetailPage } from '@/pages/RepoDetailPage'
@@ -49,7 +50,7 @@ function AppRoutes() {
           path="/"
           element={
             <ProtectedRoute>
-              <Navigate to="/collections" replace />
+              <HomePage />
             </ProtectedRoute>
           }
         />
