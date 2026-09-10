@@ -112,15 +112,15 @@ export function NoteComments({ note, currentUserId, currentUserRole }: NoteComme
                   <p className="text-xs text-foreground leading-snug">{comment.content}</p>
                 </div>
                 {canDelete && (
-                  <button
+                  <Button variant="ghost"
                     type="button"
                     onClick={() => handleDelete(comment.id)}
-                    disabled={deleteComment.isPending}
+                    loading={deleteComment.isPending} disabled={deleteComment.isPending}
                     className="flex-shrink-0 text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-40"
                     title="Delete comment"
                   >
                     <Trash2 className="h-3 w-3" />
-                  </button>
+                  </Button>
                 )}
               </div>
             )
@@ -151,7 +151,7 @@ export function NoteComments({ note, currentUserId, currentUserRole }: NoteComme
             <Button
               type="submit"
               size="sm"
-              disabled={createComment.isPending || !replyText.trim()}
+              loading={createComment.isPending} disabled={createComment.isPending || !replyText.trim()}
               className={cn('text-xs h-6 px-2 bg-indigo-600 hover:bg-indigo-700 text-white border-0')}
             >
               {createComment.isPending ? 'Posting...' : 'Reply'}

@@ -23,6 +23,7 @@ import { CommitNotesPanel } from '@/components/CommitNotesPanel'
 import { MarkdownContent } from '@/components/MarkdownContent'
 import { NotesDrawer } from '@/components/NotesDrawer'
 import { Button } from '@/components/ui/button'
+import { LoadingContent } from '@/components/ui/loading-content'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
@@ -68,10 +69,11 @@ function ContributorGenerateButton({ contributorId, repoId }: { contributorId: s
         contributor_id: contributorId,
       })}
       disabled={generateMutation.isPending}
+      aria-busy={generateMutation.isPending}
       className="ml-auto flex items-center gap-0.5 text-muted-foreground hover:text-violet-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
       title="Generate activity summary"
     >
-      <Sparkles className={cn('h-3 w-3', generateMutation.isPending && 'animate-pulse')} />
+      <Sparkles className={cn('h-3 w-3', generateMutation.isPending && 'animate-pulse motion-reduce:animate-none')} />
     </button>
   )
 }
@@ -293,10 +295,11 @@ export function RepoDetailPage() {
   const { data: repo, isLoading: repoLoading } = useRepo(id ?? '')
   const { data: healthScore, isLoading: healthLoading } = useRepoHealth(id ?? '')
   const syncMutation = useSyncRepo()
+  const [syncing, setSyncing] = useState(false)
   const deleteRepoMutation = useDeleteRepo()
   const { data: me } = useCurrentUser()
   const hasToken = Boolean(me?.github_token_configured)
-  const { data: summaries } = useRepoSummaries(id ?? '')
+  const { data: summaries, isLoading: summariesLoading } = useRepoSummaries(id ?? '')
   const generateSummaryMutation = useGenerateSummary()
   const { data: commitsData, isLoading: commitsLoading } = useRepoCommits(id ?? '', {
     limit: COMMITS_PER_PAGE,
@@ -853,6 +856,7 @@ export function RepoDetailPage() {
                 onClick={async () => {
                   const repoId = repo.id
                   const toastId = toast.loading('Syncing repository…')
+                  setSyncing(true)
                   try {
                     await syncMutation.mutateAsync(repoId)
                     toast.success('Sync started — data will refresh shortly.', { id: toastId })
@@ -861,23 +865,25 @@ export function RepoDetailPage() {
                       queryClient.invalidateQueries({ queryKey: repoKeys.health(repoId) })
                       queryClient.invalidateQueries({ queryKey: repoKeys.commits(repoId) })
                       queryClient.invalidateQueries({ queryKey: repoKeys.contributors(repoId) })
+                      setSyncing(false)
                     }, 5000)
                   } catch {
+                    setSyncing(false)
                     toast.error('Sync failed — check backend logs for details.', { id: toastId })
                   }
                 }}
-                disabled={syncMutation.isPending || !hasToken}
+                loading={syncing || syncMutation.isPending} disabled={syncing || syncMutation.isPending || !hasToken}
                 title={!hasToken ? 'Add a GitHub token in your profile to enable syncing' : undefined}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white"
               >
-                <RefreshCw className={cn('h-4 w-4 mr-1.5', syncMutation.isPending && 'animate-spin')} />
+                <RefreshCw className={cn('h-4 w-4 mr-1.5', (syncing || syncMutation.isPending) && 'animate-spin motion-reduce:animate-none')} />
                 Sync
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleRemove}
-                disabled={deleteRepoMutation.isPending}
+                loading={deleteRepoMutation.isPending} disabled={deleteRepoMutation.isPending}
                 className="text-red-500 hover:text-red-600 border-red-200 hover:border-red-300"
               >
                 <Trash2 className="h-4 w-4 mr-1.5" />
@@ -919,7 +925,7 @@ export function RepoDetailPage() {
                         size="sm"
                         variant="outline"
                         onClick={handleGenerateSummary}
-                        disabled={generateSummaryMutation.isPending}
+                        loading={generateSummaryMutation.isPending} disabled={generateSummaryMutation.isPending}
                       >
                         <Sparkles className={cn('h-4 w-4 mr-1.5', generateSummaryMutation.isPending && 'animate-pulse')} />
                         {generateSummaryMutation.isPending ? 'Generating...' : 'Generate Summary'}
@@ -928,6 +934,9 @@ export function RepoDetailPage() {
                   </CardHeader>
                   {summaryExpanded && (
                   <CardContent>
+                    {(generateSummaryMutation.isPending || summariesLoading) && (
+                      <LoadingContent label={generateSummaryMutation.isPending ? 'Generating your summary… This may take a minute.' : 'Loading summary…'} />
+                    )}
                     {latestSummary ? (
                       <div>
                         <MarkdownContent content={latestSummary.content} />
@@ -935,11 +944,11 @@ export function RepoDetailPage() {
                           Generated {formatDateTime(latestSummary.generated_at)} · {latestSummary.model_used}
                         </p>
                       </div>
-                    ) : (
+                    ) : !generateSummaryMutation.isPending && !summariesLoading ? (
                       <p className="text-sm text-muted-foreground">
                         No summary generated yet. Click "Generate Summary" to create one.
                       </p>
-                    )}
+                    ) : null}
                   </CardContent>
                   )}
                 </Card>
@@ -1357,8 +1366,10 @@ export function RepoDetailPage() {
                     <button
                       onClick={handleMerge}
                       disabled={!mergeDisplayName.trim() || mergeContributorsMutation.isPending}
+                      aria-busy={mergeContributorsMutation.isPending}
                       className="flex-1 text-xs bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded px-2 py-1.5 font-medium transition-colors"
                     >
+                      {mergeContributorsMutation.isPending && <RefreshCw className="inline-block h-3.5 w-3.5 mr-1.5 animate-spin motion-reduce:animate-none" />}
                       {mergeContributorsMutation.isPending ? 'Merging…' : 'Confirm Merge'}
                     </button>
                     <button
@@ -1396,8 +1407,8 @@ export function RepoDetailPage() {
                               onChange={e => setEditingName(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') saveDisplayName(); if (e.key === 'Escape') cancelEditing() }}
                             />
-                            <button onClick={saveDisplayName} disabled={updateContributorMutation.isPending} className="text-emerald-600 hover:text-emerald-700">
-                              <Check className="h-3.5 w-3.5" />
+                            <button onClick={saveDisplayName} aria-busy={updateContributorMutation.isPending} disabled={updateContributorMutation.isPending} className="text-emerald-600 hover:text-emerald-700">
+                              {updateContributorMutation.isPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <Check className="h-3.5 w-3.5" />}
                             </button>
                             <button onClick={cancelEditing} className="text-muted-foreground hover:text-foreground">
                               <X className="h-3.5 w-3.5" />
@@ -1456,11 +1467,12 @@ export function RepoDetailPage() {
                 <button
                   onClick={() => syncPRsMutation.mutate()}
                   disabled={syncPRsMutation.isPending || !hasToken}
+                  aria-busy={syncPRsMutation.isPending}
                   className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground hover:text-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   title={!hasToken ? 'Add a GitHub token to fetch PRs' : prStats && prStats.total_count > 0 ? 'Refresh PRs' : 'Fetch PRs from GitHub'}
                 >
                   {syncPRsMutation.isPending
-                    ? <div className="h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                    ? <RefreshCw className="h-3 w-3 animate-spin motion-reduce:animate-none" />
                     : <RefreshCw className="h-3 w-3" />}
                   {syncPRsMutation.isPending ? 'Syncing…' : prStats && prStats.total_count > 0 ? 'Refresh' : 'Fetch PRs'}
                 </button>
