@@ -137,14 +137,14 @@ async def test_commit_quality_scores_commits_via_llm(
     fake_commits = [
         {
             "hash": "abc1234",
-            "full_hash": "abc1234abc1234abc1234abc1234abc1234abc1234",
+            "full_hash": "abc1234abc1234abc1234abc1234abc1234abc12",
             "message": "Fix null pointer in auth service",
             "author": "Alice",
             "date": "2026-01-01T10:00:00",
         },
         {
             "hash": "def5678",
-            "full_hash": "def5678def5678def5678def5678def5678def5678",
+            "full_hash": "def5678def5678def5678def5678def5678def56",
             "message": "wip",
             "author": "Bob",
             "date": "2026-01-02T11:00:00",
@@ -190,7 +190,7 @@ async def test_commit_quality_scores_commits_via_llm(
 
     commits = repo_result["commits"]
     assert commits[0]["hash"] == "abc1234"
-    assert commits[0]["full_hash"] == "abc1234abc1234abc1234abc1234abc1234abc1234"
+    assert commits[0]["full_hash"] == "abc1234abc1234abc1234abc1234abc1234abc12"
     assert commits[0]["score"] == "good"
     assert commits[0]["from_cache"] is False
     assert commits[1]["hash"] == "def5678"
@@ -212,7 +212,7 @@ async def test_commit_quality_falls_back_to_ok_on_llm_error(
     fake_commits = [
         {
             "hash": "aaa0001",
-            "full_hash": "aaa0001aaa0001aaa0001aaa0001aaa0001aaa0001",
+            "full_hash": "aaa0001aaa0001aaa0001aaa0001aaa0001aaa00",
             "message": "Add feature X",
             "author": "Dev",
             "date": "2026-01-01T12:00:00",
@@ -258,7 +258,7 @@ async def test_commit_quality_falls_back_to_ok_on_invalid_json(
     fake_commits = [
         {
             "hash": "bbb0001",
-            "full_hash": "bbb0001bbb0001bbb0001bbb0001bbb0001bbb0001",
+            "full_hash": "bbb0001bbb0001bbb0001bbb0001bbb0001bbb00",
             "message": "Update README",
             "author": "Dev",
             "date": "2026-01-01T12:00:00",
@@ -379,7 +379,7 @@ async def test_commit_quality_serves_from_cache(
     col = await _make_collection(db_session, test_user.id)
     repo = await _make_repo(db_session, col.id, "cached-repo", local_path="/fake/path/cached-repo")
 
-    full_hash = "ccc0001ccc0001ccc0001ccc0001ccc0001ccc0001"
+    full_hash = "ccc0001ccc0001ccc0001ccc0001ccc0001ccc00"
 
     # Pre-seed a cached score
     cached_row = CommitClassification(
@@ -444,8 +444,8 @@ async def test_commit_quality_partial_cache(
     col = await _make_collection(db_session, test_user.id)
     repo = await _make_repo(db_session, col.id, "partial-repo", local_path="/fake/path/partial-repo")
 
-    cached_full_hash = "ddd0001ddd0001ddd0001ddd0001ddd0001ddd0001"
-    new_full_hash = "eee0002eee0002eee0002eee0002eee0002eee0002"
+    cached_full_hash = "ddd0001ddd0001ddd0001ddd0001ddd0001ddd00"
+    new_full_hash = "eee0002eee0002eee0002eee0002eee0002eee00"
 
     # Pre-seed one cached score
     cached_row = CommitClassification(

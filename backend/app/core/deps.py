@@ -9,7 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import verify_token
 from app.db.database import get_db
 
-security = HTTPBearer()
+# auto_error=False so a missing Authorization header reaches get_current_user
+# and can be answered with 401. 
+security = HTTPBearer(auto_error=False)
 
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
@@ -22,8 +24,14 @@ get_db = get_db
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
 ) -> str:
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     token = credentials.credentials
     payload = verify_token(token)
     if payload is None:
