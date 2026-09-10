@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
+import { ArrowLeft, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
 import {
   AreaChart,
   Area,
@@ -742,7 +742,14 @@ export function RepoDetailPage() {
                 )}
               </div>
               <div className="flex items-center gap-3 mt-0.5">
-                <p className="text-sm text-muted-foreground truncate">{repo.github_url}</p>
+                <a
+                  href={repo.github_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-muted-foreground truncate hover:text-foreground hover:underline"
+                >
+                  {repo.github_url}
+                </a>
                 <span className="text-xs text-muted-foreground flex-shrink-0 flex items-center gap-1">
                   <RefreshCw className="h-3 w-3" />
                   {repo.last_synced_at ? `Synced ${formatDateTime(repo.last_synced_at)}` : 'Never synced'}
@@ -817,12 +824,6 @@ export function RepoDetailPage() {
           <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
             {/* Row 1: navigation + history */}
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" asChild>
-                <a href={repo.github_url} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="h-4 w-4 mr-1.5" />
-                  GitHub
-                </a>
-              </Button>
               {repo.local_path && (
                 <Button variant="outline" size="sm" asChild>
                   <a href={`vscode://file/${repo.local_path}`}>
