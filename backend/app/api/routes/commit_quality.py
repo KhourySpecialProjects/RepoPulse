@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import get_current_user, get_db_session
 from app.models.app_settings import AppSettings
 from app.models.collection import Collection
-from app.models.commit_quality_score import CommitQualityScore
+from app.models.commit_classification import CommitClassification
 from app.models.repo import Repo
 from app.schemas.errors import ErrorResponse
 from app.services.git_service import GitService
@@ -196,9 +196,9 @@ async def get_commit_quality(
     all_repo_ids = [repo.id for repo, _ in repo_commits]
     all_hashes = [c["full_hash"] for _, commits in repo_commits for c in commits]
     cached_result = await db.execute(
-        select(CommitQualityScore).where(
-            CommitQualityScore.repo_id.in_(all_repo_ids),
-            CommitQualityScore.commit_hash.in_(all_hashes),
+        select(CommitClassification).where(
+            CommitClassification.repo_id.in_(all_repo_ids),
+            CommitClassification.commit_hash.in_(all_hashes),
         )
     )
     cached_rows = cached_result.scalars().all()
@@ -238,8 +238,8 @@ async def get_commit_quality(
                 "model_used": model_label,
             })
         if rows_to_insert:
-            stmt = pg_insert(CommitQualityScore).values(rows_to_insert)
-            stmt = stmt.on_conflict_do_nothing(constraint="uq_commit_quality_repo_hash")
+            stmt = pg_insert(CommitClassification).values(rows_to_insert)
+            stmt = stmt.on_conflict_do_nothing(constraint="uq_commit_classification_repo_hash")
             await db.execute(stmt)
             await db.commit()
     else:

@@ -10,7 +10,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.collection import Collection
-from app.models.commit_quality_score import CommitQualityScore
+from app.models.commit_classification import CommitClassification
 from app.models.repo import Repo
 
 
@@ -382,7 +382,7 @@ async def test_commit_quality_serves_from_cache(
     full_hash = "ccc0001ccc0001ccc0001ccc0001ccc0001ccc0001"
 
     # Pre-seed a cached score
-    cached_row = CommitQualityScore(
+    cached_row = CommitClassification(
         id=uuid.uuid4(),
         repo_id=repo.id,
         commit_hash=full_hash,
@@ -448,7 +448,7 @@ async def test_commit_quality_partial_cache(
     new_full_hash = "eee0002eee0002eee0002eee0002eee0002eee0002"
 
     # Pre-seed one cached score
-    cached_row = CommitQualityScore(
+    cached_row = CommitClassification(
         id=uuid.uuid4(),
         repo_id=repo.id,
         commit_hash=cached_full_hash,
