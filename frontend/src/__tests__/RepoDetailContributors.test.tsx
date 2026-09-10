@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
@@ -255,4 +255,44 @@ it('only offers unmerge for one eligible selection and keeps it selected on fail
   await waitFor(() => expect(unmerge).toHaveBeenCalledTimes(1))
   expect(await screen.findByRole('button', { name: 'Unmerge' })).toBeEnabled()
   expect(screen.getByRole('checkbox', { name: 'Select Alice Johnson' })).toBeChecked()
+})
+
+
+it('filters commits by selected contributors and aliases, combines branches, and resets pagination', async () => {
+  const people = [
+    { ...mockContributorsEnriched[0], aliases: [
+      { id: 'a1', git_email: 'ALICE@example.com', git_name: 'Alice' },
+      { id: 'a2', git_email: 'alias@example.com', git_name: 'Alias' },
+    ] },
+    { ...mockContributorsEnriched[1], aliases: [{ id: 'b1', git_email: 'bob@example.com', git_name: 'Bob' }] },
+  ]
+  const commits = Array.from({ length: 12 }, (_, i) => ({
+    hash: `commit-${i}`, message: `Change number ${i}`, author_name: 'Student',
+    author_email: i === 0 ? 'alice@example.com' : i === 1 ? 'alias@example.com' : 'bob@example.com',
+    date: '2026-09-01T12:00:00Z', branches: [i === 1 ? 'feature' : 'main'],
+    insertions: 1, deletions: 0, files_changed: 1,
+  }))
+  server.use(
+    http.get('/api/v1/repos/:id', () => HttpResponse.json(mockRepo)),
+    http.get('/api/v1/repos/:id/contributors', () => HttpResponse.json(people)),
+    http.get('/api/v1/repos/:id/commits', () => HttpResponse.json({ items: commits, total: 12, limit: 500, offset: 0 })),
+  )
+  renderPage()
+  await screen.findByRole('checkbox', { name: 'Select Alice Johnson' })
+  fireEvent.click(screen.getAllByRole('button', { name: 'Next' })[0])
+  expect(within(screen.getByRole('region', { name: 'Commit list' })).getByText('Change number 11')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Select Alice Johnson' }))
+  await waitFor(() => {
+    const list = within(screen.getByRole('region', { name: 'Commit list' }))
+    expect(list.getByText('Change number 0')).toBeInTheDocument()
+    expect(list.getByText('Change number 1')).toBeInTheDocument()
+    expect(list.queryByText('Change number 2')).not.toBeInTheDocument()
+    expect(list.queryByText('Change number 11')).not.toBeInTheDocument()
+  })
+  fireEvent.click(screen.getAllByRole('button', { name: 'main' })[0])
+  expect(within(screen.getByRole('region', { name: 'Commit list' })).queryByText('Change number 1')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Select Bob Smith' }))
+  expect(within(screen.getByRole('region', { name: 'Commit list' })).getByText('Change number 2')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Select all contributors' }))
+  expect(within(screen.getByRole('region', { name: 'Commit list' })).getByText('Change number 0')).toBeInTheDocument()
 })

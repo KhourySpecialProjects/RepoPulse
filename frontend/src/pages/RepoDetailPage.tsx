@@ -339,7 +339,7 @@ export function RepoDetailPage() {
     const map: Record<string, string> = {}
     contributors?.forEach(contributor => {
       contributor.aliases.forEach(alias => {
-        map[alias.git_email] = contributor.id
+        map[alias.git_email.toLowerCase()] = contributor.id
       })
     })
     return map
@@ -390,11 +390,15 @@ export function RepoDetailPage() {
   }
 
   const filteredCommits = useMemo(() => {
+    const allContributorsSelected = selectedContributorIds.size === 0 ||
+      (contributors != null && contributors.length > 0 && contributors.every(contributor => selectedContributorIds.has(contributor.id)))
     return (allCommitsData?.items ?? []).filter(c => {
       const branchMatch = selectedBranches.size === 0 || c.branches.some(b => selectedBranches.has(b))
-      return branchMatch
+      const contributorId = emailToContributorId[c.author_email.toLowerCase()]
+      const contributorMatch = allContributorsSelected || selectedContributorIds.has(contributorId)
+      return branchMatch && contributorMatch
     })
-  }, [allCommitsData, selectedBranches])
+  }, [allCommitsData, selectedBranches, selectedContributorIds, contributors, emailToContributorId])
 
   const displayedCommits = filteredCommits.slice(
     commitPage * COMMITS_PER_PAGE,
@@ -507,7 +511,7 @@ export function RepoDetailPage() {
   // Reset to page 0 when filters change
   useEffect(() => {
     setCommitPage(0)
-  }, [selectedBranches])
+  }, [selectedBranches, selectedContributorIds])
 
   useEffect(() => {
     if (repo?.expected_contributor_count != null) {
