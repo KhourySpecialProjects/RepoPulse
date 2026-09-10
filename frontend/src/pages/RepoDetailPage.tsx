@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests } from '@/hooks/useRepos'
+import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, useUnmergeContributor, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests } from '@/hooks/useRepos'
 import { useRepoSummaries, useContributorSummaries, useGenerateSummary } from '@/hooks/useSummaries'
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '@/hooks/useNotes'
 import { useUsers, useCurrentUser } from '@/hooks/useUsers'
@@ -240,12 +240,11 @@ export function RepoDetailPage() {
   const [activeCommitHash, setActiveCommitHash] = useState<string | null>(null)
   const [highlightedCommitHash, setHighlightedCommitHash] = useState<string | null>(null)
   const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
-  const [selectedAuthors, setSelectedAuthors] = useState<Set<string>>(new Set())
   const [showAllBranches, setShowAllBranches] = useState(false)
-  const [showAllAuthors, setShowAllAuthors] = useState(false)
   const [selectedContributorIds, setSelectedContributorIds] = useState<Set<string>>(new Set())
   const [editingContributorId, setEditingContributorId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
+  const [showMerge, setShowMerge] = useState(false)
   const [mergeDisplayName, setMergeDisplayName] = useState('')
   const [expectedCount, setExpectedCount] = useState<string>('')
   const [COMMITS_PER_PAGE, setCommitsPerPage] = useState(10)
@@ -300,6 +299,10 @@ export function RepoDetailPage() {
   const { data: contributors, isLoading: contributorsLoading } = useRepoContributors(id ?? '')
   const updateContributorMutation = useUpdateContributor(id ?? '')
   const mergeContributorsMutation = useMergeContributors(id ?? '')
+  const unmergeContributorMutation = useUnmergeContributor(id ?? '')
+  const selectedMergedContributor = selectedContributorIds.size === 1
+    ? contributors?.find(c => selectedContributorIds.has(c.id) && c.can_unmerge)
+    : undefined
   const patchRepoMutation = usePatchRepo()
   const { data: prStats } = usePRStats(id ?? '')
   const PR_PAGE_SIZE = 10
@@ -377,12 +380,6 @@ export function RepoDetailPage() {
     return Array.from(names).sort()
   }, [allCommitsData])
 
-  const allAuthors = useMemo(() => {
-    const names = new Set<string>()
-    allCommitsData?.items.forEach(c => names.add(resolvedAuthor(c)))
-    return Array.from(names).sort()
-  }, [allCommitsData, emailToDisplayName])
-
   function toggleBranch(branch: string) {
     setSelectedBranches(prev => {
       const next = new Set(prev)
@@ -392,22 +389,12 @@ export function RepoDetailPage() {
     })
   }
 
-  function toggleAuthor(author: string) {
-    setSelectedAuthors(prev => {
-      const next = new Set(prev)
-      if (next.has(author)) next.delete(author)
-      else next.add(author)
-      return next
-    })
-  }
-
   const filteredCommits = useMemo(() => {
     return (allCommitsData?.items ?? []).filter(c => {
       const branchMatch = selectedBranches.size === 0 || c.branches.some(b => selectedBranches.has(b))
-      const authorMatch = selectedAuthors.size === 0 || selectedAuthors.has(resolvedAuthor(c))
-      return branchMatch && authorMatch
+      return branchMatch
     })
-  }, [allCommitsData, selectedBranches, selectedAuthors, emailToDisplayName])
+  }, [allCommitsData, selectedBranches])
 
   const displayedCommits = filteredCommits.slice(
     commitPage * COMMITS_PER_PAGE,
@@ -415,6 +402,7 @@ export function RepoDetailPage() {
   )
 
   function toggleContributorSelect(contributorId: string) {
+    setShowMerge(false)
     setSelectedContributorIds(prev => {
       const next = new Set(prev)
       if (next.has(contributorId)) next.delete(contributorId)
@@ -446,6 +434,13 @@ export function RepoDetailPage() {
     await mergeContributorsMutation.mutateAsync({ ids, displayName: mergeDisplayName.trim() })
     setSelectedContributorIds(new Set())
     setMergeDisplayName('')
+    setShowMerge(false)
+  }
+
+  function handleUnmerge() {
+    if (!selectedMergedContributor) return
+    // Keep the primary selected so another earlier merge can be undone next.
+    unmergeContributorMutation.mutate(selectedMergedContributor.id)
   }
 
   function initMerge() {
@@ -512,7 +507,7 @@ export function RepoDetailPage() {
   // Reset to page 0 when filters change
   useEffect(() => {
     setCommitPage(0)
-  }, [selectedBranches, selectedAuthors])
+  }, [selectedBranches])
 
   useEffect(() => {
     if (repo?.expected_contributor_count != null) {
@@ -836,16 +831,9 @@ export function RepoDetailPage() {
                   )}
                 </Card>
 
-                <ContextualActivityChart key={id} collectionId={repo.collection_id} repoId={repo.id}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        {checkIns.length > 0 && (
-                          <span className="text-xs text-muted-foreground">
-                            Last checked: {formatRelativeDays(checkIns[checkIns.length - 1])}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1">
+                <ContextualActivityChart key={id} collectionId={repo.collection_id} repoId={repo.id}
+                  selectedContributorIds={Array.from(selectedContributorIds)}
+                  actions={<>
                         <button
                           onClick={handleCheckIn}
                           title="Record a check-in now"
@@ -867,8 +855,9 @@ export function RepoDetailPage() {
                           <CalendarPlus className="h-3.5 w-3.5" />
                         </button>
 
-                      </div>
-                    </div>
+                  </>}
+                >
+                  {checkIns.length > 0 && <p className="text-xs text-muted-foreground">Last checked: {formatRelativeDays(checkIns[checkIns.length - 1])}</p>}
                     {showPastCheckIn && (
                       <div className="flex items-center gap-2 mt-2 pt-2 border-t">
                         <input
@@ -944,44 +933,6 @@ export function RepoDetailPage() {
                             className="text-xs px-1.5 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
                           >
                             {showAllBranches ? 'Show less' : `+${allBranches.length - MAX_FILTER_CHIPS} more`}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {allAuthors.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground mr-1">Author:</span>
-                        <button
-                          onClick={() => setSelectedAuthors(new Set())}
-                          className={cn(
-                            'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                            selectedAuthors.size === 0
-                              ? 'bg-violet-600 text-white border-violet-600'
-                              : 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
-                          )}
-                        >
-                          All
-                        </button>
-                        {(showAllAuthors ? allAuthors : allAuthors.slice(0, MAX_FILTER_CHIPS)).map(a => (
-                          <button
-                            key={a}
-                            onClick={() => toggleAuthor(a)}
-                            className={cn(
-                              'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                              selectedAuthors.has(a)
-                                ? 'bg-violet-600 text-white border-violet-600'
-                                : 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
-                            )}
-                          >
-                            {a}
-                          </button>
-                        ))}
-                        {allAuthors.length > MAX_FILTER_CHIPS && (
-                          <button
-                            onClick={() => setShowAllAuthors(v => !v)}
-                            className="text-xs px-1.5 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
-                          >
-                            {showAllAuthors ? 'Show less' : `+${allAuthors.length - MAX_FILTER_CHIPS} more`}
                           </button>
                         )}
                       </div>
@@ -1186,15 +1137,24 @@ export function RepoDetailPage() {
                     className="w-10 text-xs text-center border border-border rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white"
                   />
                 </div>
+                {selectedMergedContributor && (
+                  <button
+                    onClick={handleUnmerge}
+                    disabled={unmergeContributorMutation.isPending}
+                    aria-busy={unmergeContributorMutation.isPending}
+                    title="Undo this contributor's last merge"
+                    className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded px-2 py-1 disabled:opacity-50"
+                  >
+                    {unmergeContributorMutation.isPending ? 'Unmerging…' : 'Unmerge'}
+                  </button>
+                )}
                 {selectedContributorIds.size >= 2 && (
-                  <span className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full px-2 py-0.5 font-medium">
-                    {selectedContributorIds.size} selected
-                  </span>
+                  <button onClick={() => { initMerge(); setShowMerge(v => !v) }} className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded px-2 py-1" aria-expanded={showMerge}>Merge</button>
                 )}
               </div>
 
-              {/* Merge bar — shown when 2+ selected */}
-              {selectedContributorIds.size >= 2 && (
+              {/* Explicit merge confirmation */}
+              {showMerge && selectedContributorIds.size >= 2 && (
                 <div className="mb-3 p-2.5 bg-indigo-50 border border-indigo-200 rounded-lg flex flex-col gap-2">
                   <p className="text-xs text-indigo-700 font-medium">Merge display name:</p>
                   <input
@@ -1215,7 +1175,7 @@ export function RepoDetailPage() {
                       {mergeContributorsMutation.isPending ? 'Merging…' : 'Confirm Merge'}
                     </button>
                     <button
-                      onClick={() => { setSelectedContributorIds(new Set()); setMergeDisplayName('') }}
+                      onClick={() => { setShowMerge(false); setMergeDisplayName('') }}
                       className="text-xs border border-border rounded px-2 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
                     >
                       Cancel
@@ -1224,6 +1184,11 @@ export function RepoDetailPage() {
                 </div>
               )}
 
+              {sortedContributors.length > 0 && <label className="mb-3 flex items-center gap-2 text-sm">
+                <input type="checkbox" aria-label="Select all contributors" checked={selectedContributorIds.size === sortedContributors.length}
+                  onChange={e => { setSelectedContributorIds(new Set(e.target.checked ? sortedContributors.map(c => c.id) : [])); setShowMerge(false) }} className="accent-indigo-600" />
+                Select all
+              </label>}
               {!sortedContributors.length ? (
                 <p className="text-xs text-muted-foreground text-center py-4">No contributors found.</p>
               ) : (
@@ -1235,6 +1200,7 @@ export function RepoDetailPage() {
                     )}>
                       <input
                         type="checkbox"
+                        aria-label={`Select ${contributor.display_name}`}
                         checked={selectedContributorIds.has(contributor.id)}
                         onChange={() => toggleContributorSelect(contributor.id)}
                         className="mt-1 h-3.5 w-3.5 flex-shrink-0 accent-indigo-600 cursor-pointer"

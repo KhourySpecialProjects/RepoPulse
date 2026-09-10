@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
@@ -23,6 +23,13 @@ vi.mock('@/hooks/useAuth', () => ({
   }),
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
 }))
+
+beforeEach(() => {
+  // Exercise the stored-stat fallback without unrelated global mock commits.
+  server.use(
+    http.get('/api/v1/repos/:id/commits', () => HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 })),
+  )
+})
 
 function makeClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -49,6 +56,7 @@ const mockRepo: Repo = {
   health_status: 'green',
   health_score: null,
   last_synced_at: '2025-10-15T10:00:00Z',
+  last_commit_at: null,
   created_at: '2025-09-01T00:00:00Z',
   updated_at: '2025-10-15T10:00:00Z',
   contributor_count: 2,
@@ -167,4 +175,84 @@ describe('RepoDetailPage - Contributors enriched stats', () => {
 
     expect(screen.getAllByText(/Never/).length).toBeGreaterThan(0)
   })
+})
+
+
+it('uses contributor checkboxes for the graph and offers explicit merge', async () => {
+  server.use(
+    http.get('/api/v1/repos/:id', () => HttpResponse.json(mockRepo)),
+    http.get('/api/v1/repos/:id/contributors', () => HttpResponse.json(mockContributorsEnriched)),
+    http.get('/api/v1/collections/:id/contextual-activity', () => HttpResponse.json({ repositories: [{
+      id: 'repo-1', name: 'Test', available: true, activity: [{ date: '2026-09-01', count: 3 }],
+      students: mockContributorsEnriched.map(c => ({ id: c.id, name: c.display_name, activity: [{ date: '2026-09-01', count: 1 }] })),
+    }] })),
+  )
+  renderPage()
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Alice Johnson' }))
+  expect(await screen.findByText('Alice Johnson — commits per day')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Merge' })).not.toBeInTheDocument()
+  expect(screen.queryByText('Author:')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Select Bob Smith' }))
+  expect(screen.getByText('All students — commits per day')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Confirm Merge' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Merge' }))
+  expect(screen.getByRole('button', { name: 'Confirm Merge' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(screen.getByRole('checkbox', { name: 'Select Alice Johnson' })).toBeChecked()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Select all contributors' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Select all contributors' }))
+  expect(screen.getByRole('checkbox', { name: 'Select Bob Smith' })).toBeChecked()
+})
+
+it('unmerges the selected group one step at a time and refreshes contributors', async () => {
+  let step = 0
+  const unmerge = vi.fn()
+  const groups = () => step === 0
+    ? [{ ...mockContributorsEnriched[0], display_name: 'ABC', can_unmerge: true }]
+    : step === 1
+      ? [{ ...mockContributorsEnriched[0], display_name: 'AB', can_unmerge: true }, mockContributorsEnriched[1]]
+      : mockContributorsEnriched
+  server.use(
+    http.get('/api/v1/repos/:id', () => HttpResponse.json(mockRepo)),
+    http.get('/api/v1/repos/:id/contributors', () => HttpResponse.json(groups())),
+    http.post('/api/v1/contributors/:id/unmerge', ({ params }) => {
+      unmerge(params.id)
+      step++
+      return HttpResponse.json({ contributors: groups() })
+    }),
+  )
+  renderPage()
+  expect(screen.queryByRole('button', { name: 'Unmerge' })).not.toBeInTheDocument()
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Select ABC' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Unmerge' }))
+  expect(await screen.findByRole('checkbox', { name: 'Select AB' })).toBeChecked()
+  fireEvent.click(await screen.findByRole('button', { name: 'Unmerge' }))
+  expect(await screen.findByRole('checkbox', { name: 'Select Alice Johnson' })).toBeChecked()
+  expect(screen.queryByRole('button', { name: 'Unmerge' })).not.toBeInTheDocument()
+  expect(unmerge).toHaveBeenNthCalledWith(1, 'contrib-1')
+  expect(unmerge).toHaveBeenNthCalledWith(2, 'contrib-1')
+})
+
+it('only offers unmerge for one eligible selection and keeps it selected on failure', async () => {
+  const unmerge = vi.fn()
+  server.use(
+    http.get('/api/v1/repos/:id', () => HttpResponse.json(mockRepo)),
+    http.get('/api/v1/repos/:id/contributors', () => HttpResponse.json([
+      { ...mockContributorsEnriched[0], can_unmerge: true }, mockContributorsEnriched[1],
+    ])),
+    http.post('/api/v1/contributors/:id/unmerge', () => {
+      unmerge()
+      return HttpResponse.json({ detail: 'No saved merge', error_code: 'NO_MERGE_HISTORY' }, { status: 409 })
+    }),
+  )
+  renderPage()
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Alice Johnson' }))
+  expect(screen.getByRole('button', { name: 'Unmerge' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Select Bob Smith' }))
+  expect(screen.queryByRole('button', { name: 'Unmerge' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Select Bob Smith' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Unmerge' }))
+  await waitFor(() => expect(unmerge).toHaveBeenCalledTimes(1))
+  expect(await screen.findByRole('button', { name: 'Unmerge' })).toBeEnabled()
+  expect(screen.getByRole('checkbox', { name: 'Select Alice Johnson' })).toBeChecked()
 })
