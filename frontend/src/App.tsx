@@ -107,7 +107,6 @@ function AppRoutes() {
   )
 }
 
-const COLLAPSED_WIDTH = 56
 const DEFAULT_WIDTH = 220
 
 export function App() {
@@ -136,7 +135,8 @@ export function App() {
     )
   }
 
-  const marginLeft = collapsed ? COLLAPSED_WIDTH : width
+  // Collapsed sidebar is fully hidden, so content reclaims the full width
+  const marginLeft = collapsed ? 0 : width
 
   return (
     <SidebarContext.Provider value={{ collapsed, setCollapsed, width, setWidth }}>
