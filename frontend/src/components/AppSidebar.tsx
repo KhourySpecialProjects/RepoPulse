@@ -330,7 +330,6 @@ function SidebarNavItem({
   )
 }
 
-const COLLAPSED_WIDTH = 56
 const MIN_WIDTH = 160
 const MAX_WIDTH = 480
 const COLLAPSE_THRESHOLD = 120
@@ -449,13 +448,30 @@ export function AppSidebar() {
     return location.pathname.startsWith(path)
   }
 
-  const sidebarWidth = collapsed ? COLLAPSED_WIDTH : width
+  // Collapsed hides the sidebar entirely; all that remains is a floating arrow
+  // pinned to the same horizontal line as the collapse arrow it replaces
+  // (h-14 header = 56px tall, so top-3 + h-8 centres both at 28px). It sits on
+  // its own opaque surface, and App reserves COLLAPSED_GUTTER of space so page
+  // content never slides underneath it.
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        onClick={toggleCollapsed}
+        title="Expand sidebar"
+        aria-label="Expand sidebar"
+        className="fixed left-3 top-3 z-50 flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white shadow-sm text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </button>
+    )
+  }
 
   return (
     <TooltipProvider delayDuration={0}>
       <div
         className="fixed left-0 top-0 bottom-0 z-40 bg-slate-900 flex flex-col overflow-hidden"
-        style={{ width: sidebarWidth }}
+        style={{ width }}
       >
         {/* Drag handle */}
         <div
@@ -540,20 +556,6 @@ export function AppSidebar() {
             )}
           </AnimatePresence>
         </div>
-
-        {/* ── Collapse toggle (when collapsed, show it below bell) ── */}
-        {collapsed && (
-          <div className="px-2 pt-1 flex-shrink-0">
-            <button
-              type="button"
-              onClick={toggleCollapsed}
-              className={`w-full flex items-center justify-center py-2 rounded-md transition-colors ${NAV_DEFAULT}`}
-              title="Expand sidebar"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        )}
 
         {/* ── Collection tree ── */}
         <div className="flex-1 overflow-y-auto px-2 py-2 min-h-0">
