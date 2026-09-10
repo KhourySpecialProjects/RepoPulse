@@ -13,6 +13,12 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     allowedHosts: true, //adding this to allow use on coolify?
+    // Docker Desktop doesn't forward inotify events from Windows/OneDrive paths
+    // into the container, so Vite never sees edits. Poll the bind mount instead.
+    watch: {
+      usePolling: true,
+      interval: 300,
+    },
     proxy: {
       '/api': {
         target: 'http://backend:8000',
