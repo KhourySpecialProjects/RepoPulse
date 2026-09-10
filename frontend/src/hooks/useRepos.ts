@@ -66,7 +66,6 @@ export function useSyncRepo() {
       queryClient.invalidateQueries({ queryKey: repoKeys.health(id) })
       queryClient.invalidateQueries({ queryKey: repoKeys.commits(id) })
       queryClient.invalidateQueries({ queryKey: repoKeys.contributors(id) })
-      queryClient.invalidateQueries({ queryKey: ['repos', 'contextual-activity'] })
     },
   })
 }
@@ -113,7 +112,6 @@ export function useUpdateContributor(repoId: string) {
       updateContributor(id, displayName),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: repoKeys.contributors(repoId) })
-      queryClient.invalidateQueries({ queryKey: ['repos', 'contextual-activity'] })
     },
   })
 }
@@ -125,7 +123,6 @@ export function useMergeContributors(repoId: string) {
       mergeContributors(ids, displayName),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: repoKeys.contributors(repoId) })
-      queryClient.invalidateQueries({ queryKey: ['repos', 'contextual-activity'] })
     },
   })
 }

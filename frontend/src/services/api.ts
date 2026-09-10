@@ -370,8 +370,3 @@ export async function syncPullRequests(repoId: string): Promise<PRSyncResponse> 
 }
 
 export default apiClient
-
-export async function getContextualActivity(collectionId: string): Promise<import('@/types').ContextualActivity> {
-  const response = await apiClient.get<import('@/types').ContextualActivity>(`/collections/${collectionId}/contextual-activity`)
-  return response.data
-}

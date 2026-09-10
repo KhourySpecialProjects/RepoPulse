@@ -348,23 +348,3 @@ export interface PRSyncResponse {
   repo_id: string
   fetched_at: string
 }
-
-export interface ContextActivityPoint extends CommitActivityPoint {
-  ts: number
-  context: string
-}
-export interface StudentActivity {
-  id: string
-  name: string
-  activity: CommitActivityPoint[]
-}
-export interface RepositoryActivity {
-  id: string
-  name: string
-  available: boolean
-  activity: CommitActivityPoint[]
-  students: StudentActivity[]
-}
-export interface ContextualActivity {
-  repositories: RepositoryActivity[]
-}

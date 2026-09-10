@@ -6,8 +6,6 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.schemas.activity import ContextualActivity
-from app.services.activity_service import collect_activity
 from app.core.deps import get_current_user, get_db_session
 from app.models.collection import Collection
 from app.models.repo import Repo
@@ -395,18 +393,3 @@ async def sync_collection(
 
     background_tasks.add_task(_sync_all_repos, collection_id)
     return {"detail": "Sync started", "collection_id": str(collection_id)}
-
-
-
-
-@router.get('/collections/{collection_id}/contextual-activity', response_model=ContextualActivity,
-            responses={404: {'model': ErrorResponse}})
-async def get_contextual_activity(
-    collection_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db_session),
-    current_user_id: str = Depends(get_current_user),
-) -> ContextualActivity:
-    if not await can_access_collection(db, uuid.UUID(current_user_id), collection_id):
-        raise HTTPException(status_code=404, detail='Collection not found')
-    result = await db.execute(select(Repo).where(Repo.collection_id == collection_id))
-    return ContextualActivity(repositories=await collect_activity(result.scalars().all(), _git_service))
