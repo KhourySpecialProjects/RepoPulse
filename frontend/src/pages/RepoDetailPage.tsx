@@ -248,7 +248,9 @@ export function RepoDetailPage() {
   const [editingName, setEditingName] = useState('')
   const [mergeDisplayName, setMergeDisplayName] = useState('')
   const [expectedCount, setExpectedCount] = useState<string>('')
-  const COMMITS_PER_PAGE = 20
+  const [COMMITS_PER_PAGE, setCommitsPerPage] = useState(10)
+  const [commitPageSizeOption, setCommitPageSizeOption] = useState('10')
+  const [customCommitPageSize, setCustomCommitPageSize] = useState('20')
   const MAX_FILTER_CHIPS = 8
 
   const [summaryExpanded, setSummaryExpanded] = useState(true)
@@ -898,10 +900,11 @@ export function RepoDetailPage() {
 
             {/* Commits section */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible" transition={{ delay: 0.1 }}>
-              <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                <GitCommit className="h-4 w-4 text-muted-foreground" />
-                Commits
-              </h2>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Commits</CardTitle>
+                </CardHeader>
+                <CardContent>
               {!allCommitsData?.items.length ? (
                 <p className="text-muted-foreground text-sm">No commits found.</p>
               ) : (
@@ -984,20 +987,53 @@ export function RepoDetailPage() {
                       </div>
                     )}
                   </div>
-                  {totalCommitPages > 1 && (
-                    <div className="flex items-center justify-between py-1">
+                    <div className="flex flex-wrap items-center justify-between gap-3 py-1">
                       <p className="text-xs text-muted-foreground">
                         {filteredCommits.length} commit{filteredCommits.length !== 1 ? 's' : ''}
                         {filteredCommits.length !== (allCommitsData?.items.length ?? 0) && (
                           <span> (of {allCommitsData?.items.length ?? 0})</span>
                         )}
                       </p>
-                      {renderCommitPagination()}
+                      <div className="flex flex-wrap items-center gap-3">
+                        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                          Commits per page
+                          <select
+                            aria-label="Commits per page"
+                            className="h-8 rounded-md border border-border bg-background px-2 text-foreground"
+                            value={commitPageSizeOption}
+                            onChange={event => {
+                              const value = event.target.value
+                              setCommitPageSizeOption(value)
+                              if (value !== 'custom') {
+                                setCommitsPerPage(Number(value))
+                                setCommitPage(0)
+                              }
+                            }}
+                          >
+                            <option value="5">5</option>
+                            <option value="10">10</option>
+                            <option value="15">15</option>
+                            <option value="custom">Custom</option>
+                          </select>
+                        </label>
+                        {commitPageSizeOption === 'custom' && (
+                          <form className="flex items-center gap-2" onSubmit={event => {
+                            event.preventDefault()
+                            const value = Number(customCommitPageSize)
+                            if (!Number.isInteger(value) || value < 1 || value > 500) return
+                            setCommitsPerPage(value)
+                            setCommitPage(0)
+                          }}>
+                            <input aria-label="Custom commits per page" type="number" min="1" max="500" step="1" required value={customCommitPageSize} onChange={event => setCustomCommitPageSize(event.target.value)} className="h-8 w-20 rounded-md border border-border bg-background px-2 text-xs" />
+                            <Button type="submit" variant="outline" size="sm" className="h-8">Apply</Button>
+                          </form>
+                        )}
+                        {renderCommitPagination()}
+                      </div>
                     </div>
-                  )}
-                  <div className="overflow-x-auto">
+                  <div key={`${commitPage}-${COMMITS_PER_PAGE}`} role="region" aria-label="Commit list" tabIndex={0} className="max-h-[560px] overflow-auto overscroll-contain rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     <table className="w-full text-sm">
-                      <thead>
+                      <thead className="sticky top-0 z-10 bg-card">
                         <tr className="border-b text-muted-foreground text-xs">
                           <th className="text-left pb-2 font-medium">Commit</th>
                           <th className="text-left pb-2 font-medium">Author</th>
@@ -1122,6 +1158,8 @@ export function RepoDetailPage() {
                   </div>
                 </div>
               )}
+                </CardContent>
+              </Card>
             </motion.div>
 
 
