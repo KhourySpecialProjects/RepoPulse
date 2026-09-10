@@ -291,3 +291,27 @@ async def test_commit_activity_requires_auth(
         f"/api/v1/collections/{fake_id}/commit-activity",
     )
     assert activity_resp.status_code in (401, 403)
+
+@pytest.mark.asyncio
+async def test_contextual_activity_authorized_collection(test_client, auth_headers, db_session, test_user):
+    collection = Collection(id=uuid.uuid4(), name='Context', local_folder_name=f'context-{uuid.uuid4().hex[:6]}', owner_id=test_user.id)
+    db_session.add(collection)
+    await db_session.flush()
+    collection_id = collection.id
+    result = await test_client.get(f'/api/v1/collections/{collection_id}/contextual-activity', headers=auth_headers)
+    assert result.status_code == 200
+    assert result.json() == {'repositories': []}
+    repo = Repo(id=uuid.uuid4(), collection_id=collection.id, name='Context repo', github_url='https://github.com/test/context', local_path='/tmp/context')
+    db_session.add(repo)
+    await db_session.flush()
+    with patch('app.api.routes.collections._git_service.parse_commits', new=AsyncMock(return_value=FAKE_COMMITS)):
+        populated = await test_client.get(f'/api/v1/collections/{collection_id}/contextual-activity', headers=auth_headers)
+    assert populated.status_code == 200
+    assert populated.json()['repositories'][0]['activity'][0]['count'] == 2
+    with patch('app.api.routes.collections.can_access_collection', new=AsyncMock(return_value=False)):
+        denied = await test_client.get(f'/api/v1/collections/{collection_id}/contextual-activity', headers=auth_headers)
+    assert denied.status_code == 404
+    missing = await test_client.get(f'/api/v1/collections/{uuid.uuid4()}/contextual-activity', headers=auth_headers)
+    assert missing.status_code == 404
+    anonymous = await test_client.get(f'/api/v1/collections/{collection_id}/contextual-activity')
+    assert anonymous.status_code in (401, 403)

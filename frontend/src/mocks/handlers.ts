@@ -290,6 +290,7 @@ const mockSettings: AppSettings = {
 }
 
 export const handlers = [
+  http.get('/api/v1/collections/:id/contextual-activity', () => HttpResponse.json({ repositories: [] })),
   // Auth
   http.post(`${BASE}/auth/dev-login`, () => {
     return HttpResponse.json(mockTokenResponse)
