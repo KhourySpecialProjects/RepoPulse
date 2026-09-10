@@ -44,3 +44,8 @@ class PaginatedRepos(BaseModel):
 
 class AddReposRequest(BaseModel):
     urls: list[str]
+
+
+class RepoSyncResult(BaseModel):
+    detail: str
+    repo_id: uuid.UUID

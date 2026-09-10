@@ -62,6 +62,8 @@ export function useSyncRepo() {
   return useMutation({
     mutationFn: (id: string) => syncRepo(id),
     onSuccess: (_result, id) => {
+      queryClient.invalidateQueries({ queryKey: ['repos'] })
+      queryClient.invalidateQueries({ queryKey: ['collections'] })
       queryClient.invalidateQueries({ queryKey: repoKeys.detail(id) })
       queryClient.invalidateQueries({ queryKey: repoKeys.health(id) })
       queryClient.invalidateQueries({ queryKey: repoKeys.commits(id) })

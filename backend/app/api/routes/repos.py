@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from fastapi.responses import JSONResponse
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,7 @@ from app.schemas.commits import CommitRead, PaginatedCommits
 from app.schemas.contributors import ContributorRead, AliasRead
 from app.schemas.errors import ErrorResponse
 from app.schemas.health import HealthBreakdown
-from app.schemas.repos import AddReposRequest, RepoRead, RepoUpdate, PaginatedRepos
+from app.schemas.repos import RepoSyncResult, AddReposRequest, RepoRead, RepoUpdate, PaginatedRepos
 from app.services.git_service import GitService
 from app.services.health_service import HealthService
 from app.services.permission_service import (
@@ -142,13 +143,15 @@ async def _upsert_contributors(
     await db.flush()
 
 
-async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: str | None = None) -> None:
+async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: str | None = None, raise_errors: bool = False) -> None:
     """Clone (or fetch) a repo, parse commits, upsert contributors, update health."""
     from app.db.database import async_session_maker
 
     async with async_session_maker() as db:
         repo = await db.get(Repo, repo_id)
         if repo is None or not repo.local_path:
+            if raise_errors:
+                raise RuntimeError('Repository clone path is unavailable')
             return
 
         try:
@@ -186,7 +189,10 @@ async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: s
             await db.commit()
             logger.info("Indexed %s: %d commits, status=%s", repo.name, len(commits), health["status"])
         except Exception as exc:
-            logger.exception("Failed to index repo %s (%s): %s", repo.name, repo.github_url, exc)
+            # Git errors may contain authenticated URLs. Never log raw exceptions.
+            logger.error("Failed to index repo %s (%s)", repo.id, type(exc).__name__)
+            if raise_errors:
+                raise RuntimeError('Repository sync failed') from None
 
 
 async def _clone_and_index(repo_id: uuid.UUID, token: str | None = None) -> None:
@@ -194,7 +200,7 @@ async def _clone_and_index(repo_id: uuid.UUID, token: str | None = None) -> None
 
 
 async def _fetch_and_recompute(repo_id: uuid.UUID, token: str | None = None) -> None:
-    await _index_repo(repo_id, force_clone=False, token=token)
+    await _index_repo(repo_id, force_clone=False, token=token, raise_errors=True)
 
 
 @router.get(
@@ -439,15 +445,14 @@ async def update_repo(
 
 @router.post(
     "/repos/{repo_id}/sync",
-    status_code=status.HTTP_202_ACCEPTED,
-    responses={404: {"model": ErrorResponse}},
+    response_model=RepoSyncResult,
+    responses={404: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
 )
 async def sync_repo(
     repo_id: uuid.UUID,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db_session),
     current_user_id: str = Depends(get_current_user),
-) -> dict:
+) -> RepoSyncResult | JSONResponse:
     user_uuid = uuid.UUID(current_user_id)
     repo = await db.get(Repo, repo_id)
     if repo is None:
@@ -467,8 +472,14 @@ async def sync_repo(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="GitHub token not configured. Add a token in your profile to enable syncing.",
         )
-    background_tasks.add_task(_fetch_and_recompute, repo_id, user_record.github_token)
-    return {"detail": "Sync started", "repo_id": str(repo_id)}
+    try:
+        await _fetch_and_recompute(repo_id, user_record.github_token)
+    except Exception:
+        return JSONResponse(status_code=502, content=ErrorResponse(
+            detail="Sync failed. For a private repo, check that your GitHub token has Contents read access to this repository and any required organization approval. Also check the clone path and network connection.",
+            error_code="REPO_SYNC_FAILED",
+        ).model_dump())
+    return RepoSyncResult(detail="Sync completed", repo_id=repo_id)
 
 
 @router.get(

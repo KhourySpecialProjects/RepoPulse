@@ -20,6 +20,10 @@ class GitService:
         """Embed a GitHub token into an HTTPS GitHub URL if provided."""
         if not token:
             return url
+        if url.startswith('git@github.com:'):
+            url = 'https://github.com/' + url[len('git@github.com:'):]
+        elif url.startswith('ssh://git@github.com/'):
+            url = 'https://github.com/' + url[len('ssh://git@github.com/'):]
         # Strip any previously embedded credentials (e.g. from a prior clone/fetch)
         # so a stale token in .git/config doesn't block fresh authentication.
         if "@github.com/" in url:
@@ -37,7 +41,7 @@ class GitService:
         logger.info("git clone %s → %s", github_url, local_path)
         path = Path(local_path)
         path.mkdir(parents=True, exist_ok=True)
-        git.Repo.clone_from(self._inject_token(github_url, token), str(path))
+        git.Repo.clone_from(self._inject_token(github_url, token), str(path), env={'GIT_TERMINAL_PROMPT': '0'})
         logger.info("git clone complete in %.2fs: %s", time.perf_counter() - t0, local_path)
 
     async def fetch_repo(self, local_path: str, token: str | None = None) -> None:
@@ -49,10 +53,14 @@ class GitService:
         repo = git.Repo(local_path)
         # Update remote URL to include token in case it changed or was cloned without one
         logger.info("git fetch %s", local_path)
-        for remote in repo.remotes:
-            remote.set_url(self._inject_token(remote.url, token))
-            remote.fetch()
-            logger.info("git fetch complete: %s/%s", local_path, remote.name)
+        try:
+            with repo.git.custom_environment(GIT_TERMINAL_PROMPT='0'):
+                for remote in repo.remotes:
+                    remote.set_url(self._inject_token(remote.url, token))
+                    remote.fetch()
+                    logger.info("git fetch complete: %s/%s", local_path, remote.name)
+        finally:
+            repo.close()
         logger.debug("git fetch total: %.2fs — %s", time.perf_counter() - t0, local_path)
 
     async def parse_commits(self, local_path: str) -> list[dict[str, Any]]:

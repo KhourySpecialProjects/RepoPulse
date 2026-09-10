@@ -1,3 +1,4 @@
+import { toast } from 'sonner'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { ExternalLink, Code2, RefreshCw, Trash2, Users, Clock, Bell, GitCommit } from 'lucide-react'
@@ -54,7 +55,10 @@ export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
 
   function handleSync(e: React.MouseEvent) {
     e.stopPropagation()
-    syncMutation.mutate(repo.id)
+    syncMutation.mutate(repo.id, {
+      onSuccess: () => toast.success('Repository synced.'),
+      onError: (error) => toast.error(error.message),
+    })
   }
 
   function handleRemove(e: React.MouseEvent) {

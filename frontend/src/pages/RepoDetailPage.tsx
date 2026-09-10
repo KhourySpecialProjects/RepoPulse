@@ -12,8 +12,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts'
-import { useQueryClient } from '@tanstack/react-query'
-import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests } from '@/hooks/useRepos'
+import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, usePatchRepo, usePRStats, usePullRequests, useSyncPullRequests } from '@/hooks/useRepos'
 import { useRepoSummaries, useContributorSummaries, useGenerateSummary } from '@/hooks/useSummaries'
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '@/hooks/useNotes'
 import { useUsers, useCurrentUser } from '@/hooks/useUsers'
@@ -289,7 +288,6 @@ export function RepoDetailPage() {
     setShowPastCheckIn(false)
   }
 
-  const queryClient = useQueryClient()
   const { data: repo, isLoading: repoLoading } = useRepo(id ?? '')
   const { data: healthScore, isLoading: healthLoading } = useRepoHealth(id ?? '')
   const syncMutation = useSyncRepo()
@@ -856,15 +854,9 @@ export function RepoDetailPage() {
                   const toastId = toast.loading('Syncing repository…')
                   try {
                     await syncMutation.mutateAsync(repoId)
-                    toast.success('Sync started — data will refresh shortly.', { id: toastId })
-                    setTimeout(() => {
-                      queryClient.invalidateQueries({ queryKey: repoKeys.detail(repoId) })
-                      queryClient.invalidateQueries({ queryKey: repoKeys.health(repoId) })
-                      queryClient.invalidateQueries({ queryKey: repoKeys.commits(repoId) })
-                      queryClient.invalidateQueries({ queryKey: repoKeys.contributors(repoId) })
-                    }, 5000)
-                  } catch {
-                    toast.error('Sync failed — check backend logs for details.', { id: toastId })
+                    toast.success('Repository synced.', { id: toastId })
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : 'Sync failed.', { id: toastId })
                   }
                 }}
                 disabled={syncMutation.isPending || !hasToken}

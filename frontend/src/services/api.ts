@@ -140,7 +140,14 @@ export async function deleteRepo(id: string): Promise<void> {
 }
 
 export async function syncRepo(id: string): Promise<void> {
-  await apiClient.post(`/repos/${id}/sync`)
+  try {
+    await apiClient.post(`/repos/${id}/sync`)
+  } catch (error) {
+    if (axios.isAxiosError<{ detail?: string }>(error)) {
+      throw new Error(error.response?.data?.detail ?? 'Sync failed. Check your connection and try again.')
+    }
+    throw error
+  }
 }
 
 export async function patchRepo(id: string, data: { expected_contributor_count?: number | null }): Promise<Repo> {

@@ -39,11 +39,11 @@ from app.services.git_service import GitService
             "mytoken",
             "https://gitlab.com/org/repo",
         ),
-        # SSH URL → unchanged
+        # SSH URL → HTTPS authentication with saved token
         (
             "git@github.com:org/repo.git",
             "mytoken",
-            "git@github.com:org/repo.git",
+            "https://x-access-token:mytoken@github.com/org/repo.git",
         ),
     ],
 )
