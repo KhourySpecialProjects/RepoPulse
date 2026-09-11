@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { devLogin as apiDevLogin, login as apiLogin, setAuthToken, clearAuthToken } from '@/services/api'
 import type { User, UserRole } from '@/types'
 
@@ -31,6 +32,7 @@ function parseStoredUser(): AuthUser | null {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient()
   const [user, setUser] = useState<AuthUser | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -52,8 +54,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setAuthToken(tokenResponse.access_token)
     localStorage.setItem('auth_user', JSON.stringify(authUser))
+    queryClient.clear()
     setUser(authUser)
-  }, [])
+  }, [queryClient])
 
   const devLogin = useCallback(async (userId: string) => {
     const tokenResponse = await apiDevLogin(userId)
@@ -64,13 +67,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setAuthToken(tokenResponse.access_token)
     localStorage.setItem('auth_user', JSON.stringify(authUser))
+    queryClient.clear()
     setUser(authUser)
-  }, [])
+  }, [queryClient])
 
   const logout = useCallback(() => {
     clearAuthToken()
+    queryClient.clear()
     setUser(null)
-  }, [])
+  }, [queryClient])
 
   const value: AuthContextValue = {
     user,
