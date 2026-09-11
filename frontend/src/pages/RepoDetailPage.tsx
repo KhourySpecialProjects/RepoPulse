@@ -781,7 +781,12 @@ export function RepoDetailPage() {
       <div className={cn('px-6 py-6 flex gap-6', notesPinned ? 'flex-row items-start' : 'flex-col')}>
 
         {/* Main sections column */}
-        <div className={cn('flex flex-col gap-6', notesPinned ? 'flex-1 min-w-0' : 'w-full')}>
+        <div className={cn('flex flex-col gap-3', notesPinned ? 'flex-1 min-w-0' : 'w-full')}>
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <BarChart2 className="h-4 w-4 text-muted-foreground" />
+                Overview
+              </h2>
+
         <div className="flex gap-8 items-start">
 
           {/* Left column — main content */}
@@ -789,10 +794,6 @@ export function RepoDetailPage() {
 
             {/* Overview section */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible">
-              <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                <BarChart2 className="h-4 w-4 text-muted-foreground" />
-                Overview
-              </h2>
               <div className="flex flex-col gap-5">
                 <Card>
                   <CardHeader className="pb-2">
