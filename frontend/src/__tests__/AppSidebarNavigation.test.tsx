@@ -80,7 +80,8 @@ describe('AppSidebar — RepoPulse logo navigates to the home page', () => {
     await waitFor(() => expect(screen.getByText('CS 101 Fall 2025')).toBeInTheDocument())
     expect(currentPath()).toBe('/settings')
 
-    fireEvent.click(screen.getByRole('button', { name: /RepoPulse/ }))
+    // The logo is a react-router <Link>, so it exposes role="link", not "button".
+    fireEvent.click(screen.getByRole('link', { name: /RepoPulse/ }))
 
     expect(currentPath()).toBe('/')
   })

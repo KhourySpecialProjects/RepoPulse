@@ -691,6 +691,7 @@ async def get_repo_contributors(
             display_name=c.display_name,
             repo_id=c.repo_id,
             created_at=c.created_at,
+            can_unmerge=c.can_unmerge,
             commit_count=c.commit_count,
             total_insertions=c.total_insertions,
             total_deletions=c.total_deletions,

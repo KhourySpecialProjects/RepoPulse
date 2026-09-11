@@ -53,6 +53,8 @@ from fastapi.responses import JSONResponse
 
 from app.api.routes import api_router
 from app.db.database import Base, engine
+from app.services.contributor_service import ContributorOperationError
+from app.schemas.errors import ErrorResponse
 
 app = FastAPI(
     title="RepoPulse API",
@@ -74,6 +76,14 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # Exception handlers
 # ---------------------------------------------------------------------------
+
+
+@app.exception_handler(ContributorOperationError)
+async def contributor_operation_error_handler(request: Request, exc: ContributorOperationError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=ErrorResponse(detail=exc.detail, error_code=exc.error_code).model_dump(),
+    )
 
 
 @app.exception_handler(404)
