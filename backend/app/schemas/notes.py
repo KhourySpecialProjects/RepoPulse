@@ -30,17 +30,12 @@ class NoteCreate(BaseModel):
     commit_hash: Optional[str] = None
     is_reminder: bool = False
     reminder_context: Optional[str] = None
-    remind_at: Optional[datetime] = None
-    # Extra users this reminder is shared with. Reminders only; a due date is
-    # optional, so an undated reminder can still be shared.
-    shared_with: list[uuid.UUID] = []
 
 
 class NoteUpdate(BaseModel):
     content: Optional[str] = None
     is_reminder: Optional[bool] = None
     reminder_context: Optional[str] = None
-    remind_at: Optional[datetime] = None
     is_checked: Optional[bool] = None
     is_archived: Optional[bool] = None
 
@@ -57,7 +52,6 @@ class NoteRead(BaseModel):
     commit_hash: Optional[str] = None
     is_reminder: bool
     reminder_context: Optional[str] = None
-    remind_at: Optional[datetime] = None
     is_checked: bool = False
     is_archived: bool = False
     created_at: datetime

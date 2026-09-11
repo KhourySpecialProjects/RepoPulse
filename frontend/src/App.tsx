@@ -4,6 +4,7 @@ import { AnimatePresence } from 'framer-motion'
 import { useAuth } from '@/hooks/useAuth'
 import { LoginPage } from '@/pages/LoginPage'
 import { NotificationsPage } from '@/pages/NotificationsPage'
+import { HomePage } from '@/pages/HomePage'
 import { CollectionsPage } from '@/pages/CollectionsPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { CollectionDetailPage } from '@/pages/CollectionDetailPage'
@@ -76,14 +77,6 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <RepoDetailPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/notifications"
-          element={
-            <ProtectedRoute>
-              <NotificationsPage />
             </ProtectedRoute>
           }
         />

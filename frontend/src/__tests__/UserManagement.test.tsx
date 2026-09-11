@@ -156,13 +156,9 @@ describe('API: user management endpoints', () => {
     expect(result.items).toHaveLength(1)
   })
 
-  // The backend route is POST /notifications/mark-all-read; the client used to
-  // call /read-all, which 404s, so nothing was ever marked read.
-  it('markAllNotificationsRead posts to /notifications/mark-all-read', async () => {
+  it('markAllNotificationsRead posts to /notifications/read-all', async () => {
     server.use(
-      http.post('/api/v1/notifications/mark-all-read', () =>
-        HttpResponse.json({ marked_read: 3 })
-      )
+      http.post('/api/v1/notifications/read-all', () => HttpResponse.json({ marked_read: 3 }))
     )
     const { markAllNotificationsRead } = await import('@/services/api')
     const result = await markAllNotificationsRead()
@@ -248,7 +244,7 @@ describe('NoteComments component', () => {
     )
     const { NoteComments } = await import('@/components/NoteComments')
     renderWithProviders(
-      <NoteComments note={{ id: 'note-1', author_id: 'user-1', author_display_name: 'Mark', repo_id: 'repo-1', contributor_id: null, commit_hash: null, content: 'Test note', is_reminder: false, reminder_context: null, remind_at: null, is_checked: false, is_archived: false, created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', comments: [] }} currentUserId="user-1" />
+      <NoteComments note={{ id: 'note-1', author_id: 'user-1', author_display_name: 'Mark', repo_id: 'repo-1', contributor_id: null, commit_hash: null, content: 'Test note', is_reminder: false, reminder_context: null, is_checked: false, is_archived: false, created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', comments: [] }} currentUserId="user-1" />
     )
     await waitFor(() => {
       expect(screen.getByText(/comment/i)).toBeInTheDocument()
@@ -261,7 +257,7 @@ describe('NoteComments component', () => {
     )
     const { NoteComments } = await import('@/components/NoteComments')
     renderWithProviders(
-      <NoteComments note={{ id: 'note-1', author_id: 'user-1', author_display_name: 'Mark', repo_id: 'repo-1', contributor_id: null, commit_hash: null, content: 'Test note', is_reminder: false, reminder_context: null, remind_at: null, is_checked: false, is_archived: false, created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', comments: [] }} currentUserId="user-1" />
+      <NoteComments note={{ id: 'note-1', author_id: 'user-1', author_display_name: 'Mark', repo_id: 'repo-1', contributor_id: null, commit_hash: null, content: 'Test note', is_reminder: false, reminder_context: null, is_checked: false, is_archived: false, created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', comments: [] }} currentUserId="user-1" />
     )
     // Initially shows Reply button
     await waitFor(() => {

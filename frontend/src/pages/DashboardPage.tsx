@@ -4,7 +4,6 @@ import { ArrowUpRight, GitBranch, Bell, Folder, Activity } from 'lucide-react'
 import { HealthBadge } from '@/components/HealthBadge'
 import { getCollections, getRepos } from '@/services/api'
 import type { PaginatedResponse, Repo } from '@/types'
-import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
 
 // Read every page so overview totals never silently stop at the API page limit.
 async function allPages<T>(fetchPage: (offset: number) => Promise<PaginatedResponse<T>>) {
@@ -50,16 +49,15 @@ export function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-foreground">
-      <div data-testid="page-header" className={`${PAGE_HEADER_CLASS} justify-between gap-4`}>
-        <div>
-          <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Workspace overview</p>
-          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        </div>
-        <Link to="/collections" className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700">View collections <ArrowUpRight className="h-4 w-4" /></Link>
-      </div>
-
-      <div className={`${PAGE_BODY_CLASS} w-full space-y-4`}>
-        <p className="text-sm text-muted-foreground">Know where things stand. See what needs your attention.</p>
+      <div className="w-full space-y-4 p-6">
+        <header className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="mb-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">Workspace overview</p>
+            <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Know where things stand. See what needs your attention.</p>
+          </div>
+          <Link to="/collections" className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700">View collections <ArrowUpRight className="h-4 w-4" /></Link>
+        </header>
 
         {failed && <div role="alert" className="rounded-xl border border-amber-200 p-4 text-sm text-amber-800">Some dashboard data could not be loaded. Totals are hidden until all collections load. <button className="underline" onClick={() => { void collectionsQuery.refetch(); repoQueries.forEach(query => { void query.refetch() }) }}>Retry</button></div>}
 
