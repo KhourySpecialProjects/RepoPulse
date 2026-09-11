@@ -1,7 +1,7 @@
 """add remind_at to notes and reminder notification type
 
-Revision ID: 0014
-Revises: 0013
+Revision ID: 0016
+Revises: 0015
 Create Date: 2026-09-10
 """
 from __future__ import annotations
@@ -9,8 +9,8 @@ from __future__ import annotations
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0014"
-down_revision = "0013"
+revision = "0016"
+down_revision = "0015"
 branch_labels = None
 depends_on = None
 

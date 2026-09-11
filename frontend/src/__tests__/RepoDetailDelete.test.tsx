@@ -70,11 +70,13 @@ describe('RepoDetailPage — Remove action', () => {
     expect(mockNavigate).not.toHaveBeenCalled()
   })
 
-  it('calls navigate(-1) when delete succeeds', async () => {
+  // 1aa10ce moved this off navigate(-1): going back could land the user on
+  // the page of the repo they just deleted.
+  it('navigates to the collection when delete succeeds', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     renderPage()
     await waitFor(() => expect(screen.getByText('cs101-project')).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /remove/i }))
-    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith(-1))
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/collections/col-1'))
   })
 })
