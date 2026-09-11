@@ -10,6 +10,7 @@ import {
   getRepoContributors,
   updateContributor,
   mergeContributors,
+  unmergeContributor,
   patchRepo,
   getPullRequests,
   getPRStats,
@@ -115,6 +116,24 @@ export function useUpdateContributor(repoId: string) {
       queryClient.invalidateQueries({ queryKey: repoKeys.contributors(repoId) })
       queryClient.invalidateQueries({ queryKey: ['repos', 'contextual-activity'] })
     },
+  })
+}
+
+export function useUnmergeContributor(repoId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: unmergeContributor,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: repoKeys.contributors(repoId) }),
+        queryClient.invalidateQueries({ queryKey: ['repos', 'contextual-activity'] }),
+        queryClient.invalidateQueries({ queryKey: repoKeys.detail(repoId) }),
+        queryClient.invalidateQueries({ queryKey: ['notes'] }),
+        queryClient.invalidateQueries({ queryKey: ['summaries'] }),
+      ])
+      toast.success('Last merge undone')
+    },
+    onError: () => toast.error('Could not undo this merge. Refresh and try again.'),
   })
 }
 
