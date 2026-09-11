@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,7 +27,9 @@ class Note(Base):
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     commit_hash: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
-    is_reminder: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_reminder: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
     reminder_context: Mapped[str | None] = mapped_column(Text, nullable=True)
     # When the reminder should fire. NULL means the reminder has no due date and
     # will never produce a notification.
@@ -36,8 +38,9 @@ class Note(Base):
     )
     # Soft delete: set instead of removing the row, so a deletion can be undone
     # from the Recently deleted list. NULL means the note is live.
+    # Every listing filters deleted rows out, so the column is indexed.
     deleted_at: Mapped[DateTime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        DateTime(timezone=True), nullable=True, index=True
     )
     is_checked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
@@ -46,6 +49,18 @@ class Note(Base):
     )
     updated_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        # Reminders are queried by due date on every notification poll. Partial
+        # on is_reminder because only reminders are ever looked up this way, and
+        # autogenerate cannot infer a partial index — it must be declared here
+        # or the baseline migration silently drops it.
+        Index(
+            "ix_notes_remind_at",
+            "remind_at",
+            postgresql_where=text("is_reminder = true"),
+        ),
     )
 
     # Relationships

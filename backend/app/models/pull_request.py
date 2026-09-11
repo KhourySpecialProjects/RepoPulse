@@ -15,18 +15,27 @@ class PullRequest(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     repo_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("repos.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("repos.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     pr_number: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     state: Mapped[str] = mapped_column(String(20), nullable=False)  # "open", "closed", "merged"
-    author_login: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    author_login: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="", server_default=""
+    )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     merged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    html_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    reviews_requested: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    draft: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    html_url: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    reviews_requested: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    draft: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=datetime.utcnow
     )

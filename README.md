@@ -34,6 +34,11 @@ make up
 - Backend API: http://localhost:8000
 - API docs: http://localhost:8000/docs
 
+The backend applies `alembic upgrade head` before the server starts, so the
+schema is ready on first boot — there is no separate setup step. Check it with
+`curl localhost:8000/healthz`, which reports the current schema revision and
+returns 503 if the database is unreachable or unmigrated.
+
 ### 3. Seed the database
 
 ```bash
@@ -56,8 +61,8 @@ make test-smoke     # fast import/startup smoke tests (no DB needed)
 make test-frontend  # frontend tests only
 make test-watch     # frontend tests in watch mode
 
-make seed           # seed the database with mock data
-make migrate        # run pending Alembic migrations
+make seed           # seed the database with mock data (schema must exist)
+make migrate        # apply a new migration to an already-running stack
 make migration MSG="describe change"  # generate a new migration
 
 make shell-backend  # bash shell in backend container
@@ -113,6 +118,9 @@ repo-pulse/
 ## Key Conventions
 
 - **TDD** — tests are written before implementation.
+- **Alembic owns the schema.** Nothing calls `Base.metadata.create_all` except
+  the test fixtures. Change a model, generate a migration, and
+  `tests/test_migrations.py` will fail if the two disagree.
 - **All API routes** are prefixed `/api/v1/`. Auth routes are `/api/v1/auth/`.
 - **All endpoints** use Pydantic schemas — no raw dicts.
 - **List endpoints** return `{"items": [...], "total": int, "limit": int, "offset": int}`.
