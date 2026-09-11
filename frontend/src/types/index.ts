@@ -2,6 +2,13 @@ export type UserRole = 'instructor' | 'ta' | 'admin'
 export type HealthStatus = 'green' | 'yellow' | 'red' | 'unknown'
 export type SummaryType = 'repo_overview' | 'contributor_activity' | 'health_explanation'
 
+/** Does this commit advance the project, or keep it tidy? */
+export type CommitType = 'substantive' | 'logistical'
+/** LLM-rated quality of the commit *message*, independent of CommitType. */
+export type CommitQualityScore = 'good' | 'ok' | 'bad'
+/** `unclassified` is a filter value only — it never appears on a commit. */
+export type CommitTypeFilter = CommitType | 'unclassified'
+
 export interface CommitActivityPoint {
   date: string // YYYY-MM-DD
   count: number
@@ -92,6 +99,10 @@ export interface Commit {
   insertions: number
   deletions: number
   files_changed: number
+  /** null until the repo is classified — render as a dash, never a default. */
+  commit_type: CommitType | null
+  /** Populated by classification, or by the collection-level quality pass. */
+  quality_score: CommitQualityScore | null
 }
 
 export interface NoteComment {
@@ -277,6 +288,29 @@ export interface GetCommitsParams {
   offset?: number
   branch?: string
   author_email?: string
+  commit_type?: CommitTypeFilter
+}
+
+/** Response from POST /repos/{id}/commits/classify.
+ *
+ * `status: 'preview'` means nothing was written and the caller should confirm.
+ * `skipped` is retryable failure; `remaining` is deferred work — keeping them
+ * apart is what lets the UI say whether clicking again will help.
+ */
+export interface ClassifyCommitsResponse {
+  status: 'preview' | 'completed'
+  total_commits: number
+  already_classified: number
+  pending: number
+  resolvable_by_rules: number
+  needs_llm: number
+  classified_by_rules: number
+  classified_by_llm: number
+  classified: number
+  skipped: number
+  remaining: number
+  threshold: number
+  model_used: string
 }
 
 export interface GetNotesParams {
@@ -291,7 +325,8 @@ export interface ScoredCommit {
   message: string
   author: string
   date: string
-  score: 'good' | 'ok' | 'bad'
+  /** null when the LLM call failed or its answer could not be read. */
+  score: CommitQualityScore | null
   from_cache: boolean
 }
 

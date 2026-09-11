@@ -396,7 +396,7 @@ async def seed() -> None:
                     "The branch strategy follows feature branching best practices. "
                     "The codebase appears healthy with balanced contributions from both team members."
                 ),
-                model_used="claude-sonnet-4-20250514",
+                model_used=settings.DEFAULT_LLM_MODEL,
                 generated_at=datetime.now(timezone.utc),
             )
             db.add(summary1)
@@ -411,7 +411,7 @@ async def seed() -> None:
                     "share the work evenly (low Gini coefficient). Multiple active branches indicate "
                     "parallel feature development. Commit messages are descriptive and informative."
                 ),
-                model_used="claude-sonnet-4-20250514",
+                model_used=settings.DEFAULT_LLM_MODEL,
                 generated_at=datetime.now(timezone.utc),
             )
             db.add(health_summary)
@@ -424,7 +424,7 @@ async def seed() -> None:
                 user_id=user_id,
                 repo_root_directory=SEED_REPOS_BASE,
                 llm_provider="anthropic",
-                llm_model="claude-sonnet-4-20250514",
+                llm_model=settings.DEFAULT_LLM_MODEL,
             )
             db.add(app_settings)
 

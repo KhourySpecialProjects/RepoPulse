@@ -267,16 +267,34 @@ class TestDeleteCollectionAccess:
     async def test_ta_cannot_remove_anyone(
         self, test_client, owner, ta_user, collection, outsider, db_session
     ):
+        # The target must actually have an access row. The owner does not —
+        # ownership lives on collection.owner_id — so deleting the owner
+        # returns 404 "Access entry not found" before any permission check,
+        # which is not what this test is about.
         ta_access = CollectionAccess(
             collection_id=collection.id,
             user_id=ta_user.id,
             access_role=CollectionRole.ta,
         )
+        outsider_access = CollectionAccess(
+            collection_id=collection.id,
+            user_id=outsider.id,
+            access_role=CollectionRole.co_instructor,
+        )
         db_session.add(ta_access)
+        db_session.add(outsider_access)
         await db_session.flush()
 
+        # Cannot remove a co-instructor
         resp = await test_client.delete(
-            f"/api/v1/collections/{collection.id}/access/{owner.id}",
+            f"/api/v1/collections/{collection.id}/access/{outsider.id}",
+            headers=_auth(ta_user),
+        )
+        assert resp.status_code == 403
+
+        # Nor another TA — including themselves
+        resp = await test_client.delete(
+            f"/api/v1/collections/{collection.id}/access/{ta_user.id}",
             headers=_auth(ta_user),
         )
         assert resp.status_code == 403

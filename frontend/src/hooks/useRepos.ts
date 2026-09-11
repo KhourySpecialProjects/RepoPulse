@@ -14,6 +14,7 @@ import {
   getPullRequests,
   getPRStats,
   syncPullRequests,
+  classifyRepoCommits,
 } from '@/services/api'
 import type { GetCommitsParams } from '@/types'
 import { toast } from 'sonner'
@@ -157,6 +158,26 @@ export function usePullRequests(repoId: string, state?: string, limit = 10, offs
     queryFn: () => getPullRequests(repoId, state, limit, offset),
     enabled: Boolean(repoId),
     staleTime: 60_000,
+  })
+}
+
+/** Classify a repo's commits.
+ *
+ * The mutation variable is `confirm`. A first call sends `false`; if the
+ * backend answers `status: 'preview'` nothing was written and the caller is
+ * expected to confirm, so that case must NOT invalidate — refetching there
+ * would imply work happened. Toasts live at the call site because the flow is
+ * two-phase and the copy depends on the returned counters.
+ */
+export function useClassifyCommits(repoId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (confirm: boolean) => classifyRepoCommits(repoId, confirm),
+    onSuccess: (result) => {
+      if (result.status === 'completed' && result.classified > 0) {
+        queryClient.invalidateQueries({ queryKey: repoKeys.commits(repoId) })
+      }
+    },
   })
 }
 
