@@ -1,15 +1,17 @@
 import { ContextualActivityChart } from '@/components/ContextualActivityChart'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, Fragment } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests } from '@/hooks/useRepos'
+import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests, useClassifyCommits } from '@/hooks/useRepos'
 import { useRepoSummaries, useContributorSummaries, useGenerateSummary } from '@/hooks/useSummaries'
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '@/hooks/useNotes'
 import { useUsers, useCurrentUser } from '@/hooks/useUsers'
 import { useAuth } from '@/hooks/useAuth'
 import { HealthBadge } from '@/components/HealthBadge'
+import { CommitTypeBadge } from '@/components/CommitTypeBadge'
+import { CommitScorePill } from '@/components/CommitScorePill'
 import { CommitNotesPanel } from '@/components/CommitNotesPanel'
 import { MarkdownContent } from '@/components/MarkdownContent'
 import { NotesDrawer } from '@/components/NotesDrawer'
@@ -24,7 +26,21 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
-import type { CreateNoteData, Summary, Contributor, Note, PullRequest } from '@/types'
+import type {
+  ClassifyCommitsResponse,
+  CreateNoteData,
+  Summary,
+  Contributor,
+  CommitTypeFilter,
+  Note,
+  PullRequest,
+} from '@/types'
+
+const COMMIT_TYPE_FILTERS: { value: CommitTypeFilter; label: string }[] = [
+  { value: 'substantive', label: 'Substantive' },
+  { value: 'logistical', label: 'Logistical' },
+  { value: 'unclassified', label: 'Unclassified' },
+]
 
 
 function formatRelativeDays(isoStr: string): string {
@@ -241,6 +257,10 @@ export function RepoDetailPage() {
   const [highlightedCommitHash, setHighlightedCommitHash] = useState<string | null>(null)
   const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
   const [selectedAuthors, setSelectedAuthors] = useState<Set<string>>(new Set())
+  const [selectedTypes, setSelectedTypes] = useState<Set<CommitTypeFilter>>(new Set())
+  // Set when the backend answers `status: 'preview'` — holds the counts the
+  // confirmation dialog quotes back to the user.
+  const [classifyPreview, setClassifyPreview] = useState<ClassifyCommitsResponse | null>(null)
   const [showAllBranches, setShowAllBranches] = useState(false)
   const [showAllAuthors, setShowAllAuthors] = useState(false)
   const [selectedContributorIds, setSelectedContributorIds] = useState<Set<string>>(new Set())
@@ -307,6 +327,50 @@ export function RepoDetailPage() {
   const [prPage, setPrPage] = useState(0)
   const { data: prList } = usePullRequests(id ?? '', prStateFilter, PR_PAGE_SIZE, prPage * PR_PAGE_SIZE)
   const syncPRsMutation = useSyncPullRequests(id ?? '')
+  const classifyMutation = useClassifyCommits(id ?? '')
+
+  async function runClassify(confirm: boolean) {
+    try {
+      const result = await classifyMutation.mutateAsync(confirm)
+
+      if (result.status === 'preview') {
+        // Nothing was written; the backend is asking whether the wait is worth
+        // it. Hold the counts so the dialog can quote them.
+        setClassifyPreview(result)
+        return
+      }
+
+      setClassifyPreview(null)
+      if (result.pending === 0) {
+        toast.success('All commits are already classified.')
+        return
+      }
+
+      const parts = [`Classified ${result.classified} of ${result.pending} commits`]
+      if (result.classified_by_rules > 0) {
+        parts.push(`${result.classified_by_rules} by rules`)
+      }
+      if (result.skipped > 0) {
+        // Retryable, unlike `remaining` — say so rather than lumping them.
+        parts.push(`${result.skipped} could not be read and will retry`)
+      }
+      if (result.remaining > 0) {
+        parts.push(`${result.remaining} left — run again to continue`)
+      }
+      toast.success(parts.join(' · '))
+    } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 409) {
+        // A run is still going server-side; clicking again will not help, and
+        // the work is not lost.
+        toast.info('Classification is already running — results will appear shortly.')
+        return
+      }
+      const detail = (err as { response?: { data?: { detail?: string } } })
+        ?.response?.data?.detail
+      toast.error(detail ?? 'Could not classify commits.')
+    }
+  }
   const { data: notes } = useNotes({ repo_id: id })
   const createNoteMutation = useCreateNote()
   const updateNoteMutation = useUpdateNote()
@@ -401,13 +465,26 @@ export function RepoDetailPage() {
     })
   }
 
+  function toggleType(type: CommitTypeFilter) {
+    setSelectedTypes(prev => {
+      const next = new Set(prev)
+      if (next.has(type)) next.delete(type)
+      else next.add(type)
+      return next
+    })
+  }
+
   const filteredCommits = useMemo(() => {
     return (allCommitsData?.items ?? []).filter(c => {
       const branchMatch = selectedBranches.size === 0 || c.branches.some(b => selectedBranches.has(b))
       const authorMatch = selectedAuthors.size === 0 || selectedAuthors.has(resolvedAuthor(c))
-      return branchMatch && authorMatch
+      // A null commit_type is its own bucket rather than a missing value, so
+      // "show me what still needs classifying" is expressible.
+      const typeMatch =
+        selectedTypes.size === 0 || selectedTypes.has(c.commit_type ?? 'unclassified')
+      return branchMatch && authorMatch && typeMatch
     })
-  }, [allCommitsData, selectedBranches, selectedAuthors, emailToDisplayName])
+  }, [allCommitsData, selectedBranches, selectedAuthors, selectedTypes, emailToDisplayName])
 
   const displayedCommits = filteredCommits.slice(
     commitPage * COMMITS_PER_PAGE,
@@ -512,7 +589,7 @@ export function RepoDetailPage() {
   // Reset to page 0 when filters change
   useEffect(() => {
     setCommitPage(0)
-  }, [selectedBranches, selectedAuthors])
+  }, [selectedBranches, selectedAuthors, selectedTypes])
 
   useEffect(() => {
     if (repo?.expected_contributor_count != null) {
@@ -901,8 +978,27 @@ export function RepoDetailPage() {
             {/* Commits section */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible" transition={{ delay: 0.1 }}>
               <Card>
-                <CardHeader className="pb-2">
+                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
                   <CardTitle className="text-base">Commits</CardTitle>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    loading={classifyMutation.isPending}
+                    onClick={() => runClassify(false)}
+                    className="gap-1.5"
+                  >
+                    {classifyMutation.isPending ? (
+                      <>
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+                        Classifying…
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="h-3.5 w-3.5" />
+                        Classify commits
+                      </>
+                    )}
+                  </Button>
                 </CardHeader>
                 <CardContent>
               {!allCommitsData?.items.length ? (
@@ -986,6 +1082,42 @@ export function RepoDetailPage() {
                         )}
                       </div>
                     )}
+                    {/* role/aria-label so tests and screen readers can tell this
+                        row apart — "All" appears in the Branch and Author rows
+                        and the chart range selector too. */}
+                    <div
+                      role="group"
+                      aria-label="Filter by commit type"
+                      className="flex flex-wrap items-center gap-1.5"
+                    >
+                      <span className="text-xs text-muted-foreground mr-1">Type:</span>
+                      <button
+                        onClick={() => setSelectedTypes(new Set())}
+                        className={cn(
+                          'text-xs px-1.5 py-0.5 rounded border transition-colors',
+                          selectedTypes.size === 0
+                            ? 'bg-sky-600 text-white border-sky-600'
+                            : 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'
+                        )}
+                      >
+                        All
+                      </button>
+                      {COMMIT_TYPE_FILTERS.map(({ value, label }) => (
+                        <button
+                          key={value}
+                          onClick={() => toggleType(value)}
+                          aria-pressed={selectedTypes.has(value)}
+                          className={cn(
+                            'text-xs px-1.5 py-0.5 rounded border transition-colors',
+                            selectedTypes.has(value)
+                              ? 'bg-sky-600 text-white border-sky-600'
+                              : 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'
+                          )}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                     <div className="flex flex-wrap items-center justify-between gap-3 py-1">
                       <p className="text-xs text-muted-foreground">
@@ -1038,13 +1170,15 @@ export function RepoDetailPage() {
                           <th className="text-left pb-2 font-medium">Commit</th>
                           <th className="text-left pb-2 font-medium">Author</th>
                           <th className="text-left pb-2 font-medium">Branch</th>
+                          <th className="text-left pb-2 font-medium">Type</th>
+                          <th className="text-left pb-2 font-medium">Score</th>
                           <th className="text-right pb-2 font-medium">+/-</th>
                         </tr>
                       </thead>
                       <tbody>
                         {displayedCommits.map((commit) => (
-                          <>
-                          <tr id={`commit-${commit.hash}`} key={commit.hash} className={cn(
+                          <Fragment key={commit.hash}>
+                          <tr id={`commit-${commit.hash}`} className={cn(
                             'border-b hover:bg-accent/20 transition-colors',
                             highlightedCommitHash === commit.hash && 'ring-2 ring-inset ring-indigo-400 bg-indigo-50'
                           )}>
@@ -1126,6 +1260,23 @@ export function RepoDetailPage() {
                                 )
                               })()}
                             </td>
+                            <td className="py-2.5 pr-4">
+                              <CommitTypeBadge
+                                type={commit.commit_type}
+                                selected={
+                                  commit.commit_type !== null &&
+                                  selectedTypes.has(commit.commit_type)
+                                }
+                                onClick={
+                                  commit.commit_type
+                                    ? () => toggleType(commit.commit_type as CommitTypeFilter)
+                                    : undefined
+                                }
+                              />
+                            </td>
+                            <td className="py-2.5 pr-4">
+                              <CommitScorePill score={commit.quality_score} />
+                            </td>
                             <td className="py-2.5 text-right text-xs whitespace-nowrap">
                               <span className="text-health-green">+{commit.insertions}</span>
                               {' / '}
@@ -1134,12 +1285,12 @@ export function RepoDetailPage() {
                           </tr>
                           {activeCommitHash === commit.hash && (
                             <tr>
-                              <td colSpan={5} className="pb-3 pt-1">
+                              <td colSpan={6} className="pb-3 pt-1">
                                 <CommitNotesPanel repoId={id ?? ''} commitHash={commit.hash} />
                               </td>
                             </tr>
                           )}
-                          </>
+                          </Fragment>
                         ))}
                       </tbody>
                     </table>
@@ -1442,6 +1593,54 @@ export function RepoDetailPage() {
         summaries={summaries ?? []}
         contributors={contributors ?? []}
       />
+
+      <Dialog
+        open={classifyPreview !== null}
+        onOpenChange={(open) => { if (!open) setClassifyPreview(null) }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-indigo-500" />
+              Classify this repository?
+            </DialogTitle>
+          </DialogHeader>
+          {classifyPreview && (
+            <div className="space-y-3 text-sm text-muted-foreground">
+              <p>
+                <span className="font-semibold text-foreground">
+                  {classifyPreview.needs_llm}
+                </span>{' '}
+                commits need the model, which takes a few minutes.
+                {classifyPreview.resolvable_by_rules > 0 && (
+                  <>
+                    {' '}
+                    Another {classifyPreview.resolvable_by_rules} can be resolved
+                    instantly without one.
+                  </>
+                )}
+              </p>
+              <p>
+                Progress is saved as it goes, so you can close this page and run
+                it again later to pick up where it left off.
+              </p>
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" size="sm" onClick={() => setClassifyPreview(null)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              loading={classifyMutation.isPending}
+              onClick={() => runClassify(true)}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+            >
+              Classify all
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

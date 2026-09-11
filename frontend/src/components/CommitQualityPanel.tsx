@@ -3,31 +3,12 @@ import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sparkles, ChevronDown, ChevronRight, AlertCircle, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { CommitScorePill } from '@/components/CommitScorePill'
 import { getCommitQuality } from '@/services/api'
-import type { RepoCommitQuality, ScoredCommit } from '@/types'
+import type { RepoCommitQuality } from '@/types'
 
-const SCORE_CONFIG = {
-  good: { label: 'Good', className: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
-  ok:   { label: 'OK',   className: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
-  bad:  { label: 'Bad',  className: 'bg-red-100 text-red-700 border-red-200' },
-}
-
-const UNSCORED = { label: '—', className: 'bg-gray-100 text-gray-400 border-gray-200' }
-
-function ScorePill({ score }: { score: ScoredCommit['score'] }) {
-  // Falling back to OK here would undo the whole point of the backend
-  // returning null: an unscored commit would be indistinguishable from a
-  // genuinely mediocre one.
-  const cfg = (score && SCORE_CONFIG[score]) || UNSCORED
-  return (
-    <span
-      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${cfg.className}`}
-      title={score ? undefined : 'Not scored yet'}
-    >
-      {cfg.label}
-    </span>
-  )
-}
+// Shared with the repo Commits table, which renders the same column.
+const ScorePill = CommitScorePill
 
 function RepoSection({ repo }: { repo: RepoCommitQuality }) {
   const [open, setOpen] = useState(true)
