@@ -217,10 +217,8 @@ describe('NotificationsPage — notification list', () => {
     expect(screen.getByText('New comment on your note')).toBeInTheDocument()
   })
 
-  it('shows the plain empty state when the feed is quiet but a reminder is pending', async () => {
-    // With nothing pending at all the easter egg takes over instead; that case
-    // is covered in InboxZeroEasterEgg.test.tsx.
-    setup({ items: [], reminders: [activeReminder] })
+  it('shows an empty state when there is nothing', async () => {
+    setup({ items: [] })
     renderPage()
 
     expect(await screen.findByText('No notifications')).toBeInTheDocument()

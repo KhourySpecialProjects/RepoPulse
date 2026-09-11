@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
 import type { HealthStatus } from '@/types'
 
 type SortBy = 'name' | 'health' | 'last_synced'
@@ -151,8 +152,8 @@ export function CollectionDetailPage() {
 
   return (
     <div>
-      <div className="border-b border-border bg-white px-6 py-4">
-        <div className="flex items-center justify-between gap-3">
+      <div data-testid="page-header" className={PAGE_HEADER_CLASS}>
+        <div className="flex w-full items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => navigate('/collections')}
@@ -232,7 +233,7 @@ export function CollectionDetailPage() {
         </AnimatePresence>
       </div>
 
-    <div className="px-6 py-6">
+    <div className={PAGE_BODY_CLASS}>
       <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
         <div className="flex items-center gap-2">
           <Select value={filterHealth} onValueChange={(v) => setFilterHealth(v as FilterHealth)}>

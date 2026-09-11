@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
 import { toast } from 'sonner'
 import type { CreateNoteData, Summary, Contributor, Note, PullRequest } from '@/types'
 
@@ -619,8 +620,8 @@ export function RepoDetailPage() {
         </div>
       )}
       {/* Clean white page header */}
-      <div className="bg-white border-b border-border px-6 py-4">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4">
+      <div data-testid="page-header" className={PAGE_HEADER_CLASS}>
+        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => navigate(`/collections/${repo.collection_id}`)}
@@ -779,7 +780,7 @@ export function RepoDetailPage() {
       </div>
 
       {/* Body — flex-row when notes are pinned, flex-col otherwise */}
-      <div className={cn('px-6 py-6 flex gap-6', notesPinned ? 'flex-row items-start' : 'flex-col')}>
+      <div className={cn(PAGE_BODY_CLASS, 'flex gap-6', notesPinned ? 'flex-row items-start' : 'flex-col')}>
 
         {/* Main sections column */}
         <div className={cn('flex flex-col gap-6', notesPinned ? 'flex-1 min-w-0' : 'w-full')}>

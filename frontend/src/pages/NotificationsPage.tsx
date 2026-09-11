@@ -6,12 +6,11 @@ import {
   useUnreadCount,
   useMarkNotificationRead,
   useMarkAllNotificationsRead,
-  useReminders,
 } from '@/hooks/useNotifications'
 import { ActiveRemindersPanel } from '@/components/ActiveRemindersPanel'
-import { InboxZeroEasterEgg } from '@/components/InboxZeroEasterEgg'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
 import type { Notification } from '@/types'
 
 const containerVariants = {
@@ -54,13 +53,8 @@ export function NotificationsPage() {
   const markRead = useMarkNotificationRead()
   const markAllRead = useMarkAllNotificationsRead()
 
-  const { data: remindersData } = useReminders()
-
   const notifications = notificationsData?.items ?? []
   const unreadCount = unreadData?.unread_count ?? 0
-  // Nothing pending at all — show the easter egg instead of a bare empty state.
-  const inboxIsEmpty =
-    !isLoading && notifications.length === 0 && (remindersData?.items.length ?? 0) === 0
 
   async function handleNotificationClick(id: string, repoId: string | null) {
     await markRead.mutateAsync(id)
@@ -76,7 +70,7 @@ export function NotificationsPage() {
       className="min-h-screen"
     >
       {/* Page header */}
-      <div className="border-b border-border bg-white px-6 py-4 flex items-center justify-between">
+      <div data-testid="page-header" className={cn(PAGE_HEADER_CLASS, 'justify-between')}>
         <div className="flex items-center gap-3 min-w-0">
           <h1 className="text-xl font-semibold text-foreground">Notifications</h1>
           {unreadCount > 0 && (
@@ -97,7 +91,7 @@ export function NotificationsPage() {
         )}
       </div>
 
-      <div className="px-6 py-6 max-w-3xl">
+      <div className={cn(PAGE_BODY_CLASS, 'max-w-3xl')}>
         {/* Reminders you can manage directly */}
         <section className="mb-6 rounded-xl border border-border bg-white overflow-hidden">
           <ActiveRemindersPanel />
@@ -115,8 +109,6 @@ export function NotificationsPage() {
             <p className="px-4 py-8 text-center text-sm text-muted-foreground">
               Loading notifications...
             </p>
-          ) : inboxIsEmpty ? (
-            <InboxZeroEasterEgg />
           ) : notifications.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground">
               <Bell className="h-7 w-7 mx-auto mb-2 opacity-30" />
