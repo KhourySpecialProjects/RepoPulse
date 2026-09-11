@@ -15,7 +15,6 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
-import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
 import type { Collection, CreateCollectionData } from '@/types'
 
 const containerVariants = {
@@ -102,7 +101,7 @@ export function CollectionsPage() {
 
   return (
     <div>
-      <div data-testid="page-header" className={cn(PAGE_HEADER_CLASS, 'justify-between')}>
+      <div className="border-b border-border bg-white px-6 py-4 flex items-center justify-between">
         <h1 className="text-xl font-semibold text-foreground">Collections</h1>
         <div className="flex items-center gap-2">
           <Button
@@ -120,7 +119,7 @@ export function CollectionsPage() {
           </Button>
         </div>
       </div>
-    <div className={PAGE_BODY_CLASS}>
+    <div className="px-6 py-6">
 
       {isLoading && (
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">

@@ -36,7 +36,6 @@ const mockNote: Note = {
   content: 'This is a test note',
   is_reminder: false,
   reminder_context: null,
-  remind_at: null,
   is_checked: false,
   is_archived: false,
   created_at: '2025-01-15T10:00:00Z',

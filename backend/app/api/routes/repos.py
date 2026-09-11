@@ -248,7 +248,6 @@ async def list_repos(
                 Note.is_reminder == True,   # noqa: E712
                 Note.is_archived == False,  # noqa: E712
                 Note.is_checked == False,   # noqa: E712
-                Note.deleted_at.is_(None),
             )
             .group_by(Note.repo_id)
         )
