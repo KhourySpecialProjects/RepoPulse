@@ -34,9 +34,6 @@ from app.services.permission_service import (
     can_write_collection,
 )
 
-from app.schemas.repos import RepoDeleteResponse
-from app.services.repo_removal_service import remove_repo_records
-
 router = APIRouter()
 
 _git_service = GitService()
@@ -348,14 +345,13 @@ async def get_repo(
 
 @router.delete(
     "/repos/{repo_id}",
-    response_model=RepoDeleteResponse,
     responses={404: {"model": ErrorResponse}},
 )
 async def delete_repo(
     repo_id: uuid.UUID,
     db: AsyncSession = Depends(get_db_session),
     current_user_id: str = Depends(get_current_user),
-) -> RepoDeleteResponse:
+) -> dict:
     user_uuid = uuid.UUID(current_user_id)
     repo = await db.get(Repo, repo_id)
     if repo is None:
@@ -368,8 +364,9 @@ async def delete_repo(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Repo not found",
         )
-    await remove_repo_records(db, repo.id)
-    return RepoDeleteResponse(detail="Repo deleted")
+    await db.delete(repo)
+    await db.commit()
+    return {"detail": "Repo deleted"}
 
 
 @router.patch(
