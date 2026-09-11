@@ -4,7 +4,7 @@ import logging
 import os
 import sys
 
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, Response, status
 
 # Uvicorn's default log config sets root to WARNING, so app.* loggers need
 # their own handler to emit INFO messages.
@@ -51,10 +51,13 @@ _init_tracing()
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from sqlalchemy import text
+
 from app.api.routes import api_router
-from app.db.database import Base, engine
+from app.db.database import engine
 from app.services.contributor_service import ContributorOperationError
 from app.schemas.errors import ErrorResponse
+from app.schemas.meta import HealthzResponse
 
 app = FastAPI(
     title="RepoPulse API",
@@ -106,18 +109,15 @@ async def internal_error_handler(request: Request, exc: Exception) -> JSONRespon
 
 
 # ---------------------------------------------------------------------------
-# Startup
+# Schema
 # ---------------------------------------------------------------------------
-
-
-@app.on_event("startup")
-async def on_startup() -> None:
-    """Create tables on startup (dev convenience; Alembic manages migrations)."""
-    # Import all models so Base.metadata is populated
-    import app.models  # noqa: F401
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+#
+# There is deliberately no startup hook here. This app used to call
+# Base.metadata.create_all on every boot, which built the schema from the
+# models and meant the Alembic chain was never exercised — it had been broken
+# for nineteen revisions before anyone noticed, because every local
+# environment kept working. Alembic is now the only thing that creates tables;
+# backend/entrypoint.sh runs `alembic upgrade head` before this process starts.
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +132,44 @@ app.include_router(api_router, prefix="/api/v1")
 # ---------------------------------------------------------------------------
 
 
-@app.get("/healthz", tags=["meta"])
-async def healthz() -> dict:
-    return {"status": "ok"}
+@app.get("/healthz", tags=["meta"], response_model=HealthzResponse)
+async def healthz(response: Response) -> HealthzResponse:
+    """Report whether this process can actually serve requests.
+
+    The database is probed rather than assumed. With `create_all` gone, a
+    container whose migrations never ran now looks perfectly healthy until the
+    first real request 500s — this endpoint is what makes that state visible,
+    and what lets a compose healthcheck catch it.
+    """
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+            # to_regclass rather than querying alembic_version directly: a
+            # missing table would raise, abort the transaction, and get
+            # reported as "unreachable" when the database is in fact fine.
+            table = (
+                await conn.execute(text("SELECT to_regclass('public.alembic_version')"))
+            ).scalar()
+            revision = None
+            if table is not None:
+                revision = (
+                    await conn.execute(text("SELECT version_num FROM alembic_version"))
+                ).scalar_one_or_none()
+    except Exception as exc:  # noqa: BLE001 — any failure here means unhealthy
+        _app_logger.warning("healthz: database probe failed: %s", exc)
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return HealthzResponse(
+            status="error",
+            database="unreachable",
+            detail="Database is unreachable.",
+        )
+
+    if revision is None:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return HealthzResponse(
+            status="error",
+            database="ok",
+            detail="Schema is not migrated — run `alembic upgrade head`.",
+        )
+
+    return HealthzResponse(status="ok", database="ok", schema_revision=revision)
