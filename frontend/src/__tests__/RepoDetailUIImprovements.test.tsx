@@ -66,6 +66,8 @@ const mockCommit: Commit = {
   insertions: 142,
   deletions: 23,
   files_changed: 6,
+  commit_type: null,
+  quality_score: null,
 }
 
 const mockContributor: Contributor = {

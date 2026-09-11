@@ -75,10 +75,11 @@ describe('API: user management endpoints', () => {
       http.get('/api/v1/users', ({ request }) => {
         const url = new URL(request.url)
         const collectionId = url.searchParams.get('collection_id')
-        if (collectionId === 'col-1') {
-          return HttpResponse.json([mockUserDetail])
-        }
-        return HttpResponse.json([mockUserDetail, mockAdminUser])
+        // getUsers unwraps the paginated envelope, so the mock must send one.
+        const items = collectionId === 'col-1'
+          ? [mockUserDetail]
+          : [mockUserDetail, mockAdminUser]
+        return HttpResponse.json({ items, total: items.length, limit: 50, offset: 0 })
       })
     )
     const { getUsers } = await import('@/services/api')
@@ -170,7 +171,10 @@ describe('API: user management endpoints', () => {
 
   it('getCollectionAccess returns access entries', async () => {
     server.use(
-      http.get('/api/v1/collections/:id/access', () => HttpResponse.json([]))
+      // getCollectionAccess unwraps .items — a bare array yields undefined.
+      http.get('/api/v1/collections/:id/access', () =>
+        HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 })
+      )
     )
     const { getCollectionAccess } = await import('@/services/api')
     const result = await getCollectionAccess('col-1')
@@ -358,7 +362,10 @@ describe('AdminPage', () => {
 describe('CollectionAccessPanel', () => {
   it('renders access panel with co-instructors section', async () => {
     server.use(
-      http.get('/api/v1/collections/:id/access', () => HttpResponse.json([]))
+      // getCollectionAccess unwraps .items — a bare array yields undefined.
+      http.get('/api/v1/collections/:id/access', () =>
+        HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 })
+      )
     )
     const { CollectionAccessPanel } = await import('@/components/CollectionAccessPanel')
     renderWithProviders(<CollectionAccessPanel collectionId="col-1" />)

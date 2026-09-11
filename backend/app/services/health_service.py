@@ -37,12 +37,19 @@ class HealthService:
             if actual_contributor_count is not None
             else len(set(c["author_email"].lower() for c in commits))
         )
-        # When no expected count is set, use actual as expected → always green
-        expected = expected_contributor_count if expected_contributor_count else max(actual, 1)
-        participation_score = self._participation_score(actual, expected)
+        # Participation is only measurable against an expected contributor
+        # count. Without one it is omitted rather than defaulted
+        participation_score: int | None = (
+            self._participation_score(actual, expected_contributor_count)
+            if expected_contributor_count
+            else None
+        )
 
-        raw_sum = cf_score + rec_score + dist_score + branch_score + msg_score + participation_score
-        max_sum = 6 * 2
+        raw_sum = cf_score + rec_score + dist_score + branch_score + msg_score
+        max_sum = 5 * 2
+        if participation_score is not None:
+            raw_sum += participation_score
+            max_sum += 2
 
         composite = raw_sum / max_sum
 

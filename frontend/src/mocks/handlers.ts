@@ -185,6 +185,8 @@ const mockCommits: Commit[] = [
     insertions: 142,
     deletions: 23,
     files_changed: 6,
+    commit_type: null,
+    quality_score: null,
   },
   {
     hash: 'def0987654321',
@@ -196,6 +198,8 @@ const mockCommits: Commit[] = [
     insertions: 18,
     deletions: 5,
     files_changed: 2,
+    commit_type: null,
+    quality_score: null,
   },
   {
     hash: 'ghi1122334455',
@@ -207,6 +211,8 @@ const mockCommits: Commit[] = [
     insertions: 54,
     deletions: 0,
     files_changed: 1,
+    commit_type: null,
+    quality_score: null,
   },
 ]
 

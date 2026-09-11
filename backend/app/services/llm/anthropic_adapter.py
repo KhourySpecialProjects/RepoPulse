@@ -9,7 +9,7 @@ from app.services.llm.base import LLMService
 class AnthropicAdapter(LLMService):
     def __init__(
         self,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = settings.DEFAULT_LLM_MODEL,
         api_key: str | None = None,
     ) -> None:
         self._model = model
@@ -31,4 +31,12 @@ class AnthropicAdapter(LLMService):
             kwargs["system"] = system
 
         message = await self._client.messages.create(**kwargs)
-        return message.content[0].text
+
+        # Not content[0].text: newer models can return a ThinkingBlock first,
+        # which has no .text at all. Collect the text blocks and leave the rest
+        # alone. An answer with no text block yields "", which every caller
+        # already treats as an unusable response.
+        return "".join(
+            block.text for block in message.content
+            if getattr(block, "type", None) == "text"
+        )

@@ -192,4 +192,35 @@ describe('CommitQualityPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /student-project/i }))
     expect(screen.getByText('fix: resolve null pointer')).toBeInTheDocument()
   })
+
+  it('renders an unscored commit as a dash, never as OK', async () => {
+    // The backend returns null when the LLM call failed rather than inventing
+    // a score. Rendering that as "OK" would put the fabrication back in the UI.
+    mockGetCommitQuality.mockResolvedValue({
+      ...mockResponse,
+      repos: [
+        {
+          ...mockResponse.repos[0],
+          commits: [
+            {
+              hash: 'xyz999',
+              full_hash: 'xyz999xyz999',
+              message: 'Add rate limiting',
+              author: 'Alice',
+              date: '2025-10-04T09:00:00Z',
+              score: null,
+              from_cache: false,
+            },
+          ],
+          newly_scored: 0,
+        },
+      ],
+      total_newly_scored: 0,
+    })
+    renderPanel()
+
+    await screen.findByText('Add rate limiting')
+    expect(screen.getByText('—')).toBeInTheDocument()
+    expect(screen.queryByText('OK')).not.toBeInTheDocument()
+  })
 })

@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -37,15 +38,44 @@ def _make_commit(
 # ---------------------------------------------------------------------------
 
 
+@pytest_asyncio.fixture
+async def repo_id(db_session: AsyncSession, test_user) -> uuid.UUID:
+    """A persisted Repo id.
+
+    contributors.repo_id is a real foreign key, so a bare uuid4() fails with
+    ForeignKeyViolationError as soon as _upsert_contributors inserts.
+    """
+    from app.models.collection import Collection
+    from app.models.repo import Repo
+
+    collection = Collection(
+        id=uuid.uuid4(),
+        name="Contributor Test Collection",
+        local_folder_name=f"contrib-{uuid.uuid4().hex[:6]}",
+        owner_id=test_user.id,
+    )
+    db_session.add(collection)
+    await db_session.flush()
+
+    repo = Repo(
+        id=uuid.uuid4(),
+        collection_id=collection.id,
+        github_url="https://github.com/test/contrib-repo",
+        name="contrib-repo",
+    )
+    db_session.add(repo)
+    await db_session.flush()
+    return repo.id
+
+
 @pytest.mark.asyncio
-async def test_upsert_contributors_creates_new_contributor(db_session: AsyncSession) -> None:
+async def test_upsert_contributors_creates_new_contributor(db_session: AsyncSession, repo_id: uuid.UUID) -> None:
     """When no contributor exists for an email, a new Contributor + alias is created."""
     from app.api.routes.repos import _upsert_contributors
     from app.models.contributor import Contributor
     from app.models.contributor_alias import ContributorAlias
     from sqlalchemy import select
 
-    repo_id = uuid.uuid4()
     commits = [
         _make_commit("alice@example.com", "Alice", days_ago=3, insertions=5, deletions=1),
         _make_commit("alice@example.com", "Alice", days_ago=1, insertions=20, deletions=5),
@@ -77,13 +107,12 @@ async def test_upsert_contributors_creates_new_contributor(db_session: AsyncSess
 
 
 @pytest.mark.asyncio
-async def test_upsert_contributors_multiple_authors(db_session: AsyncSession) -> None:
+async def test_upsert_contributors_multiple_authors(db_session: AsyncSession, repo_id: uuid.UUID) -> None:
     """Two distinct emails produce two Contributor rows."""
     from app.api.routes.repos import _upsert_contributors
     from app.models.contributor import Contributor
     from sqlalchemy import select
 
-    repo_id = uuid.uuid4()
     commits = [
         _make_commit("alice@example.com", "Alice", insertions=10, deletions=2),
         _make_commit("bob@example.com", "Bob", insertions=5, deletions=1),
@@ -101,14 +130,13 @@ async def test_upsert_contributors_multiple_authors(db_session: AsyncSession) ->
 
 
 @pytest.mark.asyncio
-async def test_upsert_contributors_idempotent_on_second_call(db_session: AsyncSession) -> None:
+async def test_upsert_contributors_idempotent_on_second_call(db_session: AsyncSession, repo_id: uuid.UUID) -> None:
     """Calling _upsert_contributors twice with the same commits updates stats, not duplicates."""
     from app.api.routes.repos import _upsert_contributors
     from app.models.contributor import Contributor
     from app.models.contributor_alias import ContributorAlias
     from sqlalchemy import select
 
-    repo_id = uuid.uuid4()
     commits = [
         _make_commit("alice@example.com", "Alice", insertions=10, deletions=2),
     ]
@@ -133,14 +161,13 @@ async def test_upsert_contributors_idempotent_on_second_call(db_session: AsyncSe
 
 
 @pytest.mark.asyncio
-async def test_upsert_contributors_multiple_names_same_email(db_session: AsyncSession) -> None:
+async def test_upsert_contributors_multiple_names_same_email(db_session: AsyncSession, repo_id: uuid.UUID) -> None:
     """Different git_names for the same email produce separate aliases but one Contributor."""
     from app.api.routes.repos import _upsert_contributors
     from app.models.contributor import Contributor
     from app.models.contributor_alias import ContributorAlias
     from sqlalchemy import select
 
-    repo_id = uuid.uuid4()
     commits = [
         _make_commit("alice@example.com", "Alice Smith", days_ago=5, insertions=3, deletions=1),
         _make_commit("alice@example.com", "A. Smith", days_ago=1, insertions=7, deletions=2),
@@ -167,13 +194,12 @@ async def test_upsert_contributors_multiple_names_same_email(db_session: AsyncSe
 
 
 @pytest.mark.asyncio
-async def test_upsert_contributors_stats_accuracy(db_session: AsyncSession) -> None:
+async def test_upsert_contributors_stats_accuracy(db_session: AsyncSession, repo_id: uuid.UUID) -> None:
     """Stats are correctly aggregated: commit_count, insertions, deletions, last_commit_at."""
     from app.api.routes.repos import _upsert_contributors
     from app.models.contributor import Contributor
     from sqlalchemy import select
 
-    repo_id = uuid.uuid4()
     t1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
     t2 = datetime(2026, 2, 1, tzinfo=timezone.utc)
     t3 = datetime(2026, 3, 1, tzinfo=timezone.utc)
@@ -198,13 +224,12 @@ async def test_upsert_contributors_stats_accuracy(db_session: AsyncSession) -> N
 
 
 @pytest.mark.asyncio
-async def test_upsert_contributors_empty_commits(db_session: AsyncSession) -> None:
+async def test_upsert_contributors_empty_commits(db_session: AsyncSession, repo_id: uuid.UUID) -> None:
     """Empty commit list produces no contributor rows."""
     from app.api.routes.repos import _upsert_contributors
     from app.models.contributor import Contributor
     from sqlalchemy import select
 
-    repo_id = uuid.uuid4()
     await _upsert_contributors(db_session, repo_id, [])
     await db_session.flush()
 

@@ -30,6 +30,7 @@ import type {
   ReminderListResponse,
   RecentlyDeletedListResponse,
   CommitQualityResponse,
+  ClassifyCommitsResponse,
   PRListResponse,
   PRStats,
   PRSyncResponse,
@@ -359,6 +360,21 @@ export async function markAllNotificationsRead(): Promise<{ marked_read: number 
 }
 
 // Commit Quality
+// Commit Classification
+export async function classifyRepoCommits(
+  repoId: string,
+  confirm = false
+): Promise<ClassifyCommitsResponse> {
+  // No per-request timeout: a confirmed run on a large repo legitimately takes
+  // minutes. The backend's preview threshold and per-request cap are what keep
+  // that bounded, not a client-side clock.
+  const res = await apiClient.post<ClassifyCommitsResponse>(
+    `/repos/${repoId}/commits/classify`,
+    { confirm }
+  )
+  return res.data
+}
+
 export async function getCommitQuality(
   collectionId: string,
   perRepo = 15

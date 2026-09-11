@@ -22,7 +22,13 @@ from app.schemas.notes import NoteCreate, NoteUpdate, NoteRead, PaginatedNotes
 from app.schemas.summaries import GenerateSummaryRequest, SummaryRead
 from app.schemas.app_settings import AppSettingsRead, AppSettingsUpdate
 from app.schemas.health import HealthBreakdown
-from app.schemas.commits import CommitRead, PaginatedCommits
+from app.schemas.commits import (
+    CommitRead,
+    CommitType,
+    CommitTypeFilter,
+    PaginatedCommits,
+    QualityScore,
+)
 from app.schemas.errors import ErrorResponse
 
 __all__ = [
@@ -52,6 +58,9 @@ __all__ = [
     "AppSettingsUpdate",
     "HealthBreakdown",
     "CommitRead",
+    "CommitType",
+    "CommitTypeFilter",
+    "QualityScore",
     "PaginatedCommits",
     "ErrorResponse",
 ]

@@ -16,12 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.deps import get_current_user, get_db_session
 from app.models.collection import Collection
+from app.models.commit_classification import CommitClassification
 from app.models.contributor import Contributor
 from app.models.user import User
 from app.models.contributor_alias import ContributorAlias
 from app.models.note import Note
 from app.models.repo import Repo
-from app.schemas.commits import CommitRead, PaginatedCommits
+from app.schemas.commits import CommitRead, CommitTypeFilter, PaginatedCommits
 from app.schemas.contributors import ContributorRead, AliasRead
 from app.schemas.errors import ErrorResponse
 from app.schemas.health import HealthBreakdown
@@ -549,6 +550,13 @@ async def get_repo_commits(
     branch: Optional[str] = Query(None),
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
+    commit_type: Optional[CommitTypeFilter] = Query(
+        None,
+        description=(
+            "Filter by classification. 'unclassified' means no commit_type "
+            "yet, which includes commits that already carry a quality score."
+        ),
+    ),
     db: AsyncSession = Depends(get_db_session),
     current_user_id: str = Depends(get_current_user),
 ) -> PaginatedCommits:
@@ -584,6 +592,24 @@ async def get_repo_commits(
             detail=f"Could not read commits: {exc}",
         )
 
+    # Cached classifications for this repo, keyed by full SHA — which is
+    # exactly what parse_commits puts in c["hash"], so no conversion is needed.
+    # Queried on the indexed repo_id rather than `commit_hash.in_(hashes)`: the
+    # hash list runs to thousands on a real repo, and bind parameters are
+    # finite. Loaded after parse_commits so the 400/404 paths don't pay for it.
+    classification_rows = (
+        await db.execute(
+            select(
+                CommitClassification.commit_hash,
+                CommitClassification.commit_type,
+                CommitClassification.score,
+            ).where(CommitClassification.repo_id == repo_id)
+        )
+    ).all()
+    classifications: dict[str, tuple[Optional[str], Optional[str]]] = {
+        row.commit_hash: (row.commit_type, row.score) for row in classification_rows
+    }
+
     contributor_emails: set[str] = set()
     if contributor_id is not None:
         contributor = await db.get(Contributor, contributor_id)
@@ -600,6 +626,15 @@ async def get_repo_commits(
             continue
         if date_to and c["date"] > date_to:
             continue
+        if commit_type is not None:
+            # A row may exist carrying only a score, so "unclassified" has to
+            # test the commit_type value rather than row presence.
+            row_type = classifications.get(c["hash"], (None, None))[0]
+            if commit_type == "unclassified":
+                if row_type is not None:
+                    continue
+            elif row_type != commit_type:
+                continue
         filtered.append(c)
 
     total = len(filtered)
@@ -616,6 +651,8 @@ async def get_repo_commits(
             insertions=c["insertions"],
             deletions=c["deletions"],
             files_changed=c["files_changed"],
+            commit_type=classifications.get(c["hash"], (None, None))[0],
+            quality_score=classifications.get(c["hash"], (None, None))[1],
         )
         for c in page
     ]
