@@ -48,7 +48,6 @@ const mockRepo: Repo = {
   local_path: '/repos/student-project',
   health_status: 'green',
   health_score: null,
-  last_commit_at: null,
   last_synced_at: '2025-10-15T10:00:00Z',
   created_at: '2025-09-01T00:00:00Z',
   updated_at: '2025-10-15T10:00:00Z',
@@ -174,7 +173,7 @@ describe('RepoDetailPage - Contributors in right column', () => {
     // Alice appears in both commits table (author_name) and contributors panel — both expected
     const aliceElements = screen.getAllByText('Alice Johnson')
     expect(aliceElements.length).toBeGreaterThan(0)
-    expect(await screen.findByText(/1 commits/)).toBeInTheDocument()
+    expect(screen.getByText(/42 commits/)).toBeInTheDocument()
   })
 
   it('shows contributor aliases in right column panel', async () => {
@@ -206,24 +205,33 @@ describe('RepoDetailPage - Commit hash GitHub link', () => {
 // 3. Chart range selector
 // ──────────────────────────────────────────────
 describe('RepoDetailPage - Chart date range selector', () => {
-  it('renders range options and defaults to 30 days', async () => {
+  it('renders range selector buttons', async () => {
     setupHandlers()
     renderPage()
-    const range = await screen.findByRole('combobox', { name: 'Activity range' })
-    expect(range).toHaveValue('30')
-    for (const label of ['7 days', '30 days', '90 days', 'All history']) {
-      expect(screen.getByRole('option', { name: label })).toBeInTheDocument()
-    }
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: '7d' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '30d' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '90d' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument()
   })
 
-  it('switches the selected activity range', async () => {
+  it('defaults to "All" range button as active', async () => {
     setupHandlers()
     renderPage()
-    const range = await screen.findByRole('combobox', { name: 'Activity range' })
-    fireEvent.change(range, { target: { value: '7' } })
-    expect(range).toHaveValue('7')
-    fireEvent.change(range, { target: { value: 'all' } })
-    expect(range).toHaveValue('all')
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+    const btnAll = screen.getByRole('button', { name: 'All' })
+    expect(btnAll.className).toMatch(/bg-indigo-600/)
+  })
+
+  it('switches active range when a button is clicked', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: '7d' }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '7d' }).className).toMatch(/bg-indigo-600/)
+    })
+    expect(screen.getByRole('button', { name: '30d' }).className).not.toMatch(/bg-indigo-600/)
   })
 })
 
@@ -253,15 +261,24 @@ describe('RepoDetailPage - Commit notes panel', () => {
   })
 
   it('hides CommitNotesPanel when Notes button is clicked again (toggle)', async () => {
-    setupHandlers({ commitNotes: [commitNoteForHash] })
+    setupHandlers()
     renderPage()
-    await screen.findByText('abc1234')
+    await waitFor(() => expect(screen.getByText('abc1234')).toBeInTheDocument())
     const notesBtn = screen.getAllByText('Add note')[0].closest('button') as HTMLElement
+
+    // Before opening: only 1 textarea (the repo Notes panel)
+    const countBefore = screen.getAllByPlaceholderText('Write a note...').length
+
     fireEvent.click(notesBtn)
-    expect(await screen.findByText('This commit looks suspicious')).toBeInTheDocument()
-    fireEvent.click(notesBtn)
+    // After opening: 2 textareas (repo Notes + commit Notes panel)
     await waitFor(() => {
-      expect(screen.queryByText('This commit looks suspicious')).not.toBeInTheDocument()
+      expect(screen.getAllByPlaceholderText('Write a note...').length).toBe(countBefore + 1)
+    })
+
+    fireEvent.click(notesBtn)
+    // After closing: back to original count
+    await waitFor(() => {
+      expect(screen.getAllByPlaceholderText('Write a note...').length).toBe(countBefore)
     })
   })
 })

@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, useUnmergeContributor, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests } from '@/hooks/useRepos'
+import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests } from '@/hooks/useRepos'
 import { useRepoSummaries, useContributorSummaries, useGenerateSummary } from '@/hooks/useSummaries'
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '@/hooks/useNotes'
 import { useUsers, useCurrentUser } from '@/hooks/useUsers'
@@ -233,14 +233,6 @@ const sectionVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.22 } },
 }
 
-function readPullRequestsExpanded(repoId: string | undefined): boolean {
-  try {
-    return localStorage.getItem(`repo-pull-requests-expanded-${repoId}`) !== 'false'
-  } catch {
-    return true
-  }
-}
-
 export function RepoDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -248,26 +240,12 @@ export function RepoDetailPage() {
   const [activeCommitHash, setActiveCommitHash] = useState<string | null>(null)
   const [highlightedCommitHash, setHighlightedCommitHash] = useState<string | null>(null)
   const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
+  const [selectedAuthors, setSelectedAuthors] = useState<Set<string>>(new Set())
   const [showAllBranches, setShowAllBranches] = useState(false)
+  const [showAllAuthors, setShowAllAuthors] = useState(false)
   const [selectedContributorIds, setSelectedContributorIds] = useState<Set<string>>(new Set())
   const [editingContributorId, setEditingContributorId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
-  const [showMerge, setShowMerge] = useState(false)
-  const [pullRequestsExpanded, setPullRequestsExpanded] = useState(() => readPullRequestsExpanded(id))
-
-  useEffect(() => {
-    setPullRequestsExpanded(readPullRequestsExpanded(id))
-  }, [id])
-
-  function togglePullRequests() {
-    const expanded = !pullRequestsExpanded
-    setPullRequestsExpanded(expanded)
-    try {
-      localStorage.setItem(`repo-pull-requests-expanded-${id}`, String(expanded))
-    } catch {
-      // Keep the toggle usable when browser storage is unavailable.
-    }
-  }
   const [mergeDisplayName, setMergeDisplayName] = useState('')
   const [expectedCount, setExpectedCount] = useState<string>('')
   const [COMMITS_PER_PAGE, setCommitsPerPage] = useState(10)
@@ -314,7 +292,7 @@ export function RepoDetailPage() {
   const hasToken = Boolean(me?.github_token_configured)
   const { data: summaries, isLoading: summariesLoading } = useRepoSummaries(id ?? '')
   const generateSummaryMutation = useGenerateSummary()
-  const { isLoading: commitsLoading } = useRepoCommits(id ?? '', {
+  const { data: commitsData, isLoading: commitsLoading } = useRepoCommits(id ?? '', {
     limit: COMMITS_PER_PAGE,
     offset: commitPage * COMMITS_PER_PAGE,
   })
@@ -322,10 +300,6 @@ export function RepoDetailPage() {
   const { data: contributors, isLoading: contributorsLoading } = useRepoContributors(id ?? '')
   const updateContributorMutation = useUpdateContributor(id ?? '')
   const mergeContributorsMutation = useMergeContributors(id ?? '')
-  const unmergeContributorMutation = useUnmergeContributor(id ?? '')
-  const selectedMergedContributor = selectedContributorIds.size === 1
-    ? contributors?.find(c => selectedContributorIds.has(c.id) && c.can_unmerge)
-    : undefined
   const patchRepoMutation = usePatchRepo()
   const { data: prStats } = usePRStats(id ?? '')
   const PR_PAGE_SIZE = 10
@@ -362,7 +336,7 @@ export function RepoDetailPage() {
     const map: Record<string, string> = {}
     contributors?.forEach(contributor => {
       contributor.aliases.forEach(alias => {
-        map[alias.git_email.toLowerCase()] = contributor.id
+        map[alias.git_email] = contributor.id
       })
     })
     return map
@@ -403,6 +377,12 @@ export function RepoDetailPage() {
     return Array.from(names).sort()
   }, [allCommitsData])
 
+  const allAuthors = useMemo(() => {
+    const names = new Set<string>()
+    allCommitsData?.items.forEach(c => names.add(resolvedAuthor(c)))
+    return Array.from(names).sort()
+  }, [allCommitsData, emailToDisplayName])
+
   function toggleBranch(branch: string) {
     setSelectedBranches(prev => {
       const next = new Set(prev)
@@ -412,16 +392,22 @@ export function RepoDetailPage() {
     })
   }
 
+  function toggleAuthor(author: string) {
+    setSelectedAuthors(prev => {
+      const next = new Set(prev)
+      if (next.has(author)) next.delete(author)
+      else next.add(author)
+      return next
+    })
+  }
+
   const filteredCommits = useMemo(() => {
-    const allContributorsSelected = selectedContributorIds.size === 0 ||
-      (contributors != null && contributors.length > 0 && contributors.every(contributor => selectedContributorIds.has(contributor.id)))
     return (allCommitsData?.items ?? []).filter(c => {
       const branchMatch = selectedBranches.size === 0 || c.branches.some(b => selectedBranches.has(b))
-      const contributorId = emailToContributorId[c.author_email.toLowerCase()]
-      const contributorMatch = allContributorsSelected || selectedContributorIds.has(contributorId)
-      return branchMatch && contributorMatch
+      const authorMatch = selectedAuthors.size === 0 || selectedAuthors.has(resolvedAuthor(c))
+      return branchMatch && authorMatch
     })
-  }, [allCommitsData, selectedBranches, selectedContributorIds, contributors, emailToContributorId])
+  }, [allCommitsData, selectedBranches, selectedAuthors, emailToDisplayName])
 
   const displayedCommits = filteredCommits.slice(
     commitPage * COMMITS_PER_PAGE,
@@ -429,7 +415,6 @@ export function RepoDetailPage() {
   )
 
   function toggleContributorSelect(contributorId: string) {
-    setShowMerge(false)
     setSelectedContributorIds(prev => {
       const next = new Set(prev)
       if (next.has(contributorId)) next.delete(contributorId)
@@ -461,13 +446,6 @@ export function RepoDetailPage() {
     await mergeContributorsMutation.mutateAsync({ ids, displayName: mergeDisplayName.trim() })
     setSelectedContributorIds(new Set())
     setMergeDisplayName('')
-    setShowMerge(false)
-  }
-
-  function handleUnmerge() {
-    if (!selectedMergedContributor) return
-    // Keep the primary selected so another earlier merge can be undone next.
-    unmergeContributorMutation.mutate(selectedMergedContributor.id)
   }
 
   function initMerge() {
@@ -475,7 +453,7 @@ export function RepoDetailPage() {
     setMergeDisplayName(selected[0]?.display_name ?? '')
   }
 
-  async function handleCreateNote(values: Pick<CreateNoteData, 'content' | 'is_reminder' | 'reminder_context'>) {
+  async function handleCreateNote(values: { content: string; is_reminder: boolean; reminder_context: string }) {
     const noteData: CreateNoteData = {
       content: values.content,
       is_reminder: values.is_reminder,
@@ -534,7 +512,7 @@ export function RepoDetailPage() {
   // Reset to page 0 when filters change
   useEffect(() => {
     setCommitPage(0)
-  }, [selectedBranches, selectedContributorIds])
+  }, [selectedBranches, selectedAuthors])
 
   useEffect(() => {
     if (repo?.expected_contributor_count != null) {
@@ -803,12 +781,7 @@ export function RepoDetailPage() {
       <div className={cn('px-6 py-6 flex gap-6', notesPinned ? 'flex-row items-start' : 'flex-col')}>
 
         {/* Main sections column */}
-        <div className={cn('flex flex-col gap-3', notesPinned ? 'flex-1 min-w-0' : 'w-full')}>
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <BarChart2 className="h-4 w-4 text-muted-foreground" />
-                Overview
-              </h2>
-
+        <div className={cn('flex flex-col gap-6', notesPinned ? 'flex-1 min-w-0' : 'w-full')}>
         <div className="flex gap-8 items-start">
 
           {/* Left column — main content */}
@@ -816,6 +789,10 @@ export function RepoDetailPage() {
 
             {/* Overview section */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible">
+              <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                <BarChart2 className="h-4 w-4 text-muted-foreground" />
+                Overview
+              </h2>
               <div className="flex flex-col gap-5">
                 <Card>
                   <CardHeader className="pb-2">
@@ -859,9 +836,16 @@ export function RepoDetailPage() {
                   )}
                 </Card>
 
-                <ContextualActivityChart key={id} collectionId={repo.collection_id} repoId={repo.id}
-                  selectedContributorIds={Array.from(selectedContributorIds)}
-                  actions={<>
+                <ContextualActivityChart key={id} collectionId={repo.collection_id} repoId={repo.id}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {checkIns.length > 0 && (
+                          <span className="text-xs text-muted-foreground">
+                            Last checked: {formatRelativeDays(checkIns[checkIns.length - 1])}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1">
                         <button
                           onClick={handleCheckIn}
                           title="Record a check-in now"
@@ -883,9 +867,8 @@ export function RepoDetailPage() {
                           <CalendarPlus className="h-3.5 w-3.5" />
                         </button>
 
-                  </>}
-                >
-                  {checkIns.length > 0 && <p className="text-xs text-muted-foreground">Last checked: {formatRelativeDays(checkIns[checkIns.length - 1])}</p>}
+                      </div>
+                    </div>
                     {showPastCheckIn && (
                       <div className="flex items-center gap-2 mt-2 pt-2 border-t">
                         <input
@@ -965,7 +948,44 @@ export function RepoDetailPage() {
                         )}
                       </div>
                     )}
-
+                    {allAuthors.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground mr-1">Author:</span>
+                        <button
+                          onClick={() => setSelectedAuthors(new Set())}
+                          className={cn(
+                            'text-xs px-1.5 py-0.5 rounded border transition-colors',
+                            selectedAuthors.size === 0
+                              ? 'bg-violet-600 text-white border-violet-600'
+                              : 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
+                          )}
+                        >
+                          All
+                        </button>
+                        {(showAllAuthors ? allAuthors : allAuthors.slice(0, MAX_FILTER_CHIPS)).map(a => (
+                          <button
+                            key={a}
+                            onClick={() => toggleAuthor(a)}
+                            className={cn(
+                              'text-xs px-1.5 py-0.5 rounded border transition-colors',
+                              selectedAuthors.has(a)
+                                ? 'bg-violet-600 text-white border-violet-600'
+                                : 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
+                            )}
+                          >
+                            {a}
+                          </button>
+                        ))}
+                        {allAuthors.length > MAX_FILTER_CHIPS && (
+                          <button
+                            onClick={() => setShowAllAuthors(v => !v)}
+                            className="text-xs px-1.5 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
+                          >
+                            {showAllAuthors ? 'Show less' : `+${allAuthors.length - MAX_FILTER_CHIPS} more`}
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                     <div className="flex flex-wrap items-center justify-between gap-3 py-1">
                       <p className="text-xs text-muted-foreground">
@@ -1145,28 +1165,147 @@ export function RepoDetailPage() {
 
           </div>
 
-          {/* Right column — Pull Requests + Contributors */}
-          <div className="w-80 xl:w-96 flex-shrink-0 self-stretch flex flex-col gap-6">
+          {/* Right column — Contributors + Notes */}
+          <div className="w-80 xl:w-96 flex-shrink-0 flex flex-col gap-6">
+
+            {/* Contributors panel */}
+            <div className="bg-gray-50 rounded-xl border border-border p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <User className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold">Contributors</h2>
+                <div className="ml-auto flex items-center gap-1.5">
+                  <span className="text-xs text-muted-foreground">Expected:</span>
+                  <input
+                    type="number"
+                    min={contributors?.length ?? 1}
+                    value={expectedCount}
+                    onChange={e => setExpectedCount(e.target.value)}
+                    onBlur={handleSaveExpectedCount}
+                    onKeyDown={e => { if (e.key === 'Enter') handleSaveExpectedCount() }}
+                    placeholder="—"
+                    className="w-10 text-xs text-center border border-border rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white"
+                  />
+                </div>
+                {selectedContributorIds.size >= 2 && (
+                  <span className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full px-2 py-0.5 font-medium">
+                    {selectedContributorIds.size} selected
+                  </span>
+                )}
+              </div>
+
+              {/* Merge bar — shown when 2+ selected */}
+              {selectedContributorIds.size >= 2 && (
+                <div className="mb-3 p-2.5 bg-indigo-50 border border-indigo-200 rounded-lg flex flex-col gap-2">
+                  <p className="text-xs text-indigo-700 font-medium">Merge display name:</p>
+                  <input
+                    className="w-full text-xs border border-indigo-200 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                    value={mergeDisplayName}
+                    onChange={e => setMergeDisplayName(e.target.value)}
+                    placeholder="Merged contributor name"
+                    onFocus={() => { if (!mergeDisplayName) initMerge() }}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleMerge}
+                      disabled={!mergeDisplayName.trim() || mergeContributorsMutation.isPending}
+                      aria-busy={mergeContributorsMutation.isPending}
+                      className="flex-1 text-xs bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded px-2 py-1.5 font-medium transition-colors"
+                    >
+                      {mergeContributorsMutation.isPending && <RefreshCw className="inline-block h-3.5 w-3.5 mr-1.5 animate-spin motion-reduce:animate-none" />}
+                      {mergeContributorsMutation.isPending ? 'Merging…' : 'Confirm Merge'}
+                    </button>
+                    <button
+                      onClick={() => { setSelectedContributorIds(new Set()); setMergeDisplayName('') }}
+                      className="text-xs border border-border rounded px-2 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {!sortedContributors.length ? (
+                <p className="text-xs text-muted-foreground text-center py-4">No contributors found.</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {sortedContributors.map((contributor) => (
+                    <div key={contributor.id} className={cn(
+                      'flex items-start gap-2 rounded-lg p-1.5 -mx-1.5 transition-colors',
+                      selectedContributorIds.has(contributor.id) && 'bg-indigo-50'
+                    )}>
+                      <input
+                        type="checkbox"
+                        checked={selectedContributorIds.has(contributor.id)}
+                        onChange={() => toggleContributorSelect(contributor.id)}
+                        className="mt-1 h-3.5 w-3.5 flex-shrink-0 accent-indigo-600 cursor-pointer"
+                      />
+                      <div className="flex-1 min-w-0">
+                        {editingContributorId === contributor.id ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              autoFocus
+                              className="flex-1 min-w-0 text-sm border border-indigo-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                              value={editingName}
+                              onChange={e => setEditingName(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') saveDisplayName(); if (e.key === 'Escape') cancelEditing() }}
+                            />
+                            <button onClick={saveDisplayName} aria-busy={updateContributorMutation.isPending} disabled={updateContributorMutation.isPending} className="text-emerald-600 hover:text-emerald-700">
+                              {updateContributorMutation.isPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <Check className="h-3.5 w-3.5" />}
+                            </button>
+                            <button onClick={cancelEditing} className="text-muted-foreground hover:text-foreground">
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 group">
+                            <p className="font-medium text-sm truncate">{contributor.display_name}</p>
+                            <button
+                              onClick={() => startEditing(contributor)}
+                              className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-indigo-600 transition-opacity flex-shrink-0"
+                              title="Edit display name"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                            <ContributorGenerateButton contributorId={contributor.id} repoId={id ?? ''} />
+                          </div>
+                        )}
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {contributor.aliases.length} alias{contributor.aliases.length !== 1 ? 'es' : ''}
+                          {contributor.aliases.length > 0 && (
+                            <span> — {contributor.aliases.map((a) => a.git_email).join(', ')}</span>
+                          )}
+                        </p>
+                        {(() => {
+                          const s = contributorStats[contributor.id]
+                          const commits = s?.commits ?? contributor.commit_count
+                          const ins = s?.insertions ?? contributor.total_insertions
+                          const del = s?.deletions ?? contributor.total_deletions
+                          const last = s?.lastCommitAt ?? contributor.last_commit_at
+                          return (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {commits} commits
+                              {' · '}
+                              <span className="text-green-600">+{ins.toLocaleString()}</span>
+                              {' / '}
+                              <span className="text-red-600">-{del.toLocaleString()}</span>
+                              {' · '}
+                              Last: {last ? formatDate(last) : 'Never'}
+                            </p>
+                          )
+                        })()}
+                        <ContributorSummaryDisplay contributorId={contributor.id} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* Pull Requests panel */}
-            <div className="shrink-0 bg-gray-50 rounded-xl border border-border p-4">
-              <h2 className="text-sm font-semibold">
-                <button
-                  type="button"
-                  onClick={togglePullRequests}
-                  aria-expanded={pullRequestsExpanded}
-                  aria-controls="pull-requests-content"
-                  className="flex w-full items-center gap-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
-                >
-                  <GitPullRequest className="h-4 w-4 text-muted-foreground" />
-                  Pull Requests
-                  {pullRequestsExpanded
-                    ? <ChevronUp className="ml-auto h-4 w-4" />
-                    : <ChevronDown className="ml-auto h-4 w-4" />}
-                </button>
-              </h2>
-              <div id="pull-requests-content" hidden={!pullRequestsExpanded}>
-              <div className="flex items-center gap-2 mt-3 mb-3">
+            <div className="bg-gray-50 rounded-xl border border-border p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <GitPullRequest className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold">Pull Requests</h2>
                 <button
                   onClick={() => syncPRsMutation.mutate()}
                   disabled={syncPRsMutation.isPending || !hasToken}
@@ -1271,155 +1410,6 @@ export function RepoDetailPage() {
                       </div>
                     </div>
                   )}
-                </div>
-              )}
-              </div>
-            </div>
-
-            {/* Contributors panel */}
-            <div className="sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto shrink-0 bg-gray-50 rounded-xl border border-border p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <User className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-sm font-semibold">Contributors</h2>
-                <div className="ml-auto flex items-center gap-1.5">
-                  <span className="text-xs text-muted-foreground">Expected:</span>
-                  <input
-                    type="number"
-                    min={contributors?.length ?? 1}
-                    value={expectedCount}
-                    onChange={e => setExpectedCount(e.target.value)}
-                    onBlur={handleSaveExpectedCount}
-                    onKeyDown={e => { if (e.key === 'Enter') handleSaveExpectedCount() }}
-                    placeholder="—"
-                    className="w-10 text-xs text-center border border-border rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white"
-                  />
-                </div>
-                {selectedMergedContributor && (
-                  <button
-                    onClick={handleUnmerge}
-                    disabled={unmergeContributorMutation.isPending}
-                    aria-busy={unmergeContributorMutation.isPending}
-                    title="Undo this contributor's last merge"
-                    className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded px-2 py-1 disabled:opacity-50"
-                  >
-                    {unmergeContributorMutation.isPending ? 'Unmerging…' : 'Unmerge'}
-                  </button>
-                )}
-                {selectedContributorIds.size >= 2 && (
-                  <button onClick={() => { initMerge(); setShowMerge(v => !v) }} className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded px-2 py-1" aria-expanded={showMerge}>Merge</button>
-                )}
-              </div>
-
-              {/* Explicit merge confirmation */}
-              {showMerge && selectedContributorIds.size >= 2 && (
-                <div className="mb-3 p-2.5 bg-indigo-50 border border-indigo-200 rounded-lg flex flex-col gap-2">
-                  <p className="text-xs text-indigo-700 font-medium">Merge display name:</p>
-                  <input
-                    className="w-full text-xs border border-indigo-200 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                    value={mergeDisplayName}
-                    onChange={e => setMergeDisplayName(e.target.value)}
-                    placeholder="Merged contributor name"
-                    onFocus={() => { if (!mergeDisplayName) initMerge() }}
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handleMerge}
-                      disabled={!mergeDisplayName.trim() || mergeContributorsMutation.isPending}
-                      aria-busy={mergeContributorsMutation.isPending}
-                      className="flex-1 text-xs bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded px-2 py-1.5 font-medium transition-colors"
-                    >
-                      {mergeContributorsMutation.isPending && <RefreshCw className="inline-block h-3.5 w-3.5 mr-1.5 animate-spin motion-reduce:animate-none" />}
-                      {mergeContributorsMutation.isPending ? 'Merging…' : 'Confirm Merge'}
-                    </button>
-                    <button
-                      onClick={() => { setShowMerge(false); setMergeDisplayName('') }}
-                      className="text-xs border border-border rounded px-2 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {sortedContributors.length > 0 && <label className="mb-3 flex items-center gap-2 text-sm">
-                <input type="checkbox" aria-label="Select all contributors" checked={selectedContributorIds.size === sortedContributors.length}
-                  onChange={e => { setSelectedContributorIds(new Set(e.target.checked ? sortedContributors.map(c => c.id) : [])); setShowMerge(false) }} className="accent-indigo-600" />
-                Select all
-              </label>}
-              {!sortedContributors.length ? (
-                <p className="text-xs text-muted-foreground text-center py-4">No contributors found.</p>
-              ) : (
-                <div className="flex flex-col gap-3">
-                  {sortedContributors.map((contributor) => (
-                    <div key={contributor.id} className={cn(
-                      'flex items-start gap-2 rounded-lg p-1.5 -mx-1.5 transition-colors',
-                      selectedContributorIds.has(contributor.id) && 'bg-indigo-50'
-                    )}>
-                      <input
-                        type="checkbox"
-                        aria-label={`Select ${contributor.display_name}`}
-                        checked={selectedContributorIds.has(contributor.id)}
-                        onChange={() => toggleContributorSelect(contributor.id)}
-                        className="mt-1 h-3.5 w-3.5 flex-shrink-0 accent-indigo-600 cursor-pointer"
-                      />
-                      <div className="flex-1 min-w-0">
-                        {editingContributorId === contributor.id ? (
-                          <div className="flex items-center gap-1">
-                            <input
-                              autoFocus
-                              className="flex-1 min-w-0 text-sm border border-indigo-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                              value={editingName}
-                              onChange={e => setEditingName(e.target.value)}
-                              onKeyDown={e => { if (e.key === 'Enter') saveDisplayName(); if (e.key === 'Escape') cancelEditing() }}
-                            />
-                            <button onClick={saveDisplayName} aria-busy={updateContributorMutation.isPending} disabled={updateContributorMutation.isPending} className="text-emerald-600 hover:text-emerald-700">
-                              {updateContributorMutation.isPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <Check className="h-3.5 w-3.5" />}
-                            </button>
-                            <button onClick={cancelEditing} className="text-muted-foreground hover:text-foreground">
-                              <X className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1 group">
-                            <p className="font-medium text-sm truncate">{contributor.display_name}</p>
-                            <button
-                              onClick={() => startEditing(contributor)}
-                              className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-indigo-600 transition-opacity flex-shrink-0"
-                              title="Edit display name"
-                            >
-                              <Pencil className="h-3 w-3" />
-                            </button>
-                            <ContributorGenerateButton contributorId={contributor.id} repoId={id ?? ''} />
-                          </div>
-                        )}
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {contributor.aliases.length} alias{contributor.aliases.length !== 1 ? 'es' : ''}
-                          {contributor.aliases.length > 0 && (
-                            <span> — {contributor.aliases.map((a) => a.git_email).join(', ')}</span>
-                          )}
-                        </p>
-                        {(() => {
-                          const s = contributorStats[contributor.id]
-                          const commits = s?.commits ?? contributor.commit_count
-                          const ins = s?.insertions ?? contributor.total_insertions
-                          const del = s?.deletions ?? contributor.total_deletions
-                          const last = s?.lastCommitAt ?? contributor.last_commit_at
-                          return (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {commits} commits
-                              {' · '}
-                              <span className="text-green-600">+{ins.toLocaleString()}</span>
-                              {' / '}
-                              <span className="text-red-600">-{del.toLocaleString()}</span>
-                              {' · '}
-                              Last: {last ? formatDate(last) : 'Never'}
-                            </p>
-                          )
-                        })()}
-                        <ContributorSummaryDisplay contributorId={contributor.id} />
-                      </div>
-                    </div>
-                  ))}
                 </div>
               )}
             </div>
