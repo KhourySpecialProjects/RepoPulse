@@ -43,6 +43,9 @@ const reminder = (id: string): Reminder => ({
   repo_id: 'repo-1',
   commit_hash: null,
   created_at: '2026-09-01T10:00:00Z',
+  owner_display_name: 'Mark',
+  shared_with: [],
+  is_owner: true,
 })
 
 function setup(opts?: {

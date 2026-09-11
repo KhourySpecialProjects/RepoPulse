@@ -603,6 +603,12 @@ export const handlers = [
     }
     return HttpResponse.json(response)
   }),
+  http.patch(`${BASE}/notifications/:id/unread`, () => {
+    return new HttpResponse(null, { status: 204 })
+  }),
+  http.post(`${BASE}/notifications/mark-all-unread`, () => {
+    return HttpResponse.json({ marked_unread: 0 })
+  }),
   http.get(`${BASE}/notifications/recently-deleted`, () => {
     return HttpResponse.json({ items: [], total: 0 })
   }),

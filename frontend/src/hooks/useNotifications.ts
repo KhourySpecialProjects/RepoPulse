@@ -10,7 +10,9 @@ import {
   restoreNote,
   restoreNotification,
   markNotificationRead,
+  markNotificationUnread,
   markAllNotificationsRead,
+  markAllNotificationsUnread,
 } from '@/services/api'
 
 export function useNotifications(params?: {
@@ -108,4 +110,24 @@ export function useRestoreNote() {
 
 export function usePurgeNote() {
   return useSoftDeleteMutation(purgeNote)
+}
+
+export function useMarkNotificationUnread() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => markNotificationUnread(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notifications'] })
+    },
+  })
+}
+
+export function useMarkAllNotificationsUnread() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: markAllNotificationsUnread,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notifications'] })
+    },
+  })
 }

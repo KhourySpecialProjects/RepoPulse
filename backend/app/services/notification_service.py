@@ -9,11 +9,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.note import Note
 from app.models.notification import Notification, NotificationType
+from app.models.reminder_share import ReminderShare
 from app.models.user import User
 
 # A mention continues while these characters follow, so "@Mark" is not treated
@@ -132,8 +133,9 @@ async def fire_due_reminders(db: AsyncSession, user_id: uuid.UUID) -> int:
     without a scheduler process, and means reminders that came due while the
     app was down still fire on the next read rather than being missed.
 
-    Only the reminder's author is notified. Checked, archived and undated
-    reminders never fire, and each reminder fires at most once.
+    The author and everyone the reminder was shared with are each notified
+    once. Checked, archived and undated reminders never fire — a reminder
+    without a due date is a valid to-do that simply never alerts.
     """
     now = datetime.now(timezone.utc)
 
@@ -142,9 +144,15 @@ async def fire_due_reminders(db: AsyncSession, user_id: uuid.UUID) -> int:
         Notification.recipient_id == user_id,
     )
 
+    # A shared reminder fires for its author and for everyone it was shared
+    # with, each of them exactly once.
+    shared_to_me = select(ReminderShare.note_id).where(
+        ReminderShare.user_id == user_id
+    )
+
     due = await db.execute(
         select(Note).where(
-            Note.author_id == user_id,
+            or_(Note.author_id == user_id, Note.id.in_(shared_to_me)),
             Note.is_reminder.is_(True),
             Note.is_checked.is_(False),
             Note.is_archived.is_(False),

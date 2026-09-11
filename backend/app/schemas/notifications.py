@@ -38,6 +38,10 @@ class ReminderRead(BaseModel):
     repo_id: Optional[uuid.UUID] = None
     commit_hash: Optional[str] = None
     created_at: datetime
+    # Who set it, and the other people it was shared with
+    owner_display_name: str = ""
+    shared_with: list[str] = []
+    is_owner: bool = True
 
 
 class ReminderListResponse(BaseModel):

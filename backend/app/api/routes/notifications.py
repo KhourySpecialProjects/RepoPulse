@@ -4,12 +4,14 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db_session
 from app.models.note import Note
 from app.models.notification import Notification
+from app.models.reminder_share import ReminderShare
+from app.models.user import User
 from app.schemas.errors import ErrorResponse
 from app.schemas.notifications import (
     NotificationListResponse,
@@ -164,10 +166,14 @@ async def list_active_reminders(
     """
     user_uuid = uuid.UUID(current_user_id)
 
+    # Mine, plus any that were shared with me.
+    shared_to_me = select(ReminderShare.note_id).where(
+        ReminderShare.user_id == user_uuid
+    )
     result = await db.execute(
         select(Note)
         .where(
-            Note.author_id == user_uuid,
+            or_(Note.author_id == user_uuid, Note.id.in_(shared_to_me)),
             Note.is_reminder.is_(True),
             Note.is_checked.is_(False),
             Note.is_archived.is_(False),
@@ -177,8 +183,19 @@ async def list_active_reminders(
     )
     notes = result.scalars().all()
 
-    return ReminderListResponse(
-        items=[
+    items: list[ReminderRead] = []
+    for note in notes:
+        owner = await db.get(User, note.author_id)
+        share_rows = await db.execute(
+            select(ReminderShare).where(ReminderShare.note_id == note.id)
+        )
+        shared_names: list[str] = []
+        for share in share_rows.scalars().all():
+            shared_user = await db.get(User, share.user_id)
+            if shared_user is not None:
+                shared_names.append(shared_user.display_name)
+
+        items.append(
             ReminderRead(
                 id=note.id,
                 content=note.content,
@@ -187,11 +204,13 @@ async def list_active_reminders(
                 repo_id=note.repo_id,
                 commit_hash=note.commit_hash,
                 created_at=note.created_at,
+                owner_display_name=owner.display_name if owner else "Unknown",
+                shared_with=sorted(shared_names),
+                is_owner=note.author_id == user_uuid,
             )
-            for note in notes
-        ],
-        total=len(notes),
-    )
+        )
+
+    return ReminderListResponse(items=items, total=len(items))
 
 
 @router.patch(
@@ -226,6 +245,68 @@ async def mark_notification_read(
             repo_id = note.repo_id
 
     return _notif_to_read(notif, preview, repo_id)
+
+
+@router.patch(
+    "/{notification_id}/unread",
+    response_model=NotificationRead,
+    responses={404: {"model": ErrorResponse}},
+)
+async def mark_notification_unread(
+    notification_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> NotificationRead:
+    """Flip a notification back to unread so it can be revisited later."""
+    user_uuid = uuid.UUID(current_user_id)
+
+    notif = await db.get(Notification, notification_id)
+    if notif is None or notif.recipient_id != user_uuid:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notification not found",
+        )
+
+    notif.is_read = False
+    await db.commit()
+    await db.refresh(notif)
+
+    preview = None
+    repo_id = None
+    if notif.note_id:
+        note = await db.get(Note, notif.note_id)
+        if note:
+            preview = note.content[:80] if note.content else None
+            repo_id = note.repo_id
+
+    return _notif_to_read(notif, preview, repo_id)
+
+
+@router.post(
+    "/mark-all-unread",
+    response_model=dict,
+)
+async def mark_all_notifications_unread(
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> dict:
+    """Mark every live notification unread. Recently deleted ones are skipped."""
+    user_uuid = uuid.UUID(current_user_id)
+
+    result = await db.execute(
+        select(Notification).where(
+            Notification.recipient_id == user_uuid,
+            Notification.is_read == True,  # noqa: E712
+            Notification.deleted_at.is_(None),
+        )
+    )
+    read_notifs = result.scalars().all()
+    count = len(read_notifs)
+    for notif in read_notifs:
+        notif.is_read = False
+    await db.commit()
+
+    return {"marked_unread": count}
 
 
 @router.post(

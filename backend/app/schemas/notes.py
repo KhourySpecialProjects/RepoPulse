@@ -31,6 +31,9 @@ class NoteCreate(BaseModel):
     is_reminder: bool = False
     reminder_context: Optional[str] = None
     remind_at: Optional[datetime] = None
+    # Extra users this reminder is shared with. Reminders only; a due date is
+    # optional, so an undated reminder can still be shared.
+    shared_with: list[uuid.UUID] = []
 
 
 class NoteUpdate(BaseModel):

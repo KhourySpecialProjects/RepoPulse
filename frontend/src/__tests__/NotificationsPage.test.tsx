@@ -66,6 +66,9 @@ const activeReminder: Reminder = {
   repo_id: 'repo-1',
   commit_hash: null,
   created_at: '2026-09-01T10:00:00Z',
+  owner_display_name: 'Mark',
+  shared_with: [],
+  is_owner: true,
 }
 
 function setup(opts?: {
@@ -288,7 +291,7 @@ describe('NotificationsPage — active reminders', () => {
     setup({ reminders: [], onCreate })
     renderPage()
 
-    fireEvent.click(await screen.findByTitle('New reminder'))
+    fireEvent.click(await screen.findByRole('button', { name: /new reminder/i }))
     fireEvent.change(screen.getByPlaceholderText(/remind me to/i), {
       target: { value: 'Email the class' },
     })

@@ -122,6 +122,9 @@ const futureReminder: Reminder = {
   repo_id: 'repo-1',
   commit_hash: null,
   created_at: '2026-09-01T10:00:00Z',
+  owner_display_name: 'Mark',
+  shared_with: [],
+  is_owner: true,
 }
 
 const overdueReminder: Reminder = {
@@ -204,7 +207,7 @@ describe('ActiveRemindersPanel', () => {
     setupReminderHandlers({ reminders: [], onCreate })
     renderPanel()
 
-    fireEvent.click(await screen.findByTitle('New reminder'))
+    fireEvent.click(await screen.findByRole('button', { name: /new reminder/i }))
     fireEvent.change(screen.getByPlaceholderText(/remind me to/i), {
       target: { value: 'Email the class' },
     })
@@ -225,7 +228,7 @@ describe('ActiveRemindersPanel', () => {
     setupReminderHandlers({ reminders: [], onCreate })
     renderPanel()
 
-    fireEvent.click(await screen.findByTitle('New reminder'))
+    fireEvent.click(await screen.findByRole('button', { name: /new reminder/i }))
     fireEvent.click(screen.getByRole('button', { name: 'Add reminder' }))
 
     expect(onCreate).not.toHaveBeenCalled()

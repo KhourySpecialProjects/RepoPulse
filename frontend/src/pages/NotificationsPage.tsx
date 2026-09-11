@@ -8,12 +8,17 @@ import {
   Trash2,
   RotateCcw,
   Undo2,
+  Check,
+  Mail,
 } from 'lucide-react'
 import {
   useNotifications,
   useUnreadCount,
   useMarkNotificationRead,
+  useMarkNotificationUnread,
   useMarkAllNotificationsRead,
+  useMarkAllNotificationsUnread,
+  useReminders,
   useRecentlyDeleted,
   useDismissNotification,
   useRestoreNotification,
@@ -21,7 +26,7 @@ import {
   useRestoreNote,
   usePurgeNote,
 } from '@/hooks/useNotifications'
-import { ActiveRemindersPanel } from '@/components/ActiveRemindersPanel'
+import { ActiveRemindersPanel, ICON_BUTTON_CLASS } from '@/components/ActiveRemindersPanel'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
@@ -120,17 +125,17 @@ function RecentlyDeletedSection() {
                 type="button"
                 onClick={() => restore(item)}
                 title={`Restore ${item.label}`}
-                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+                className={cn(ICON_BUTTON_CLASS, 'hover:bg-indigo-50 hover:text-indigo-600')}
               >
-                <RotateCcw className="h-4 w-4" />
+                <RotateCcw className="h-5 w-5" />
               </button>
               <button
                 type="button"
                 onClick={() => purge(item)}
                 title={`Delete ${item.label} forever`}
-                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-500"
+                className={cn(ICON_BUTTON_CLASS, 'hover:bg-red-50 hover:text-red-500')}
               >
-                <Trash2 className="h-4 w-4" />
+                <Trash2 className="h-5 w-5" />
               </button>
             </div>
           </li>
@@ -144,12 +149,22 @@ export function NotificationsPage() {
   const navigate = useNavigate()
   const { data: notificationsData, isLoading } = useNotifications({ limit: 50 })
   const { data: unreadData } = useUnreadCount()
+  const { data: remindersData } = useReminders()
   const markRead = useMarkNotificationRead()
+  const markUnread = useMarkNotificationUnread()
   const markAllRead = useMarkAllNotificationsRead()
+  const markAllUnread = useMarkAllNotificationsUnread()
   const dismiss = useDismissNotification()
 
-  const notifications = notificationsData?.items ?? []
   const unreadCount = unreadData?.unread_count ?? 0
+
+  // A reminder that is still active already has its own row above, so its
+  // "Reminder due" notification would just repeat it here.
+  const activeReminderIds = new Set((remindersData?.items ?? []).map((r) => r.id))
+  const notifications = (notificationsData?.items ?? []).filter(
+    (n) => !(n.type === 'reminder' && n.note_id && activeReminderIds.has(n.note_id))
+  )
+  const hasRead = notifications.some((n) => n.is_read)
 
   async function handleNotificationClick(id: string, repoId: string | null) {
     await markRead.mutateAsync(id)
@@ -174,16 +189,28 @@ export function NotificationsPage() {
             </span>
           )}
         </div>
-        {unreadCount > 0 && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => markAllRead.mutate()}
-            loading={markAllRead.isPending}
-          >
-            Mark all read
-          </Button>
-        )}
+        <div className="flex flex-shrink-0 items-center gap-2">
+          {hasRead && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => markAllUnread.mutate()}
+              loading={markAllUnread.isPending}
+            >
+              Unread all
+            </Button>
+          )}
+          {unreadCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => markAllRead.mutate()}
+              loading={markAllRead.isPending}
+            >
+              Mark all read
+            </Button>
+          )}
+        </div>
       </div>
 
       <div data-testid="notifications-body" className={PAGE_BODY_CLASS}>
@@ -249,15 +276,36 @@ export function NotificationsPage() {
                   </button>
 
                   {!notif.is_read && (
-                    <span className="mt-2 h-2 w-2 flex-shrink-0 rounded-full bg-amber-500" />
+                    <span className="mt-3 h-2 w-2 flex-shrink-0 rounded-full bg-amber-500" />
                   )}
+
+                  {notif.is_read ? (
+                    <button
+                      type="button"
+                      onClick={() => markUnread.mutate(notif.id)}
+                      title="Mark as unread"
+                      className={cn(ICON_BUTTON_CLASS, 'hover:bg-amber-50 hover:text-amber-600')}
+                    >
+                      <Mail className="h-5 w-5" />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => markRead.mutate(notif.id)}
+                      title="Mark as read"
+                      className={cn(ICON_BUTTON_CLASS, 'hover:bg-emerald-50 hover:text-emerald-600')}
+                    >
+                      <Check className="h-5 w-5" />
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => dismiss.mutate(notif.id)}
                     title="Remove notification"
-                    className="flex-shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-500"
+                    className={cn(ICON_BUTTON_CLASS, 'hover:bg-red-50 hover:text-red-500')}
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-5 w-5" />
                   </button>
                 </motion.li>
               ))}

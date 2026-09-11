@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import get_current_user, get_db_session
 from app.models.note import Note
 from app.models.note_comment import NoteComment
+from app.models.reminder_share import ReminderShare
 from app.models.repo import Repo
 from app.models.user import User
 from app.schemas.errors import ErrorResponse
@@ -161,9 +162,27 @@ async def create_note(
         reminder_context=body.reminder_context,
         remind_at=body.remind_at,
     )
+    # Sharing is a reminder feature; refuse it on a plain note rather than
+    # silently dropping the recipients.
+    share_ids = {uid for uid in body.shared_with if uid != author_uuid}
+    if body.shared_with and not body.is_reminder:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only reminders can be shared",
+        )
+    for user_id in share_ids:
+        if await db.get(User, user_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User to share with not found",
+            )
+
     db.add(note)
     await db.commit()
     await db.refresh(note)
+
+    for user_id in share_ids:
+        db.add(ReminderShare(note_id=note.id, user_id=user_id))
 
     # Create mention notifications
     await create_mention_notifications(db, body.content, note.id)

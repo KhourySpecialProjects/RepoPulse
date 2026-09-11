@@ -341,6 +341,18 @@ export async function getReminders(): Promise<ReminderListResponse> {
   return res.data
 }
 
+export async function markNotificationUnread(id: string): Promise<Notification> {
+  const res = await apiClient.patch<Notification>(`/notifications/${id}/unread`)
+  return res.data
+}
+
+export async function markAllNotificationsUnread(): Promise<{ marked_unread: number }> {
+  const res = await apiClient.post<{ marked_unread: number }>(
+    '/notifications/mark-all-unread'
+  )
+  return res.data
+}
+
 export async function markAllNotificationsRead(): Promise<{ marked_read: number }> {
   const res = await apiClient.post<{ marked_read: number }>('/notifications/mark-all-read')
   return res.data

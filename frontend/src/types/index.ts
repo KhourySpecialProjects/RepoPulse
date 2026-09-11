@@ -177,6 +177,8 @@ export interface CreateNoteData {
   is_reminder: boolean
   reminder_context?: string | null
   remind_at?: string | null
+  /** User ids to share a reminder with. Reminders only. */
+  shared_with?: string[]
   repo_id?: string | null
   contributor_id?: string | null
   commit_hash?: string | null
@@ -264,11 +266,16 @@ export interface NotificationListResponse {
 export interface Reminder {
   id: string
   content: string
+  /** Optional: a reminder with no due date never fires, but is still a to-do. */
   remind_at: string | null
   reminder_context: string | null
   repo_id: string | null
   commit_hash: string | null
   created_at: string
+  owner_display_name: string
+  /** Display names of the other people this reminder is shared with. */
+  shared_with: string[]
+  is_owner: boolean
 }
 
 export interface ReminderListResponse {
