@@ -118,6 +118,19 @@ describe('RepoDetailPage — commit type filter', () => {
     expect(row.getByRole('button', { name: 'Unclassified' })).toBeInTheDocument()
   })
 
+  it('colours each chip to match the row tint it filters for', async () => {
+    await renderAndWait()
+    const row = typeFilter()
+    // The chips are the only legend for the row backgrounds now that the Type
+    // column is gone, so a mismatch here is a genuine UI bug, not cosmetics.
+    expect(row.getByRole('button', { name: 'Substantive' }).className).toContain(
+      'emerald'
+    )
+    expect(row.getByRole('button', { name: 'Logistical' }).className).toContain(
+      'orange'
+    )
+  })
+
   it('shows every commit before any filter is applied', async () => {
     await renderAndWait()
     expect(screen.getByText('feat: real work')).toBeInTheDocument()

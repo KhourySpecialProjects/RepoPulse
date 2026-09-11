@@ -140,49 +140,78 @@ function setupHandlers(
   )
 }
 
-function rowFor(message: string) {
-  const cell = screen.getByText(message)
-  const row = cell.closest('tr')
+function rowElement(message: string): HTMLElement {
+  const row = screen.getByText(message).closest('tr')
   if (!row) throw new Error(`no row for ${message}`)
-  return within(row)
+  return row as HTMLElement
+}
+
+function rowFor(message: string) {
+  return within(rowElement(message))
 }
 
 beforeEach(() => {
   classifyCalls = []
 })
 
-describe('RepoDetailPage — commit type and score columns', () => {
-  it('renders Type and Score column headers', async () => {
+describe('RepoDetailPage — commit rows carry type as a background colour', () => {
+  it('keeps the Score column and drops the Type column', async () => {
     setupHandlers()
     renderPage()
     await waitFor(() =>
       expect(screen.getByText('feat: add refresh tokens')).toBeInTheDocument()
     )
-    expect(screen.getByRole('columnheader', { name: 'Type' })).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: 'Score' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('columnheader', { name: 'Type' })
+    ).not.toBeInTheDocument()
   })
 
-  it('shows the classification on each commit row', async () => {
+  it('tints a substantive commit green and a logistical one orange', async () => {
     setupHandlers()
     renderPage()
     await waitFor(() =>
       expect(screen.getByText('feat: add refresh tokens')).toBeInTheDocument()
     )
-    expect(rowFor('feat: add refresh tokens').getByText('Substantive')).toBeInTheDocument()
-    expect(rowFor('feat: add refresh tokens').getByText('Good')).toBeInTheDocument()
-    expect(rowFor('docs: tidy the readme').getByText('Logistical')).toBeInTheDocument()
-    expect(rowFor('docs: tidy the readme').getByText('Bad')).toBeInTheDocument()
+    expect(rowElement('feat: add refresh tokens').className).toContain('bg-emerald-50')
+    expect(rowElement('docs: tidy the readme').className).toContain('bg-orange-50')
   })
 
-  it('shows a dash for an unclassified commit rather than a default verdict', async () => {
+  it('leaves an unclassified commit untinted', async () => {
     setupHandlers()
     renderPage()
     await waitFor(() => expect(screen.getByText('wip changes')).toBeInTheDocument())
-    const row = rowFor('wip changes')
-    // Both Type and Score are unknown, so both cells read as a dash.
-    expect(row.getAllByText('—')).toHaveLength(2)
-    expect(row.queryByText('Logistical')).not.toBeInTheDocument()
-    expect(row.queryByText('OK')).not.toBeInTheDocument()
+    const className = rowElement('wip changes').className
+    expect(className).not.toContain('bg-emerald-50')
+    expect(className).not.toContain('bg-orange-50')
+  })
+
+  it('names the type in a row title, so the colour is not the only signal', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() =>
+      expect(screen.getByText('feat: add refresh tokens')).toBeInTheDocument()
+    )
+    expect(rowElement('feat: add refresh tokens')).toHaveAttribute(
+      'title',
+      'Substantive commit'
+    )
+    expect(rowElement('docs: tidy the readme')).toHaveAttribute(
+      'title',
+      'Logistical commit'
+    )
+    expect(rowElement('wip changes')).toHaveAttribute('title', 'Not classified yet')
+  })
+
+  it('still shows the quality score per row, dashed when unscored', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('wip changes')).toBeInTheDocument())
+    expect(rowFor('feat: add refresh tokens').getByText('Good')).toBeInTheDocument()
+    expect(rowFor('docs: tidy the readme').getByText('Bad')).toBeInTheDocument()
+    // Only the Score cell can be unknown now that Type has no cell of its own.
+    expect(rowFor('wip changes').getAllByText('—')).toHaveLength(1)
+    expect(rowFor('wip changes').queryByText('OK')).not.toBeInTheDocument()
   })
 })
 

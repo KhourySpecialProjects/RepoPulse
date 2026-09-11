@@ -10,7 +10,6 @@ import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '@/hooks/u
 import { useUsers, useCurrentUser } from '@/hooks/useUsers'
 import { useAuth } from '@/hooks/useAuth'
 import { HealthBadge } from '@/components/HealthBadge'
-import { CommitTypeBadge } from '@/components/CommitTypeBadge'
 import { CommitScorePill } from '@/components/CommitScorePill'
 import { CommitNotesPanel } from '@/components/CommitNotesPanel'
 import { MarkdownContent } from '@/components/MarkdownContent'
@@ -25,6 +24,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import {
+  COMMIT_TYPE_FILTERS,
+  commitRowClass,
+  commitRowTitle,
+  commitTypeStyle,
+} from '@/lib/commitTypeStyles'
 import { toast } from 'sonner'
 import type {
   ClassifyCommitsResponse,
@@ -35,12 +40,6 @@ import type {
   Note,
   PullRequest,
 } from '@/types'
-
-const COMMIT_TYPE_FILTERS: { value: CommitTypeFilter; label: string }[] = [
-  { value: 'substantive', label: 'Substantive' },
-  { value: 'logistical', label: 'Logistical' },
-  { value: 'unclassified', label: 'Unclassified' },
-]
 
 
 function formatRelativeDays(isoStr: string): string {
@@ -1096,27 +1095,31 @@ export function RepoDetailPage() {
                         className={cn(
                           'text-xs px-1.5 py-0.5 rounded border transition-colors',
                           selectedTypes.size === 0
-                            ? 'bg-sky-600 text-white border-sky-600'
-                            : 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'
+                            ? 'bg-slate-700 text-white border-slate-700'
+                            : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
                         )}
                       >
                         All
                       </button>
-                      {COMMIT_TYPE_FILTERS.map(({ value, label }) => (
-                        <button
-                          key={value}
-                          onClick={() => toggleType(value)}
-                          aria-pressed={selectedTypes.has(value)}
-                          className={cn(
-                            'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                            selectedTypes.has(value)
-                              ? 'bg-sky-600 text-white border-sky-600'
-                              : 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'
-                          )}
-                        >
-                          {label}
-                        </button>
-                      ))}
+                      {/* Each chip wears its own type's colour, so this row is
+                          also the legend for the row tints. */}
+                      {COMMIT_TYPE_FILTERS.map((value) => {
+                        const style = commitTypeStyle(value)
+                        const active = selectedTypes.has(value)
+                        return (
+                          <button
+                            key={value}
+                            onClick={() => toggleType(value)}
+                            aria-pressed={active}
+                            className={cn(
+                              'text-xs px-1.5 py-0.5 rounded border transition-colors',
+                              active ? style.chipActive : style.chipIdle
+                            )}
+                          >
+                            {style.label}
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
                     <div className="flex flex-wrap items-center justify-between gap-3 py-1">
@@ -1170,7 +1173,6 @@ export function RepoDetailPage() {
                           <th className="text-left pb-2 font-medium">Commit</th>
                           <th className="text-left pb-2 font-medium">Author</th>
                           <th className="text-left pb-2 font-medium">Branch</th>
-                          <th className="text-left pb-2 font-medium">Type</th>
                           <th className="text-left pb-2 font-medium">Score</th>
                           <th className="text-right pb-2 font-medium">+/-</th>
                         </tr>
@@ -1178,10 +1180,24 @@ export function RepoDetailPage() {
                       <tbody>
                         {displayedCommits.map((commit) => (
                           <Fragment key={commit.hash}>
-                          <tr id={`commit-${commit.hash}`} className={cn(
-                            'border-b hover:bg-accent/20 transition-colors',
-                            highlightedCommitHash === commit.hash && 'ring-2 ring-inset ring-indigo-400 bg-indigo-50'
-                          )}>
+                          <tr
+                            id={`commit-${commit.hash}`}
+                            // The tint is the only thing carrying commit type
+                            // now that the column is gone, so the title gives
+                            // it a non-visual equivalent.
+                            title={commitRowTitle(commit.commit_type)}
+                            className={cn(
+                              'border-b transition-colors',
+                              // Untinted rows keep the neutral hover; tinted
+                              // ones bring their own, so the two don't stack.
+                              commit.commit_type === null && 'hover:bg-accent/20',
+                              commitRowClass(commit.commit_type),
+                              // Last, so tailwind-merge lets the link
+                              // highlight win over the type tint.
+                              highlightedCommitHash === commit.hash &&
+                                'ring-2 ring-inset ring-indigo-400 bg-indigo-50 hover:bg-indigo-50'
+                            )}
+                          >
                             <td className="py-2.5 pr-4">
                               <div className="flex items-center gap-2">
                                 <a
@@ -1261,20 +1277,6 @@ export function RepoDetailPage() {
                               })()}
                             </td>
                             <td className="py-2.5 pr-4">
-                              <CommitTypeBadge
-                                type={commit.commit_type}
-                                selected={
-                                  commit.commit_type !== null &&
-                                  selectedTypes.has(commit.commit_type)
-                                }
-                                onClick={
-                                  commit.commit_type
-                                    ? () => toggleType(commit.commit_type as CommitTypeFilter)
-                                    : undefined
-                                }
-                              />
-                            </td>
-                            <td className="py-2.5 pr-4">
                               <CommitScorePill score={commit.quality_score} />
                             </td>
                             <td className="py-2.5 text-right text-xs whitespace-nowrap">
@@ -1285,7 +1287,7 @@ export function RepoDetailPage() {
                           </tr>
                           {activeCommitHash === commit.hash && (
                             <tr>
-                              <td colSpan={6} className="pb-3 pt-1">
+                              <td colSpan={5} className="pb-3 pt-1">
                                 <CommitNotesPanel repoId={id ?? ''} commitHash={commit.hash} />
                               </td>
                             </tr>
