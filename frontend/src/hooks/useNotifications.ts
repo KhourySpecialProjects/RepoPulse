@@ -1,8 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
+  dismissNotification,
   getNotifications,
+  getRecentlyDeleted,
   getReminders,
   getUnreadCount,
+  purgeNote,
+  purgeNotification,
+  restoreNote,
+  restoreNotification,
   markNotificationRead,
   markAllNotificationsRead,
 } from '@/services/api'
@@ -55,4 +61,51 @@ export function useMarkAllNotificationsRead() {
       qc.invalidateQueries({ queryKey: ['notifications'] })
     },
   })
+}
+
+// ── Recently deleted (soft delete) ──────────────────────────────────────────
+
+/** Notifications and reminders awaiting restore or permanent deletion. */
+export function useRecentlyDeleted() {
+  return useQuery({
+    queryKey: ['notifications', 'recently-deleted'],
+    queryFn: getRecentlyDeleted,
+    staleTime: 15_000,
+  })
+}
+
+/**
+ * Every soft-delete action touches the feed, the reminders list, the recently
+ * deleted list and the unread count, so they all invalidate together.
+ */
+function useSoftDeleteMutation(mutationFn: (id: string) => Promise<void>) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notifications'] })
+      qc.invalidateQueries({ queryKey: ['notes'] })
+      qc.invalidateQueries({ queryKey: ['repos'] })
+    },
+  })
+}
+
+export function useDismissNotification() {
+  return useSoftDeleteMutation(dismissNotification)
+}
+
+export function useRestoreNotification() {
+  return useSoftDeleteMutation(restoreNotification)
+}
+
+export function usePurgeNotification() {
+  return useSoftDeleteMutation(purgeNotification)
+}
+
+export function useRestoreNote() {
+  return useSoftDeleteMutation(restoreNote)
+}
+
+export function usePurgeNote() {
+  return useSoftDeleteMutation(purgeNote)
 }

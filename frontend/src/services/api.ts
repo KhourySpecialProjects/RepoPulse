@@ -28,6 +28,7 @@ import type {
   Notification,
   NotificationListResponse,
   ReminderListResponse,
+  RecentlyDeletedListResponse,
   CommitQualityResponse,
   PRListResponse,
   PRStats,
@@ -380,4 +381,32 @@ export default apiClient
 export async function getContextualActivity(collectionId: string): Promise<import('@/types').ContextualActivity> {
   const response = await apiClient.get<import('@/types').ContextualActivity>(`/collections/${collectionId}/contextual-activity`)
   return response.data
+}
+
+// ── Recently deleted (soft delete) ──────────────────────────────────────────
+
+export async function getRecentlyDeleted(): Promise<RecentlyDeletedListResponse> {
+  const res = await apiClient.get<RecentlyDeletedListResponse>('/notifications/recently-deleted')
+  return res.data
+}
+
+/** Moves a notification to Recently deleted rather than destroying it. */
+export async function dismissNotification(id: string): Promise<void> {
+  await apiClient.delete(`/notifications/${id}`)
+}
+
+export async function restoreNotification(id: string): Promise<void> {
+  await apiClient.post(`/notifications/${id}/restore`)
+}
+
+export async function purgeNotification(id: string): Promise<void> {
+  await apiClient.delete(`/notifications/${id}/permanent`)
+}
+
+export async function restoreNote(id: string): Promise<void> {
+  await apiClient.post(`/notes/${id}/restore`)
+}
+
+export async function purgeNote(id: string): Promise<void> {
+  await apiClient.delete(`/notes/${id}/permanent`)
 }

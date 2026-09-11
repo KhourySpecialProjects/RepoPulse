@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -118,6 +119,9 @@ async def list_notes(
         )
         if commit_hash is not None:
             query = query.where(Note.commit_hash == commit_hash)
+
+    # Soft-deleted notes live only in the Recently deleted list
+    query = query.where(Note.deleted_at.is_(None))
 
     result = await db.execute(query.order_by(Note.created_at.desc()))
     all_notes = result.scalars().all()
@@ -274,6 +278,68 @@ async def delete_note(
             detail="Only the note author or an admin can delete this note",
         )
 
-    await db.delete(note)
+    # Soft delete, so an accidental deletion can be undone from the
+    # Recently deleted list. Use /notes/{id}/permanent to destroy it.
+    note.deleted_at = datetime.now(timezone.utc)
     await db.commit()
     return {"detail": "Note deleted"}
+
+
+async def _own_note_or_admin(
+    db: AsyncSession, note_id: uuid.UUID, user_uuid: uuid.UUID
+) -> Note:
+    note = await db.get(Note, note_id)
+    if note is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Note not found",
+        )
+
+    current_user = await db.get(User, user_uuid)
+    is_author = note.author_id == user_uuid
+    is_admin = current_user is not None and current_user.role == "admin"
+    if not is_author and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the note author or an admin can change this note",
+        )
+    return note
+
+
+@router.post(
+    "/notes/{note_id}/restore",
+    response_model=NoteRead,
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def restore_note(
+    note_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> NoteRead:
+    user_uuid = uuid.UUID(current_user_id)
+    note = await _own_note_or_admin(db, note_id, user_uuid)
+
+    note.deleted_at = None
+    await db.commit()
+    await db.refresh(note)
+
+    return await _build_note_read(note, db)
+
+
+@router.delete(
+    "/notes/{note_id}/permanent",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def purge_note(
+    note_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> None:
+    """Destroy a note for good, along with its comments and notifications."""
+    user_uuid = uuid.UUID(current_user_id)
+    note = await _own_note_or_admin(db, note_id, user_uuid)
+
+    await db.delete(note)
+    await db.commit()

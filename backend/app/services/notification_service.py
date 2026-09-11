@@ -150,6 +150,7 @@ async def fire_due_reminders(db: AsyncSession, user_id: uuid.UUID) -> int:
             Note.is_reminder.is_(True),
             Note.is_checked.is_(False),
             Note.is_archived.is_(False),
+            Note.deleted_at.is_(None),
             Note.remind_at.isnot(None),
             Note.remind_at <= now,
             Note.id.notin_(already_fired),

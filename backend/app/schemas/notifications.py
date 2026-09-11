@@ -43,3 +43,20 @@ class ReminderRead(BaseModel):
 class ReminderListResponse(BaseModel):
     items: list[ReminderRead]
     total: int
+
+
+class RecentlyDeletedItem(BaseModel):
+    """A soft-deleted notification or reminder, restorable until purged."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    kind: str  # "notification" | "reminder"
+    label: str
+    detail: Optional[str] = None
+    deleted_at: datetime
+
+
+class RecentlyDeletedListResponse(BaseModel):
+    items: list[RecentlyDeletedItem]
+    total: int

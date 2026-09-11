@@ -11,7 +11,8 @@ import {
 
 /**
  * The user's outstanding reminders, with inline create and remove.
- * Rendered on the notifications page.
+ * Rendered full-width on the notifications page, so it is sized for a page
+ * rather than the popover this started life in.
  */
 export function ActiveRemindersPanel() {
   const { data, isLoading } = useReminders()
@@ -36,47 +37,48 @@ export function ActiveRemindersPanel() {
   }
 
   return (
-    <div className="border-b border-border bg-muted/30">
-      <div className="flex items-center justify-between px-3 py-2">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+    <div>
+      <div className="flex items-center justify-between border-b border-border/60 px-5 py-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Active reminders
           {reminders.length > 0 && (
-            <span className="ml-1.5 font-normal normal-case">({reminders.length})</span>
+            <span className="ml-2 font-normal normal-case">({reminders.length})</span>
           )}
-        </span>
+        </h2>
         <button
           type="button"
           onClick={() => setAdding((v) => !v)}
           title={adding ? 'Cancel' : 'New reminder'}
-          className="text-muted-foreground hover:text-indigo-600 transition-colors p-0.5"
+          aria-expanded={adding}
+          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-indigo-100 hover:text-indigo-600"
         >
-          {adding ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+          {adding ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
         </button>
       </div>
 
       {adding && (
-        <div className="flex flex-col gap-1.5 px-3 pb-2">
+        <div className="flex flex-col gap-3 border-b border-border/60 px-5 py-4 sm:flex-row sm:items-center">
           <input
             value={content}
             onChange={(e) => setContent(e.target.value)}
             placeholder="Remind me to..."
-            className="h-7 rounded-md border border-input bg-background px-2 text-xs"
+            className="h-10 flex-1 rounded-md border border-input bg-background px-3 text-sm"
           />
-          <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
             <span className="flex-shrink-0">Due</span>
             <input
               type="datetime-local"
               aria-label="Due"
               value={dueLocal}
               onChange={(e) => setDueLocal(e.target.value)}
-              className="flex-1 h-7 rounded-md border border-input bg-background px-2 text-[11px]"
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
             />
           </label>
           <button
             type="button"
             onClick={handleAdd}
             disabled={!content.trim() || createNote.isPending}
-            className="h-7 rounded-md bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="h-10 flex-shrink-0 rounded-md bg-indigo-600 px-4 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Add reminder
           </button>
@@ -84,30 +86,37 @@ export function ActiveRemindersPanel() {
       )}
 
       {isLoading ? (
-        <p className="px-3 pb-2 text-xs text-muted-foreground">Loading reminders...</p>
+        <p className="px-5 py-10 text-center text-sm text-muted-foreground">
+          Loading reminders...
+        </p>
       ) : reminders.length === 0 ? (
-        <p className="px-3 pb-2 text-xs text-muted-foreground">No active reminders</p>
+        <p className="px-5 py-10 text-center text-sm text-muted-foreground">
+          No active reminders
+        </p>
       ) : (
-        <ul className="max-h-40 overflow-y-auto">
+        <ul data-testid="reminders-list">
           {reminders.map((reminder) => {
             const overdue = isReminderOverdue(reminder.remind_at)
             return (
               <li
                 key={reminder.id}
-                className="flex items-start gap-2 px-3 py-1.5 border-t border-border/50"
+                data-testid="reminder-row"
+                className="flex items-start gap-3 border-b border-border/40 px-5 py-4 transition-colors last:border-0 hover:bg-muted/40"
               >
                 <Clock
                   className={cn(
-                    'h-3.5 w-3.5 flex-shrink-0 mt-0.5',
+                    'mt-0.5 h-5 w-5 flex-shrink-0',
                     overdue ? 'text-red-500' : 'text-amber-500'
                   )}
                 />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-foreground truncate">{reminder.content}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">
+                    {reminder.content}
+                  </p>
                   <p
                     className={cn(
-                      'text-[10px]',
-                      overdue ? 'text-red-600 font-medium' : 'text-muted-foreground'
+                      'mt-1 text-xs',
+                      overdue ? 'font-medium text-red-600' : 'text-muted-foreground'
                     )}
                   >
                     {formatReminderCountdown(reminder.remind_at)}
@@ -117,9 +126,9 @@ export function ActiveRemindersPanel() {
                   type="button"
                   onClick={() => deleteNote.mutate(reminder.id)}
                   title="Remove reminder"
-                  className="flex-shrink-0 text-muted-foreground hover:text-red-500 transition-colors p-0.5"
+                  className="flex-shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-500"
                 >
-                  <Trash2 className="h-3 w-3" />
+                  <Trash2 className="h-4 w-4" />
                 </button>
               </li>
             )

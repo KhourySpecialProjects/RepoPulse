@@ -387,3 +387,17 @@ export interface RepositoryActivity {
 export interface ContextualActivity {
   repositories: RepositoryActivity[]
 }
+
+/** A soft-deleted notification or reminder, restorable until purged. */
+export interface RecentlyDeletedItem {
+  id: string
+  kind: 'notification' | 'reminder'
+  label: string
+  detail: string | null
+  deleted_at: string
+}
+
+export interface RecentlyDeletedListResponse {
+  items: RecentlyDeletedItem[]
+  total: number
+}

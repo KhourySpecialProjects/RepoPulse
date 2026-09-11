@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -13,12 +14,21 @@ from app.schemas.errors import ErrorResponse
 from app.schemas.notifications import (
     NotificationListResponse,
     NotificationRead,
+    RecentlyDeletedItem,
+    RecentlyDeletedListResponse,
     ReminderListResponse,
     ReminderRead,
 )
 from app.services.notification_service import fire_due_reminders
 
 router = APIRouter()
+
+# Human labels for the Recently deleted list, keyed by notification type.
+NOTIFICATION_LABELS = {
+    "mention": "Mention",
+    "note_comment": "Comment on your note",
+    "reminder": "Reminder due",
+}
 
 
 def _notif_to_read(
@@ -57,17 +67,22 @@ async def list_notifications(
         select(func.count()).select_from(Notification).where(
             Notification.recipient_id == user_uuid,
             Notification.is_read == False,  # noqa: E712
+            Notification.deleted_at.is_(None),
         )
     )
     unread_count = unread_count_result.scalar_one()
 
-    base_q = select(Notification).where(Notification.recipient_id == user_uuid)
+    base_q = select(Notification).where(
+        Notification.recipient_id == user_uuid,
+        Notification.deleted_at.is_(None),
+    )
     if unread_only:
         base_q = base_q.where(Notification.is_read == False)  # noqa: E712
 
     count_result = await db.execute(
         select(func.count()).select_from(Notification).where(
             Notification.recipient_id == user_uuid,
+            Notification.deleted_at.is_(None),
             *(
                 [Notification.is_read == False]  # noqa: E712
                 if unread_only
@@ -126,6 +141,7 @@ async def get_unread_count(
         select(func.count()).select_from(Notification).where(
             Notification.recipient_id == user_uuid,
             Notification.is_read == False,  # noqa: E712
+            Notification.deleted_at.is_(None),
         )
     )
     count = result.scalar_one()
@@ -155,6 +171,7 @@ async def list_active_reminders(
             Note.is_reminder.is_(True),
             Note.is_checked.is_(False),
             Note.is_archived.is_(False),
+            Note.deleted_at.is_(None),
         )
         .order_by(Note.remind_at.asc().nullslast(), Note.created_at.desc())
     )
@@ -225,6 +242,7 @@ async def mark_all_notifications_read(
         select(Notification).where(
             Notification.recipient_id == user_uuid,
             Notification.is_read == False,  # noqa: E712
+            Notification.deleted_at.is_(None),
         )
     )
     unread_notifs = result.scalars().all()
@@ -234,3 +252,143 @@ async def mark_all_notifications_read(
     await db.commit()
 
     return {"marked_read": count}
+
+
+@router.get(
+    "/recently-deleted",
+    response_model=RecentlyDeletedListResponse,
+)
+async def list_recently_deleted(
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> RecentlyDeletedListResponse:
+    """Soft-deleted notifications and reminders, most recently deleted first.
+
+    Both kinds share one list so the UI can offer a single undo surface.
+    """
+    user_uuid = uuid.UUID(current_user_id)
+
+    notif_rows = await db.execute(
+        select(Notification).where(
+            Notification.recipient_id == user_uuid,
+            Notification.deleted_at.isnot(None),
+        )
+    )
+    items: list[RecentlyDeletedItem] = []
+    for notif in notif_rows.scalars().all():
+        detail = None
+        if notif.note_id:
+            note = await db.get(Note, notif.note_id)
+            if note and note.content:
+                detail = note.content[:80]
+        items.append(
+            RecentlyDeletedItem(
+                id=notif.id,
+                kind="notification",
+                label=NOTIFICATION_LABELS.get(
+                    notif.type.value if hasattr(notif.type, "value") else notif.type,
+                    "Notification",
+                ),
+                detail=detail,
+                deleted_at=notif.deleted_at,
+            )
+        )
+
+    note_rows = await db.execute(
+        select(Note).where(
+            Note.author_id == user_uuid,
+            Note.is_reminder.is_(True),
+            Note.deleted_at.isnot(None),
+        )
+    )
+    for note in note_rows.scalars().all():
+        items.append(
+            RecentlyDeletedItem(
+                id=note.id,
+                kind="reminder",
+                label="Reminder",
+                detail=note.content[:80] if note.content else None,
+                deleted_at=note.deleted_at,
+            )
+        )
+
+    items.sort(key=lambda item: item.deleted_at, reverse=True)
+    return RecentlyDeletedListResponse(items=items, total=len(items))
+
+
+async def _own_notification(
+    db: AsyncSession, notification_id: uuid.UUID, user_uuid: uuid.UUID
+) -> Notification:
+    notif = await db.get(Notification, notification_id)
+    if notif is None or notif.recipient_id != user_uuid:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notification not found",
+        )
+    return notif
+
+
+@router.delete(
+    "/{notification_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    responses={404: {"model": ErrorResponse}},
+)
+async def dismiss_notification(
+    notification_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> None:
+    """Move a notification to Recently deleted rather than destroying it."""
+    user_uuid = uuid.UUID(current_user_id)
+    notif = await _own_notification(db, notification_id, user_uuid)
+
+    notif.deleted_at = datetime.now(timezone.utc)
+    await db.commit()
+
+
+@router.post(
+    "/{notification_id}/restore",
+    response_model=NotificationRead,
+    responses={404: {"model": ErrorResponse}},
+)
+async def restore_notification(
+    notification_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> NotificationRead:
+    user_uuid = uuid.UUID(current_user_id)
+    notif = await _own_notification(db, notification_id, user_uuid)
+
+    notif.deleted_at = None
+    await db.commit()
+    await db.refresh(notif)
+
+    preview = None
+    repo_id = None
+    if notif.note_id:
+        note = await db.get(Note, notif.note_id)
+        if note:
+            preview = note.content[:80] if note.content else None
+            repo_id = note.repo_id
+
+    return _notif_to_read(notif, preview, repo_id)
+
+
+@router.delete(
+    "/{notification_id}/permanent",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    responses={404: {"model": ErrorResponse}},
+)
+async def purge_notification(
+    notification_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> None:
+    """Destroy a notification for good. The note it points at is untouched."""
+    user_uuid = uuid.UUID(current_user_id)
+    notif = await _own_notification(db, notification_id, user_uuid)
+
+    await db.delete(notif)
+    await db.commit()

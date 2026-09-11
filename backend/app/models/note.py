@@ -34,6 +34,11 @@ class Note(Base):
     remind_at: Mapped[DateTime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Soft delete: set instead of removing the row, so a deletion can be undone
+    # from the Recently deleted list. NULL means the note is live.
+    deleted_at: Mapped[DateTime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     is_checked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     created_at: Mapped[DateTime] = mapped_column(

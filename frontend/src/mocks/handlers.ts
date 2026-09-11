@@ -603,6 +603,24 @@ export const handlers = [
     }
     return HttpResponse.json(response)
   }),
+  http.get(`${BASE}/notifications/recently-deleted`, () => {
+    return HttpResponse.json({ items: [], total: 0 })
+  }),
+  http.delete(`${BASE}/notifications/:id/permanent`, () => {
+    return new HttpResponse(null, { status: 204 })
+  }),
+  http.post(`${BASE}/notifications/:id/restore`, () => {
+    return new HttpResponse(null, { status: 204 })
+  }),
+  http.delete(`${BASE}/notifications/:id`, () => {
+    return new HttpResponse(null, { status: 204 })
+  }),
+  http.post(`${BASE}/notes/:id/restore`, () => {
+    return new HttpResponse(null, { status: 204 })
+  }),
+  http.delete(`${BASE}/notes/:id/permanent`, () => {
+    return new HttpResponse(null, { status: 204 })
+  }),
   http.get(`${BASE}/notifications/reminders`, () => {
     return HttpResponse.json({ items: [], total: 0 })
   }),
