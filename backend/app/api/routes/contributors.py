@@ -3,26 +3,34 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db_session
 from app.models.contributor import Contributor
+from app.models.contributor_alias import ContributorAlias
 from app.schemas.contributors import (
     AliasRead,
     ContributorRead,
     ContributorUpdate,
     MergeContributorsRequest,
-    UnmergeContributorsResponse,
 )
 from app.schemas.errors import ErrorResponse
-
-from app.services import contributor_service
 
 router = APIRouter()
 
 
 def _contributor_to_read(contributor: Contributor) -> ContributorRead:
-    return ContributorRead.model_validate(contributor)
+    return ContributorRead(
+        id=contributor.id,
+        display_name=contributor.display_name,
+        repo_id=contributor.repo_id,
+        created_at=contributor.created_at,
+        aliases=[
+            AliasRead(id=a.id, git_email=a.git_email, git_name=a.git_name)
+            for a in contributor.aliases
+        ],
+    )
 
 
 @router.get(
@@ -80,24 +88,54 @@ async def merge_contributors(
     db: AsyncSession = Depends(get_db_session),
     current_user_id: str = Depends(get_current_user),
 ) -> ContributorRead:
-    contributor = await contributor_service.merge_contributors(
-        db, body.contributor_ids, body.display_name, uuid.UUID(current_user_id)
-    )
-    return _contributor_to_read(contributor)
+    if len(body.contributor_ids) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least 2 contributor IDs required to merge",
+        )
 
+    contributors: list[Contributor] = []
+    for cid in body.contributor_ids:
+        c = await db.get(Contributor, cid)
+        if c is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Contributor {cid} not found",
+            )
+        contributors.append(c)
 
-@router.post(
-    "/contributors/{contributor_id}/unmerge",
-    response_model=UnmergeContributorsResponse,
-    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
-)
-async def unmerge_contributor(
-    contributor_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db_session),
-    current_user_id: str = Depends(get_current_user),
-) -> UnmergeContributorsResponse:
-    restored = await contributor_service.unmerge_contributor(db, contributor_id, uuid.UUID(current_user_id))
-    return UnmergeContributorsResponse(contributors=[_contributor_to_read(c) for c in restored])
+    # Use first as canonical; re-parent all aliases via direct SQL to avoid
+    # SQLAlchemy nullifying contributor_id during the relationship flush
+    primary = contributors[0]
+    primary.display_name = body.display_name
+
+    for secondary in contributors[1:]:
+        # Sum stats into primary
+        primary.commit_count += secondary.commit_count
+        primary.total_insertions += secondary.total_insertions
+        primary.total_deletions += secondary.total_deletions
+        if secondary.last_commit_at and (
+            primary.last_commit_at is None
+            or secondary.last_commit_at > primary.last_commit_at
+        ):
+            primary.last_commit_at = secondary.last_commit_at
+
+        # Raw SQL UPDATE moves aliases in the DB before ORM processes the delete.
+        # flush() pushes it to the DB within the transaction so that refresh()
+        # reloads secondary with an empty aliases list, preventing SQLAlchemy
+        # from trying to NULL out contributor_id when it processes the delete.
+        await db.execute(
+            sa_update(ContributorAlias)
+            .where(ContributorAlias.contributor_id == secondary.id)
+            .values(contributor_id=primary.id)
+        )
+        await db.flush()
+        await db.refresh(secondary)
+        await db.delete(secondary)
+
+    await db.commit()
+    await db.refresh(primary)
+    return _contributor_to_read(primary)
 
 
 @router.get(
