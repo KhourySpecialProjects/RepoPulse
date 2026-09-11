@@ -48,8 +48,8 @@ const reminder = (id: string): Reminder => ({
 function setup(opts?: {
   items?: Notification[]
   reminders?: Reminder[]
-  /** Overrides the notification total, e.g. to simulate a large backlog. */
-  notificationTotal?: number
+  /** Overrides the unread count, e.g. to simulate a large backlog. */
+  unreadOverride?: number
 }) {
   const items = opts?.items ?? []
   const reminders = opts?.reminders ?? []
@@ -57,12 +57,14 @@ function setup(opts?: {
     http.get('/api/v1/notifications', () =>
       HttpResponse.json({
         items,
-        total: opts?.notificationTotal ?? items.length,
-        unread_count: items.filter((n) => !n.is_read).length,
+        total: items.length,
+        unread_count: opts?.unreadOverride ?? items.filter((n) => !n.is_read).length,
       })
     ),
     http.get('/api/v1/notifications/unread-count', () =>
-      HttpResponse.json({ unread_count: items.filter((n) => !n.is_read).length })
+      HttpResponse.json({
+        unread_count: opts?.unreadOverride ?? items.filter((n) => !n.is_read).length,
+      })
     ),
     http.get('/api/v1/notifications/reminders', () =>
       HttpResponse.json({ items: reminders, total: reminders.length })
@@ -122,11 +124,21 @@ describe('Notifications badge — counts everything on the page', () => {
     expect(await badge()).toHaveTextContent('3')
   })
 
-  it('counts read notifications too, not just unread ones', async () => {
+  it('stops counting a notification once it has been read', async () => {
+    // Reading a notification must move the number, otherwise clicking one feels
+    // like it did nothing and the only way to clear it is Mark all read.
+    setup({ items: [notif('n1', true), notif('n2', false)], reminders: [] })
+    renderSidebar()
+
+    expect(await badge()).toHaveTextContent('1')
+  })
+
+  it('shows no badge when every notification is read and nothing is due', async () => {
     setup({ items: [notif('n1', true), notif('n2', true)], reminders: [] })
     renderSidebar()
 
-    expect(await badge()).toHaveTextContent('2')
+    await waitFor(() => expect(bell()).toBeInTheDocument())
+    expect(screen.queryByTestId('unread-badge')).not.toBeInTheDocument()
   })
 
   it('counts reminders on their own', async () => {
@@ -153,7 +165,7 @@ describe('Notifications badge — counts everything on the page', () => {
   })
 
   it('caps a large backlog at 99+', async () => {
-    setup({ items: [notif('n1')], notificationTotal: 400, reminders: [reminder('r1')] })
+    setup({ unreadOverride: 400, reminders: [reminder('r1')] })
     renderSidebar()
 
     expect(await badge()).toHaveTextContent('99+')
@@ -171,6 +183,17 @@ describe('Notifications badge — appearance', () => {
     const el = await badge()
     expect(el.className).toMatch(/bg-red-/)
     expect(el.className).toMatch(/rounded-full/)
+  })
+
+  it('centres the number inside the circle', async () => {
+    setup({ items: [notif('n1')], reminders: [] })
+    renderSidebar()
+
+    const el = await badge()
+    expect(el.className).toMatch(/items-center/)
+    expect(el.className).toMatch(/justify-center/)
+    // Inherited line-height is what pushes a small digit off centre
+    expect(el.className).toMatch(/leading-none/)
   })
 
   it('announces the count on the button', async () => {

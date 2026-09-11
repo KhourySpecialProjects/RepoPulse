@@ -17,7 +17,7 @@ import {
 import { useAuth } from '@/hooks/useAuth'
 import { useCollections } from '@/hooks/useCollections'
 import { useRepos, useRepo } from '@/hooks/useRepos'
-import { useNotifications, useReminders } from '@/hooks/useNotifications'
+import { useUnreadCount, useReminders } from '@/hooks/useNotifications'
 import {
   Tooltip,
   TooltipContent,
@@ -243,10 +243,14 @@ export function AppSidebar() {
   })
 
   // Notification bell state
-  const { data: notificationsData } = useNotifications({ limit: 50 })
+  const { data: unreadData } = useUnreadCount()
   const { data: remindersData } = useReminders()
+  // Unread notifications plus outstanding reminders: the things still wanting
+  // attention. Reading a notification drops the number, so clicking one has a
+  // visible effect without needing Mark all read. Soft-deleted rows are already
+  // excluded server-side, so Recently deleted never counts.
   const pendingCount =
-    (notificationsData?.total ?? 0) + (remindersData?.total ?? 0)
+    (unreadData?.unread_count ?? 0) + (remindersData?.total ?? 0)
   const badgeText = pendingCount > 99 ? '99+' : String(pendingCount)
   const unreadLabel =
     pendingCount > 0 ? `Notifications, ${pendingCount} pending` : 'Notifications'
@@ -406,7 +410,7 @@ export function AppSidebar() {
                   {pendingCount > 0 && (
                     <span
                       data-testid="unread-badge"
-                      className="absolute top-1 right-2 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white"
+                      className="absolute right-2 top-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none tabular-nums text-white"
                     >
                       {badgeText}
                     </span>
@@ -429,7 +433,7 @@ export function AppSidebar() {
               {pendingCount > 0 && (
                 <span
                   data-testid="unread-badge"
-                  className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold text-white"
+                  className="ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold leading-none tabular-nums text-white"
                 >
                   {badgeText}
                 </span>

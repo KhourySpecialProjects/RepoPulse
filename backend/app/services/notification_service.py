@@ -54,9 +54,12 @@ def content_mentions_slug(content: str, slug: str) -> bool:
 async def find_mentioned_users(
     db: AsyncSession,
     content: str,
-    excluding_user_id: uuid.UUID,
 ) -> list[User]:
-    """Every user @mentioned in ``content``, excluding the given author."""
+    """Every user @mentioned in ``content``.
+
+    The author is included: tagging yourself is a deliberate note-to-self and
+    should land in your own notifications like any other mention.
+    """
     if not content:
         return []
 
@@ -64,8 +67,7 @@ async def find_mentioned_users(
     return [
         user
         for user in result.scalars().all()
-        if user.id != excluding_user_id
-        and content_mentions_slug(content, slug_for_display_name(user.display_name))
+        if content_mentions_slug(content, slug_for_display_name(user.display_name))
     ]
 
 
@@ -73,7 +75,6 @@ async def create_mention_notifications(
     db: AsyncSession,
     content: str,
     note_id: uuid.UUID,
-    excluding_user_id: uuid.UUID,
     *,
     comment_id: Optional[uuid.UUID] = None,
     previous_content: Optional[str] = None,
@@ -85,16 +86,13 @@ async def create_mention_notifications(
     ``previous_content`` suppresses users who were already mentioned before an
     edit, so editing around an existing mention does not re-notify.
     """
-    mentioned = await find_mentioned_users(db, content, excluding_user_id)
+    mentioned = await find_mentioned_users(db, content)
     if not mentioned:
         return 0
 
     if previous_content is not None:
         already = {
-            user.id
-            for user in await find_mentioned_users(
-                db, previous_content, excluding_user_id
-            )
+            user.id for user in await find_mentioned_users(db, previous_content)
         }
         mentioned = [user for user in mentioned if user.id not in already]
 

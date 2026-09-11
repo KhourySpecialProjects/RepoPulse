@@ -114,7 +114,7 @@ async def create_comment(
 
     # Notify anyone @mentioned in the comment body
     await create_mention_notifications(
-        db, body.content, note_id, user_uuid, comment_id=comment.id
+        db, body.content, note_id, comment_id=comment.id
     )
     await db.commit()
 

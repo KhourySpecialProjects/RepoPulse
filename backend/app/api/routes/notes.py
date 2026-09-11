@@ -166,7 +166,7 @@ async def create_note(
     await db.refresh(note)
 
     # Create mention notifications
-    await create_mention_notifications(db, body.content, note.id, author_uuid)
+    await create_mention_notifications(db, body.content, note.id)
     await db.commit()
 
     return _note_to_read(note, author_name)
@@ -243,7 +243,7 @@ async def update_note(
     if new_content and new_content != old_content:
         # Find mentions in old content to avoid re-notifying
         await create_mention_notifications(
-            db, new_content, note.id, user_uuid, previous_content=old_content
+            db, new_content, note.id, previous_content=old_content
         )
         await db.commit()
 

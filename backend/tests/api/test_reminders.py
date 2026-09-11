@@ -365,12 +365,13 @@ async def test_mention_in_comment_notifies_mentioned_user(
 
 
 @pytest.mark.asyncio
-async def test_comment_mention_does_not_notify_self(
+async def test_comment_mention_notifies_self(
     test_client: AsyncClient,
     db_session: AsyncSession,
     sarah: User,
     sarah_headers: dict[str, str],
 ) -> None:
+    """Tagging yourself is a deliberate note-to-self, so it must notify."""
     note = Note(id=uuid.uuid4(), author_id=sarah.id, content="Sarah's note")
     db_session.add(note)
     await db_session.flush()
@@ -384,6 +385,78 @@ async def test_comment_mention_does_not_notify_self(
 
     got = await test_client.get("/api/v1/notifications", headers=sarah_headers)
     assert got.status_code == 200
+    mentions = [n for n in got.json()["items"] if n["type"] == "mention"]
+    assert len(mentions) == 1
+    assert mentions[0]["note_id"] == str(note.id)
+
+
+@pytest.mark.asyncio
+async def test_self_mention_in_a_note_notifies_the_author(
+    test_client: AsyncClient,
+    sarah: User,
+    sarah_headers: dict[str, str],
+) -> None:
+    resp = await test_client.post(
+        "/api/v1/notes",
+        headers=sarah_headers,
+        json={"content": "Remember this @Sarah_TA", "is_reminder": False},
+    )
+    assert resp.status_code == 201, resp.text
+    note_id = resp.json()["id"]
+
+    got = await test_client.get("/api/v1/notifications", headers=sarah_headers)
+    mentions = [
+        n
+        for n in got.json()["items"]
+        if n["type"] == "mention" and n["note_id"] == note_id
+    ]
+    assert len(mentions) == 1
+
+
+@pytest.mark.asyncio
+async def test_self_mention_still_only_notifies_once(
+    test_client: AsyncClient,
+    sarah: User,
+    sarah_headers: dict[str, str],
+) -> None:
+    created = await test_client.post(
+        "/api/v1/notes",
+        headers=sarah_headers,
+        json={"content": "Ping me @Sarah_TA", "is_reminder": False},
+    )
+    note_id = created.json()["id"]
+
+    # Editing around the existing self-mention must not pile up duplicates
+    await test_client.patch(
+        f"/api/v1/notes/{note_id}",
+        headers=sarah_headers,
+        json={"content": "Ping me @Sarah_TA soon"},
+    )
+
+    got = await test_client.get("/api/v1/notifications", headers=sarah_headers)
+    mentions = [
+        n
+        for n in got.json()["items"]
+        if n["type"] == "mention" and n["note_id"] == note_id
+    ]
+    assert len(mentions) == 1
+
+
+@pytest.mark.asyncio
+async def test_self_mention_does_not_notify_anyone_else(
+    test_client: AsyncClient,
+    sarah: User,
+    mark: User,
+    sarah_headers: dict[str, str],
+    mark_headers: dict[str, str],
+) -> None:
+    await test_client.post(
+        "/api/v1/notes",
+        headers=sarah_headers,
+        json={"content": "Just me @Sarah_TA", "is_reminder": False},
+    )
+
+    got = await test_client.get("/api/v1/notifications", headers=mark_headers)
     assert [n for n in got.json()["items"] if n["type"] == "mention"] == []
 
 
