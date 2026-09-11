@@ -17,7 +17,7 @@ import {
 import { useAuth } from '@/hooks/useAuth'
 import { useCollections } from '@/hooks/useCollections'
 import { useRepos, useRepo } from '@/hooks/useRepos'
-import { useUnreadCount } from '@/hooks/useNotifications'
+import { useNotifications, useReminders } from '@/hooks/useNotifications'
 import {
   Tooltip,
   TooltipContent,
@@ -243,11 +243,13 @@ export function AppSidebar() {
   })
 
   // Notification bell state
-  const { data: unreadData } = useUnreadCount()
-  const unreadCount = unreadData?.unread_count ?? 0
-  const badgeText = unreadCount > 99 ? '99+' : String(unreadCount)
+  const { data: notificationsData } = useNotifications({ limit: 50 })
+  const { data: remindersData } = useReminders()
+  const pendingCount =
+    (notificationsData?.total ?? 0) + (remindersData?.total ?? 0)
+  const badgeText = pendingCount > 99 ? '99+' : String(pendingCount)
   const unreadLabel =
-    unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'
+    pendingCount > 0 ? `Notifications, ${pendingCount} pending` : 'Notifications'
 
   // Auto-expand collection containing the active repo
   useEffect(() => {
@@ -401,10 +403,10 @@ export function AppSidebar() {
                   className={`relative w-full flex items-center justify-center py-2 rounded-md transition-colors ${NAV_DEFAULT}`}
                 >
                   <Bell className="h-4 w-4" />
-                  {unreadCount > 0 && (
+                  {pendingCount > 0 && (
                     <span
                       data-testid="unread-badge"
-                      className="absolute top-1 right-2 min-w-[14px] h-3.5 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center px-1"
+                      className="absolute top-1 right-2 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white"
                     >
                       {badgeText}
                     </span>
@@ -424,10 +426,10 @@ export function AppSidebar() {
             >
               <Bell className="h-4 w-4 flex-shrink-0" />
               <span className="truncate">Notifications</span>
-              {unreadCount > 0 && (
+              {pendingCount > 0 && (
                 <span
                   data-testid="unread-badge"
-                  className="ml-auto min-w-[18px] h-4 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center px-1"
+                  className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold text-white"
                 >
                   {badgeText}
                 </span>
