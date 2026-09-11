@@ -6,7 +6,7 @@ import uuid
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.commit_quality_score import CommitQualityScore
+from app.models.commit_classification import CommitClassification
 from app.models.contributor import Contributor
 from app.models.contributor_alias import ContributorAlias
 from app.models.note import Note
@@ -32,7 +32,7 @@ async def remove_repo_records(db: AsyncSession, repo_id: uuid.UUID) -> None:
         delete(Summary).where(or_(Summary.repo_id == repo_id, Summary.contributor_id.in_(contributor_ids))),
         delete(ContributorAlias).where(ContributorAlias.contributor_id.in_(contributor_ids)),
         delete(Contributor).where(Contributor.repo_id == repo_id),
-        delete(CommitQualityScore).where(CommitQualityScore.repo_id == repo_id),
+        delete(CommitClassification).where(CommitClassification.repo_id == repo_id),
         delete(PullRequest).where(PullRequest.repo_id == repo_id),
         delete(Repo).where(Repo.id == repo_id),
     ]

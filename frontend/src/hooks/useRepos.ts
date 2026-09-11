@@ -80,13 +80,7 @@ export function useDeleteRepo() {
     onSuccess: (_result, id) => {
       queryClient.invalidateQueries({ queryKey: ['repos'] })
       queryClient.invalidateQueries({ queryKey: repoKeys.detail(id) })
-      queryClient.invalidateQueries({ queryKey: ['collections'] })
-      queryClient.invalidateQueries({ queryKey: ['notes'] })
-      queryClient.invalidateQueries({ queryKey: ['summaries'] })
-      queryClient.invalidateQueries({ queryKey: ['notifications'] })
-      toast.success('Repository removed')
     },
-    onError: () => toast.error('Could not remove repository. Please try again.'),
   })
 }
 
