@@ -245,6 +245,7 @@ export function RepoDetailPage() {
   const [editingContributorId, setEditingContributorId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
   const [showMerge, setShowMerge] = useState(false)
+  const [pullRequestsExpanded, setPullRequestsExpanded] = useState(true)
   const [mergeDisplayName, setMergeDisplayName] = useState('')
   const [expectedCount, setExpectedCount] = useState<string>('')
   const [COMMITS_PER_PAGE, setCommitsPerPage] = useState(10)
@@ -780,7 +781,12 @@ export function RepoDetailPage() {
       <div className={cn('px-6 py-6 flex gap-6', notesPinned ? 'flex-row items-start' : 'flex-col')}>
 
         {/* Main sections column */}
-        <div className={cn('flex flex-col gap-6', notesPinned ? 'flex-1 min-w-0' : 'w-full')}>
+        <div className={cn('flex flex-col gap-3', notesPinned ? 'flex-1 min-w-0' : 'w-full')}>
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <BarChart2 className="h-4 w-4 text-muted-foreground" />
+                Overview
+              </h2>
+
         <div className="flex gap-8 items-start">
 
           {/* Left column — main content */}
@@ -788,10 +794,6 @@ export function RepoDetailPage() {
 
             {/* Overview section */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible">
-              <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                <BarChart2 className="h-4 w-4 text-muted-foreground" />
-                Overview
-              </h2>
               <div className="flex flex-col gap-5">
                 <Card>
                   <CardHeader className="pb-2">
@@ -836,6 +838,7 @@ export function RepoDetailPage() {
                 </Card>
 
                 <ContextualActivityChart key={id} collectionId={repo.collection_id} repoId={repo.id}
+                  selectedContributorIds={Array.from(selectedContributorIds)}
                   actions={<>
                         <button
                           onClick={handleCheckIn}
@@ -940,46 +943,7 @@ export function RepoDetailPage() {
                         )}
                       </div>
                     )}
-                    {allAuthors.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground mr-1">Author:</span>
-                        <button
-                          onClick={() => setSelectedAuthors(new Set())}
-                          aria-pressed={selectedAuthors.size === 0}
-                          className={cn(
-                            'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                            selectedAuthors.size === 0
-                              ? 'bg-violet-600 text-white border-violet-600'
-                              : 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
-                          )}
-                        >
-                          All
-                        </button>
-                        {(showAllAuthors ? allAuthors : allAuthors.slice(0, MAX_FILTER_CHIPS)).map(a => (
-                          <button
-                            key={a}
-                            onClick={() => toggleAuthor(a)}
-                            aria-pressed={selectedAuthors.has(a)}
-                            className={cn(
-                              'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                              selectedAuthors.has(a)
-                                ? 'bg-violet-600 text-white border-violet-600'
-                                : 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
-                            )}
-                          >
-                            {a}
-                          </button>
-                        ))}
-                        {allAuthors.length > MAX_FILTER_CHIPS && (
-                          <button
-                            onClick={() => setShowAllAuthors(v => !v)}
-                            className="text-xs px-1.5 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
-                          >
-                            {showAllAuthors ? 'Show less' : `+${allAuthors.length - MAX_FILTER_CHIPS} more`}
-                          </button>
-                        )}
-                      </div>
-                    )}
+
                   </div>
                     <div className="flex flex-wrap items-center justify-between gap-3 py-1">
                       <p className="text-xs text-muted-foreground">
@@ -1163,10 +1127,24 @@ export function RepoDetailPage() {
           <div className="w-80 xl:w-96 flex-shrink-0 self-stretch flex flex-col gap-6">
 
             {/* Pull Requests panel */}
-            <div className="bg-gray-50 rounded-xl border border-border p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <GitPullRequest className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-sm font-semibold">Pull Requests</h2>
+            <div className="shrink-0 bg-gray-50 rounded-xl border border-border p-4">
+              <h2 className="text-sm font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setPullRequestsExpanded(expanded => !expanded)}
+                  aria-expanded={pullRequestsExpanded}
+                  aria-controls="pull-requests-content"
+                  className="flex w-full items-center gap-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                >
+                  <GitPullRequest className="h-4 w-4 text-muted-foreground" />
+                  Pull Requests
+                  {pullRequestsExpanded
+                    ? <ChevronUp className="ml-auto h-4 w-4" />
+                    : <ChevronDown className="ml-auto h-4 w-4" />}
+                </button>
+              </h2>
+              <div id="pull-requests-content" hidden={!pullRequestsExpanded}>
+              <div className="flex items-center gap-2 mt-3 mb-3">
                 <button
                   onClick={() => syncPRsMutation.mutate()}
                   disabled={syncPRsMutation.isPending || !hasToken}
@@ -1273,6 +1251,7 @@ export function RepoDetailPage() {
                   )}
                 </div>
               )}
+              </div>
             </div>
 
             {/* Contributors panel */}

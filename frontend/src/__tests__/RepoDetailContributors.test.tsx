@@ -310,3 +310,22 @@ it('places Pull Requests above a sticky, scrollable Contributors panel', async (
   expect(panel).toHaveClass('sticky', 'top-6', 'overflow-y-auto', 'max-h-[calc(100vh-3rem)]')
   expect(panel.parentElement).toHaveClass('self-stretch')
 })
+
+it('collapses Pull Requests to its header without hiding contributors', async () => {
+  server.use(
+    http.get('/api/v1/repos/:id', () => HttpResponse.json(mockRepo)),
+    http.get('/api/v1/repos/:id/contributors', () => HttpResponse.json(mockContributorsEnriched)),
+  )
+  renderPage()
+  const toggle = await screen.findByRole('button', { name: 'Pull Requests' })
+  expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  const content = document.getElementById(toggle.getAttribute('aria-controls')!)!
+  expect(content).toBeVisible()
+  fireEvent.click(toggle)
+  expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  expect(content).not.toBeVisible()
+  expect(screen.getByRole('heading', { name: 'Pull Requests' })).toBeVisible()
+  expect(screen.getByRole('checkbox', { name: 'Select Alice Johnson' })).toBeVisible()
+  fireEvent.click(toggle)
+  expect(content).toBeVisible()
+})
