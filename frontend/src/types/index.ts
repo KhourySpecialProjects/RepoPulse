@@ -291,7 +291,8 @@ export interface ScoredCommit {
   message: string
   author: string
   date: string
-  score: 'good' | 'ok' | 'bad'
+  /** null when the LLM call failed or its answer could not be read. */
+  score: 'good' | 'ok' | 'bad' | null
   from_cache: boolean
 }
 

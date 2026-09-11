@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.deps import get_current_user, get_db_session
 from app.models.contributor import Contributor
 from app.models.repo import Repo
@@ -58,12 +59,12 @@ async def generate_summary(
 
     if user_settings:
         provider = user_settings.llm_provider or "anthropic"
-        model = user_settings.llm_model or "claude-sonnet-4-20250514"
+        model = user_settings.llm_model or settings.DEFAULT_LLM_MODEL
         api_key = user_settings.anthropic_api_key or None
         ollama_url = user_settings.ollama_base_url or None
     else:
         provider = "anthropic"
-        model = "claude-sonnet-4-20250514"
+        model = settings.DEFAULT_LLM_MODEL
         api_key = None
         ollama_url = None
 

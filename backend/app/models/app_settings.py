@@ -6,6 +6,7 @@ from sqlalchemy import ForeignKey, JSON, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.config import settings
 from app.db.database import Base
 
 
@@ -23,7 +24,7 @@ class AppSettings(Base):
     )
     llm_provider: Mapped[str] = mapped_column(String(100), default="anthropic")
     llm_model: Mapped[str] = mapped_column(
-        String(200), default="claude-sonnet-4-20250514"
+        String(200), default=settings.DEFAULT_LLM_MODEL
     )
     health_thresholds: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     anthropic_api_key: Mapped[str | None] = mapped_column(String(500), nullable=True, default=None)
