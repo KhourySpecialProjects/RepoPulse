@@ -14,7 +14,6 @@ from app.models.repo import Repo
 from app.models.user import User
 from app.schemas.errors import ErrorResponse
 from app.schemas.notes import NoteCommentCreate, NoteCommentRead
-from app.services.notification_service import create_mention_notifications
 from app.services.permission_service import can_access_collection
 
 router = APIRouter()
@@ -111,12 +110,7 @@ async def create_comment(
             is_read=False,
         )
         db.add(notif)
-
-    # Notify anyone @mentioned in the comment body
-    await create_mention_notifications(
-        db, body.content, note_id, comment_id=comment.id
-    )
-    await db.commit()
+        await db.commit()
 
     return _comment_to_read(comment, author_name)
 

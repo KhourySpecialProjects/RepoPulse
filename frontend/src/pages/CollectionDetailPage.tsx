@@ -22,7 +22,6 @@ import {
 } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
 import type { HealthStatus } from '@/types'
 
 type SortBy = 'name' | 'health' | 'last_synced'
@@ -152,9 +151,8 @@ export function CollectionDetailPage() {
 
   return (
     <div>
-      <div data-testid="page-header" className={PAGE_HEADER_CLASS}>
-        <div className="flex w-full flex-col gap-1">
-        <div className="flex w-full items-center justify-between gap-3">
+      <div className="border-b border-border bg-white px-6 py-4">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => navigate('/collections')}
@@ -200,46 +198,41 @@ export function CollectionDetailPage() {
             <button
               onClick={() => setAccessPanelOpen((v) => !v)}
               title="Manage access"
-              aria-expanded={accessPanelOpen}
-              aria-controls="collection-access-panel"
               className={`p-1.5 rounded transition-colors ${accessPanelOpen ? 'text-indigo-600 bg-indigo-100' : 'text-muted-foreground hover:text-indigo-600 hover:bg-indigo-100'}`}
             >
               <Users className="h-4 w-4" />
             </button>
           </div>
         </div>
-        <p className="text-muted-foreground text-sm ml-7">
+        <p className="text-muted-foreground text-sm mt-1 ml-7">
           {collection.repo_count} repositor{collection.repo_count !== 1 ? 'ies' : 'y'}
         </p>
-        </div>
+
+        {/* Access Panel */}
+        <AnimatePresence>
+          {accessPanelOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              <div className="mt-4 rounded-lg border border-border bg-gray-50 p-4">
+                <CollectionAccessPanel
+                  collectionId={collection.id}
+                  canManage={
+                    user?.role === 'admin' ||
+                    collection.owner_id === user?.id
+                  }
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
-      {/* Access panel — a full-width drawer under the whole title box */}
-      <AnimatePresence>
-        {accessPanelOpen && (
-          <motion.div
-            id="collection-access-panel"
-            data-testid="access-panel"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden border-b border-border bg-gray-50"
-          >
-            <div className="px-6 py-5">
-              <CollectionAccessPanel
-                collectionId={collection.id}
-                canManage={
-                  user?.role === 'admin' ||
-                  collection.owner_id === user?.id
-                }
-              />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-    <div className={PAGE_BODY_CLASS}>
+    <div className="px-6 py-6">
       <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
         <div className="flex items-center gap-2">
           <Select value={filterHealth} onValueChange={(v) => setFilterHealth(v as FilterHealth)}>
