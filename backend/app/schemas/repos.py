@@ -44,7 +44,3 @@ class PaginatedRepos(BaseModel):
 
 class AddReposRequest(BaseModel):
     urls: list[str]
-
-
-class RepoDeleteResponse(BaseModel):
-    detail: str
