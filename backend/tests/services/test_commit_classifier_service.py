@@ -24,8 +24,8 @@ import re
 import pytest
 
 from app.services.commit_classifier_service import (
-    _BATCH_SIZE,
-    _MAX_CONCURRENCY,
+    BATCH_SIZE,
+    MAX_CONCURRENCY,
     _RULE_CHURN_CEILING,
     _max_tokens_for,
     Classification,
@@ -393,7 +393,7 @@ def _parity_responder(prompt: str) -> str:
 
 
 async def test_chunks_at_the_batch_boundary_and_maps_results_back() -> None:
-    total = _BATCH_SIZE * 2 + 5
+    total = BATCH_SIZE * 2 + 5
     llm = RecordingLLM(_parity_responder)
     service = CommitClassifierService(lambda: llm)
 
@@ -414,11 +414,11 @@ async def test_concurrency_is_capped() -> None:
     llm = RecordingLLM(_parity_responder)
     service = CommitClassifierService(lambda: llm)
 
-    commits = [_commit(f"{i:040d}", f"commit {i}") for i in range(_BATCH_SIZE * 5)]
+    commits = [_commit(f"{i:040d}", f"commit {i}") for i in range(BATCH_SIZE * 5)]
     await service.classify(commits)
 
     assert len(llm.prompts) == 5
-    assert llm.peak_in_flight <= _MAX_CONCURRENCY
+    assert llm.peak_in_flight <= MAX_CONCURRENCY
 
 
 async def test_one_failing_chunk_does_not_poison_the_others() -> None:
@@ -430,14 +430,14 @@ async def test_one_failing_chunk_does_not_poison_the_others() -> None:
     llm = RecordingLLM(responder)
     service = CommitClassifierService(lambda: llm)
 
-    commits = [_commit(f"{i:040d}", f"commit {i}") for i in range(_BATCH_SIZE * 3)]
+    commits = [_commit(f"{i:040d}", f"commit {i}") for i in range(BATCH_SIZE * 3)]
     results = await service.classify(commits)
 
     # Second chunk is unclassified…
-    assert all(r.commit_type is None for r in results[_BATCH_SIZE:_BATCH_SIZE * 2])
+    assert all(r.commit_type is None for r in results[BATCH_SIZE:BATCH_SIZE * 2])
     # …while the first and third are unaffected.
     assert results[0].commit_type == "substantive"
-    assert results[_BATCH_SIZE * 2].commit_type == "substantive"
+    assert results[BATCH_SIZE * 2].commit_type == "substantive"
 
 
 # ---------------------------------------------------------------------------
@@ -637,7 +637,7 @@ def test_max_tokens_leaves_headroom_for_a_reasoning_block() -> None:
     unparseable response and costs all 40 commits — the failure that made the
     first real eval run report 0% recall on one class.
     """
-    assert _max_tokens_for(_BATCH_SIZE) >= _BATCH_SIZE * 40 + 1024
+    assert _max_tokens_for(BATCH_SIZE) >= BATCH_SIZE * 40 + 1024
     assert _max_tokens_for(1) >= 1024
 
 

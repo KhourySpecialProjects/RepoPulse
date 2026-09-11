@@ -10,15 +10,14 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.deps import get_current_user, get_db_session
-from app.models.app_settings import AppSettings
 from app.models.collection import Collection
 from app.models.commit_classification import CommitClassification
 from app.models.repo import Repo
 from app.schemas.errors import ErrorResponse
 from app.services.commit_classifier_service import CommitInput, build_classifier
 from app.services.git_service import GitService
+from app.services.llm.user_settings import resolve_llm_settings
 from app.services.permission_service import can_access_collection
 
 logger = logging.getLogger(__name__)
@@ -108,23 +107,8 @@ async def get_commit_quality(
     if not await can_access_collection(db, user_uuid, collection_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
-    # Load LLM settings for this user
-    settings_result = await db.execute(
-        select(AppSettings).where(AppSettings.user_id == user_uuid)
-    )
-    user_settings = settings_result.scalar_one_or_none()
-    if user_settings:
-        provider = user_settings.llm_provider or "anthropic"
-        model = user_settings.llm_model or settings.DEFAULT_LLM_MODEL
-        api_key = user_settings.anthropic_api_key or None
-        ollama_url = user_settings.ollama_base_url or None
-    else:
-        provider = "anthropic"
-        model = settings.DEFAULT_LLM_MODEL
-        api_key = None
-        ollama_url = None
-
-    model_label = f"ollama/{model}" if provider == "ollama" else model
+    llm_cfg = await resolve_llm_settings(db, user_uuid)
+    model_label = llm_cfg.label
 
     # Fetch repos
     repos_result = await db.execute(
@@ -188,7 +172,9 @@ async def get_commit_quality(
             "commit-quality: %d cache hits, scoring %d new messages via LLM for collection %s",
             len(all_hashes) - len(uncached), len(uncached), collection_id,
         )
-        classifier = build_classifier(provider, model, api_key, ollama_url)
+        classifier = build_classifier(
+            llm_cfg.provider, llm_cfg.model, llm_cfg.api_key, llm_cfg.ollama_url
+        )
         results = await classifier.classify([
             _commit_input(repo_commits[repo_idx][1][commit_idx])
             for repo_idx, commit_idx in uncached

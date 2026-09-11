@@ -163,11 +163,19 @@ class Classification:
 # 40 commits per call keeps the response inside a comfortable token budget while
 # amortising the rubric — which is by far the largest part of the prompt — over
 # a useful number of commits.
-_BATCH_SIZE = 40
+BATCH_SIZE = 40
 
 # Enough parallelism to make full-history classification tolerable, few enough
 # to stay clear of provider rate limits.
-_MAX_CONCURRENCY = 3
+MAX_CONCURRENCY = 3
+
+# How many commits a caller should hand to `classify()` at a time when it wants
+# to persist incrementally. `classify()` only returns once every chunk in the
+# call has resolved, so each call is a barrier: sizing a wave at exactly one
+# round (BATCH_SIZE * MAX_CONCURRENCY) would make *every* round a barrier and
+# pay the straggler cost each time. Two rounds halves that while still
+# checkpointing often enough to survive a reload.
+WAVE_SIZE = BATCH_SIZE * MAX_CONCURRENCY * 2
 
 # Changed-file paths shown per commit before collapsing to "+N more".
 _PROMPT_PATHS = 3
@@ -424,8 +432,8 @@ class CommitClassifierService:
         if not batch:
             return results
 
-        chunks = [batch[k:k + _BATCH_SIZE] for k in range(0, len(batch), _BATCH_SIZE)]
-        semaphore = asyncio.Semaphore(_MAX_CONCURRENCY)
+        chunks = [batch[k:k + BATCH_SIZE] for k in range(0, len(batch), BATCH_SIZE)]
+        semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
 
         async def run(chunk: list[int]) -> list[tuple[str | None, str | None]]:
             async with semaphore:
