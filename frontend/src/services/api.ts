@@ -28,6 +28,8 @@ import type {
   NoteComment,
   Notification,
   NotificationListResponse,
+  ReminderListResponse,
+  RecentlyDeletedListResponse,
   CommitQualityResponse,
   ClassifyCommitsResponse,
   PRListResponse,
@@ -337,12 +339,29 @@ export async function getUnreadCount(): Promise<{ unread_count: number }> {
 }
 
 export async function markNotificationRead(id: string): Promise<Notification> {
-  const res = await apiClient.post<Notification>(`/notifications/${id}/read`)
+  const res = await apiClient.patch<Notification>(`/notifications/${id}/read`)
+  return res.data
+}
+
+export async function getReminders(): Promise<ReminderListResponse> {
+  const res = await apiClient.get<ReminderListResponse>('/notifications/reminders')
+  return res.data
+}
+
+export async function markNotificationUnread(id: string): Promise<Notification> {
+  const res = await apiClient.patch<Notification>(`/notifications/${id}/unread`)
+  return res.data
+}
+
+export async function markAllNotificationsUnread(): Promise<{ marked_unread: number }> {
+  const res = await apiClient.post<{ marked_unread: number }>(
+    '/notifications/mark-all-unread'
+  )
   return res.data
 }
 
 export async function markAllNotificationsRead(): Promise<{ marked_read: number }> {
-  const res = await apiClient.post<{ marked_read: number }>('/notifications/read-all')
+  const res = await apiClient.post<{ marked_read: number }>('/notifications/mark-all-read')
   return res.data
 }
 
@@ -396,4 +415,32 @@ export default apiClient
 export async function getContextualActivity(collectionId: string): Promise<import('@/types').ContextualActivity> {
   const response = await apiClient.get<import('@/types').ContextualActivity>(`/collections/${collectionId}/contextual-activity`)
   return response.data
+}
+
+// ── Recently deleted (soft delete) ──────────────────────────────────────────
+
+export async function getRecentlyDeleted(): Promise<RecentlyDeletedListResponse> {
+  const res = await apiClient.get<RecentlyDeletedListResponse>('/notifications/recently-deleted')
+  return res.data
+}
+
+/** Moves a notification to Recently deleted rather than destroying it. */
+export async function dismissNotification(id: string): Promise<void> {
+  await apiClient.delete(`/notifications/${id}`)
+}
+
+export async function restoreNotification(id: string): Promise<void> {
+  await apiClient.post(`/notifications/${id}/restore`)
+}
+
+export async function purgeNotification(id: string): Promise<void> {
+  await apiClient.delete(`/notifications/${id}/permanent`)
+}
+
+export async function restoreNote(id: string): Promise<void> {
+  await apiClient.post(`/notes/${id}/restore`)
+}
+
+export async function purgeNote(id: string): Promise<void> {
+  await apiClient.delete(`/notes/${id}/permanent`)
 }

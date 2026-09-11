@@ -70,6 +70,8 @@ describe('NoteForm', () => {
         content: 'Check in',
         is_reminder: true,
         reminder_context: 'After midterm',
+        // No due date chosen, so the reminder is saved without one
+        remind_at: null,
       })
     })
   })

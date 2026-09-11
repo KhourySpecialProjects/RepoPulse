@@ -11,7 +11,7 @@ from app.models.note_comment import NoteComment
 from app.models.notification import Notification, NotificationType
 from app.models.summary import Summary
 from app.models.pull_request import PullRequest
-from app.models.commit_quality_score import CommitQualityScore
+from app.models.commit_classification import CommitClassification
 
 
 @pytest.mark.asyncio
@@ -40,7 +40,7 @@ async def test_remove_synced_repo_cleans_only_its_records(test_client, db_sessio
         summary = Summary(repo_id=repo.id, summary_type='repo_overview', content=name, model_used='mock')
         contributor_summary = Summary(contributor_id=contributor.id, summary_type='contributor_activity', content=name, model_used='mock')
         pr = PullRequest(repo_id=repo.id, pr_number=1, title=name, state='open')
-        quality = CommitQualityScore(repo_id=repo.id, commit_hash='a'*40, score='good', model_used='mock')
+        quality = CommitClassification(repo_id=repo.id, commit_hash='a'*40, score='good', model_used='mock')
         db_session.add_all([alias, note, contributor_note, summary, contributor_summary, pr, quality])
         await db_session.flush()
         comment = NoteComment(note_id=contributor_note.id, author_id=test_user.id, content='Comment')

@@ -256,3 +256,394 @@ async def test_mark_all_read(
         "/api/v1/notifications/unread-count", headers=notif_auth_headers
     )
     assert count_resp.json()["unread_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# DELETE /notifications/{id} — dismissing a notification you are done with
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_notification_removes_it(
+    test_client: AsyncClient,
+    notif_auth_headers: dict[str, str],
+    unread_notification: Notification,
+) -> None:
+    resp = await test_client.delete(
+        f"/api/v1/notifications/{unread_notification.id}",
+        headers=notif_auth_headers,
+    )
+    assert resp.status_code == 204, resp.text
+
+    listing = await test_client.get("/api/v1/notifications", headers=notif_auth_headers)
+    ids = [item["id"] for item in listing.json()["items"]]
+    assert str(unread_notification.id) not in ids
+
+
+@pytest.mark.asyncio
+async def test_delete_notification_drops_the_unread_count(
+    test_client: AsyncClient,
+    notif_auth_headers: dict[str, str],
+    unread_notification: Notification,
+) -> None:
+    before = await test_client.get(
+        "/api/v1/notifications/unread-count", headers=notif_auth_headers
+    )
+    assert before.json()["unread_count"] == 1
+
+    await test_client.delete(
+        f"/api/v1/notifications/{unread_notification.id}",
+        headers=notif_auth_headers,
+    )
+
+    after = await test_client.get(
+        "/api/v1/notifications/unread-count", headers=notif_auth_headers
+    )
+    assert after.json()["unread_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_cannot_delete_someone_elses_notification(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+    unread_notification: Notification,
+) -> None:
+    intruder = User(
+        id=uuid.uuid4(),
+        email="intruder_notif@example.com",
+        display_name="Intruder",
+        role="instructor",
+        password_hash=None,
+    )
+    db_session.add(intruder)
+    await db_session.flush()
+    headers = {"Authorization": f"Bearer {create_access_token({'sub': str(intruder.id)})}"}
+
+    resp = await test_client.delete(
+        f"/api/v1/notifications/{unread_notification.id}", headers=headers
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_missing_notification_is_404(
+    test_client: AsyncClient, notif_auth_headers: dict[str, str]
+) -> None:
+    resp = await test_client.delete(
+        f"/api/v1/notifications/{uuid.uuid4()}", headers=notif_auth_headers
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_notification_keeps_its_note(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+    notif_auth_headers: dict[str, str],
+    unread_notification: Notification,
+) -> None:
+    """Dismissing a mention must not delete the note that was mentioned in."""
+    note_id = unread_notification.note_id
+
+    resp = await test_client.delete(
+        f"/api/v1/notifications/{unread_notification.id}", headers=notif_auth_headers
+    )
+    assert resp.status_code == 204
+
+    assert await db_session.get(Note, note_id) is not None
+
+
+# ---------------------------------------------------------------------------
+# Recently deleted: restore and permanent delete
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dismissed_notification_appears_in_recently_deleted(
+    test_client: AsyncClient,
+    notif_auth_headers: dict[str, str],
+    unread_notification: Notification,
+) -> None:
+    await test_client.delete(
+        f"/api/v1/notifications/{unread_notification.id}", headers=notif_auth_headers
+    )
+
+    resp = await test_client.get(
+        "/api/v1/notifications/recently-deleted", headers=notif_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["total"] == 1
+    entry = body["items"][0]
+    assert entry["id"] == str(unread_notification.id)
+    assert entry["kind"] == "notification"
+    assert entry["deleted_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_recently_deleted_is_empty_when_nothing_was_deleted(
+    test_client: AsyncClient, notif_auth_headers: dict[str, str]
+) -> None:
+    resp = await test_client.get(
+        "/api/v1/notifications/recently-deleted", headers=notif_auth_headers
+    )
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_restoring_a_notification_brings_it_back(
+    test_client: AsyncClient,
+    notif_auth_headers: dict[str, str],
+    unread_notification: Notification,
+) -> None:
+    await test_client.delete(
+        f"/api/v1/notifications/{unread_notification.id}", headers=notif_auth_headers
+    )
+
+    restored = await test_client.post(
+        f"/api/v1/notifications/{unread_notification.id}/restore",
+        headers=notif_auth_headers,
+    )
+    assert restored.status_code == 200, restored.text
+
+    listing = await test_client.get("/api/v1/notifications", headers=notif_auth_headers)
+    ids = [item["id"] for item in listing.json()["items"]]
+    assert str(unread_notification.id) in ids
+
+    gone = await test_client.get(
+        "/api/v1/notifications/recently-deleted", headers=notif_auth_headers
+    )
+    assert gone.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_permanently_deleting_removes_it_from_recently_deleted(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+    notif_auth_headers: dict[str, str],
+    unread_notification: Notification,
+) -> None:
+    notif_id = unread_notification.id
+    await test_client.delete(
+        f"/api/v1/notifications/{notif_id}", headers=notif_auth_headers
+    )
+
+    purged = await test_client.delete(
+        f"/api/v1/notifications/{notif_id}/permanent", headers=notif_auth_headers
+    )
+    assert purged.status_code == 204, purged.text
+
+    resp = await test_client.get(
+        "/api/v1/notifications/recently-deleted", headers=notif_auth_headers
+    )
+    assert resp.json()["total"] == 0
+    assert await db_session.get(Notification, notif_id) is None
+
+
+@pytest.mark.asyncio
+async def test_cannot_restore_someone_elses_notification(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+    notif_auth_headers: dict[str, str],
+    unread_notification: Notification,
+) -> None:
+    await test_client.delete(
+        f"/api/v1/notifications/{unread_notification.id}", headers=notif_auth_headers
+    )
+
+    intruder = User(
+        id=uuid.uuid4(),
+        email="intruder_restore@example.com",
+        display_name="Intruder Restore",
+        role="instructor",
+        password_hash=None,
+    )
+    db_session.add(intruder)
+    await db_session.flush()
+    headers = {"Authorization": f"Bearer {create_access_token({'sub': str(intruder.id)})}"}
+
+    resp = await test_client.post(
+        f"/api/v1/notifications/{unread_notification.id}/restore", headers=headers
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_recently_deleted_only_shows_your_own(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+    notif_auth_headers: dict[str, str],
+    unread_notification: Notification,
+) -> None:
+    await test_client.delete(
+        f"/api/v1/notifications/{unread_notification.id}", headers=notif_auth_headers
+    )
+
+    other = User(
+        id=uuid.uuid4(),
+        email="other_recently@example.com",
+        display_name="Other Recently",
+        role="instructor",
+        password_hash=None,
+    )
+    db_session.add(other)
+    await db_session.flush()
+    headers = {"Authorization": f"Bearer {create_access_token({'sub': str(other.id)})}"}
+
+    resp = await test_client.get(
+        "/api/v1/notifications/recently-deleted", headers=headers
+    )
+    assert resp.json()["total"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Marking notifications unread again
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_mark_notification_unread(
+    test_client: AsyncClient,
+    notif_auth_headers: dict[str, str],
+    unread_notification: Notification,
+) -> None:
+    await test_client.patch(
+        f"/api/v1/notifications/{unread_notification.id}/read",
+        headers=notif_auth_headers,
+    )
+    read_count = await test_client.get(
+        "/api/v1/notifications/unread-count", headers=notif_auth_headers
+    )
+    assert read_count.json()["unread_count"] == 0
+
+    resp = await test_client.patch(
+        f"/api/v1/notifications/{unread_notification.id}/unread",
+        headers=notif_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["is_read"] is False
+
+    after = await test_client.get(
+        "/api/v1/notifications/unread-count", headers=notif_auth_headers
+    )
+    assert after.json()["unread_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_mark_unread_is_idempotent(
+    test_client: AsyncClient,
+    notif_auth_headers: dict[str, str],
+    unread_notification: Notification,
+) -> None:
+    for _ in range(3):
+        resp = await test_client.patch(
+            f"/api/v1/notifications/{unread_notification.id}/unread",
+            headers=notif_auth_headers,
+        )
+        assert resp.status_code == 200
+
+    count = await test_client.get(
+        "/api/v1/notifications/unread-count", headers=notif_auth_headers
+    )
+    assert count.json()["unread_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_cannot_mark_someone_elses_notification_unread(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+    unread_notification: Notification,
+) -> None:
+    intruder = User(
+        id=uuid.uuid4(),
+        email="intruder_unread@example.com",
+        display_name="Intruder Unread",
+        role="instructor",
+        password_hash=None,
+    )
+    db_session.add(intruder)
+    await db_session.flush()
+    headers = {"Authorization": f"Bearer {create_access_token({'sub': str(intruder.id)})}"}
+
+    resp = await test_client.patch(
+        f"/api/v1/notifications/{unread_notification.id}/unread", headers=headers
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_mark_all_unread(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+    notif_user: User,
+    notif_auth_headers: dict[str, str],
+) -> None:
+    note = Note(id=uuid.uuid4(), author_id=notif_user.id, content="A note")
+    db_session.add(note)
+    await db_session.flush()
+    for _ in range(3):
+        db_session.add(
+            Notification(
+                id=uuid.uuid4(),
+                recipient_id=notif_user.id,
+                type=NotificationType.mention,
+                note_id=note.id,
+                is_read=True,
+            )
+        )
+    await db_session.flush()
+
+    resp = await test_client.post(
+        "/api/v1/notifications/mark-all-unread", headers=notif_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["marked_unread"] == 3
+
+    count = await test_client.get(
+        "/api/v1/notifications/unread-count", headers=notif_auth_headers
+    )
+    assert count.json()["unread_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_mark_all_unread_skips_deleted_and_other_users(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+    notif_user: User,
+    notif_auth_headers: dict[str, str],
+    unread_notification: Notification,
+) -> None:
+    other = User(
+        id=uuid.uuid4(),
+        email="other_unread_all@example.com",
+        display_name="Other Unread",
+        role="instructor",
+        password_hash=None,
+    )
+    db_session.add(other)
+    await db_session.flush()
+    db_session.add(
+        Notification(
+            id=uuid.uuid4(),
+            recipient_id=other.id,
+            type=NotificationType.mention,
+            note_id=unread_notification.note_id,
+            is_read=True,
+        )
+    )
+    await db_session.flush()
+
+    # One of mine is read but sitting in Recently deleted
+    await test_client.patch(
+        f"/api/v1/notifications/{unread_notification.id}/read",
+        headers=notif_auth_headers,
+    )
+    await test_client.delete(
+        f"/api/v1/notifications/{unread_notification.id}", headers=notif_auth_headers
+    )
+
+    resp = await test_client.post(
+        "/api/v1/notifications/mark-all-unread", headers=notif_auth_headers
+    )
+    assert resp.json()["marked_unread"] == 0

@@ -1,6 +1,18 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import type { QueryClient } from '@tanstack/react-query'
 import { getNotes, createNote, updateNote, deleteNote } from '@/services/api'
 import type { CreateNoteData, UpdateNoteData, GetNotesParams } from '@/types'
+
+/**
+ * Notes feed several other caches: mentions create notifications, reminders
+ * appear in the notifications panel, and repos carry active_reminder_count.
+ * Invalidating only ['notes'] leaves all of those stale.
+ */
+function invalidateNoteDependents(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: noteKeys.all })
+  queryClient.invalidateQueries({ queryKey: ['notifications'] })
+  queryClient.invalidateQueries({ queryKey: ['repos'] })
+}
 
 export const noteKeys = {
   all: ['notes'] as const,
@@ -19,7 +31,7 @@ export function useCreateNote() {
   return useMutation({
     mutationFn: (data: CreateNoteData) => createNote(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: noteKeys.all })
+      invalidateNoteDependents(queryClient)
     },
   })
 }
@@ -29,7 +41,7 @@ export function useUpdateNote() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateNoteData }) => updateNote(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: noteKeys.all })
+      invalidateNoteDependents(queryClient)
     },
   })
 }
@@ -39,7 +51,7 @@ export function useDeleteNote() {
   return useMutation({
     mutationFn: (id: string) => deleteNote(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: noteKeys.all })
+      invalidateNoteDependents(queryClient)
     },
   })
 }
