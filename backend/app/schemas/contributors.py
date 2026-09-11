@@ -23,7 +23,6 @@ class ContributorRead(BaseModel):
     repo_id: uuid.UUID
     created_at: datetime
     aliases: list[AliasRead] = []
-    can_unmerge: bool = False
     commit_count: int = 0
     total_insertions: int = 0
     total_deletions: int = 0
@@ -37,7 +36,3 @@ class ContributorUpdate(BaseModel):
 class MergeContributorsRequest(BaseModel):
     contributor_ids: list[uuid.UUID]
     display_name: str
-
-
-class UnmergeContributorsResponse(BaseModel):
-    contributors: list[ContributorRead]

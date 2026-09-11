@@ -70,12 +70,7 @@ export interface ContributorAlias {
   git_name: string
 }
 
-export interface UnmergeContributorsResponse {
-  contributors: Contributor[]
-}
-
 export interface Contributor {
-  can_unmerge?: boolean
   id: string
   display_name: string
   repo_id: string
