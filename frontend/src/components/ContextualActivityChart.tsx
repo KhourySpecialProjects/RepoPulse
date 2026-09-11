@@ -51,11 +51,17 @@ export function ContextualActivityChart({ collectionId, repoId, children }: { co
           <div className="h-56" aria-label="Commit activity graph">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={points} margin={{ top: 12, right: 16, bottom: 0, left: 0 }}>
+                <defs>
+                  <linearGradient id="contextualActivityGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0.05} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={35} />
                 <YAxis allowDecimals={false} />
                 <Tooltip content={<ActivityTooltip />} />
-                <Area dataKey="count" type="linear" stroke="#6366f1" fill="#6366f1" fillOpacity={0.15} />
+                <Area dataKey="count" type="monotone" stroke="#6366f1" strokeWidth={2} fill="url(#contextualActivityGradient)" />
                 {normalPoint && <ReferenceDot x={normalPoint.date} y={normalPoint.count} r={0} label={{ value: '✓', position: 'top', fill: '#16a34a', fontSize: 20 }} />}
                 {annotations.map(p => <ReferenceDot key={p.date} x={p.date} y={p.count} r={6} fill="#d97706" stroke="#fff" />)}
               </AreaChart>
