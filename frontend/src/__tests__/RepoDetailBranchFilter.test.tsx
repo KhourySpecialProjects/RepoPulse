@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
@@ -48,7 +48,6 @@ const mockRepo: Repo = {
   local_path: '/repos/student-project',
   health_status: 'green',
   health_score: null,
-  last_commit_at: null,
   last_synced_at: '2025-10-15T10:00:00Z',
   created_at: '2025-09-01T00:00:00Z',
   updated_at: '2025-10-15T10:00:00Z',
@@ -151,12 +150,12 @@ describe('RepoDetailPage - multi-branch commit schema (branches: string[])', () 
     expect(featureAuthBadges.length).toBeGreaterThan(0)
   })
 
-  it('renders branch filter buttons', async () => {
+  it('renders a branch filter dropdown', async () => {
     setupHandlers()
     renderPage()
     await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
-    // The branch filter starts with All selected.
-    expect(screen.getByRole('button', { name: 'All' })).toHaveClass('bg-indigo-600')
+    // The Select trigger should show "All branches"
+    expect(screen.getByText('All branches')).toBeInTheDocument()
   })
 
   it('shows all commits when filter is "All branches"', async () => {

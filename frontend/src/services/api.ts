@@ -7,7 +7,6 @@ import type {
   Repo,
   HealthScore,
   Contributor,
-  UnmergeContributorsResponse,
   Commit,
   Note,
   CreateNoteData,
@@ -177,11 +176,6 @@ export async function updateContributor(id: string, displayName: string): Promis
 
 export async function mergeContributors(ids: string[], displayName: string): Promise<Contributor> {
   const response = await apiClient.post<Contributor>('/contributors/merge', { contributor_ids: ids, display_name: displayName })
-  return response.data
-}
-
-export async function unmergeContributor(id: string): Promise<UnmergeContributorsResponse> {
-  const response = await apiClient.post<UnmergeContributorsResponse>(`/contributors/${id}/unmerge`)
   return response.data
 }
 

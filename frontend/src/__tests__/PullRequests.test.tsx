@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
@@ -49,7 +49,6 @@ const mockRepo: Repo = {
   local_path: '/repos/student-project',
   health_status: 'green',
   health_score: null,
-  last_commit_at: null,
   last_synced_at: '2025-10-15T10:00:00Z',
   created_at: '2025-09-01T00:00:00Z',
   updated_at: '2025-10-15T10:00:00Z',
@@ -121,7 +120,7 @@ describe('Pull Requests — PRStats row', () => {
     await waitFor(() => expect(screen.getByText('Fetch PRs')).toBeInTheDocument())
   })
 
-  it('shows the total PR count and state controls when data is available', async () => {
+  it('shows PR stat cards with counts when prStats has data', async () => {
     server.use(
       http.get('/api/v1/repos/:id', () => HttpResponse.json(mockRepo)),
       http.get('/api/v1/repos/:id/pull-requests/stats', () => HttpResponse.json(mockPRStats)),
@@ -129,13 +128,17 @@ describe('Pull Requests — PRStats row', () => {
     )
     renderPage()
     await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
-    const panel = screen.getByRole('heading', { name: 'Pull Requests' }).parentElement!
-    expect(await within(panel).findByText('15')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^merged$/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^open$/i })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('Merged (30d)')).toBeInTheDocument()
+      expect(screen.getByText('Avg Days to Merge')).toBeInTheDocument()
+      expect(screen.getByText('Total PRs')).toBeInTheDocument()
+    })
+    // Check actual numbers — use specific values unlikely to appear elsewhere
+    expect(screen.getByText('2.5')).toBeInTheDocument() // avg_days_to_merge
+    expect(screen.getByText('15')).toBeInTheDocument()  // total_count
   })
 
-  it('renders the PR list when the average merge time is unavailable', async () => {
+  it('shows — for avg_days_to_merge when null', async () => {
     server.use(
       http.get('/api/v1/repos/:id', () => HttpResponse.json(mockRepo)),
       http.get('/api/v1/repos/:id/pull-requests/stats', () =>
@@ -145,7 +148,9 @@ describe('Pull Requests — PRStats row', () => {
     )
     renderPage()
     await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
-    expect(await screen.findByText('feat: add user authentication')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('Avg Days to Merge')).toBeInTheDocument())
+    // "—" appears in the Avg Days to Merge stat card when value is null
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0)
   })
 })
 
@@ -257,9 +262,9 @@ describe('Pull Requests — sync mutation', () => {
     )
     renderPage()
     await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Refresh PRs')).toBeInTheDocument())
 
-    const refreshBtn = screen.getByRole('button', { name: 'Refresh' })
+    const refreshBtn = screen.getByText('Refresh PRs')
     fireEvent.click(refreshBtn)
 
     await waitFor(() => expect(syncCalled).toBe(true))
