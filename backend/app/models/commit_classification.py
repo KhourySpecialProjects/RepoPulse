@@ -3,7 +3,15 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -26,19 +34,26 @@ class CommitClassification(Base):
 
     __tablename__ = "commit_classifications"
 
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     # index=True yields ix_commit_classifications_repo_id, matching what
     # migration 0014 renames/creates. The old model omitted this index while
     # migration 0011 created it — that drift is why 0014's rename first failed
     # on databases built by create_all.
     repo_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("repos.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("repos.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     commit_hash: Mapped[str] = mapped_column(String(40), nullable=False)  # full SHA
     score: Mapped[str | None] = mapped_column(String(10), nullable=True)          # 'good' | 'ok' | 'bad'
     commit_type: Mapped[str | None] = mapped_column(String(20), nullable=True)    # 'substantive' | 'logistical'
     model_used: Mapped[str] = mapped_column(String(100), nullable=False)
-    scored_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    scored_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
 
     __table_args__ = (
         UniqueConstraint("repo_id", "commit_hash", name="uq_commit_classification_repo_hash"),

@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { FileText, Archive, Trash2, CheckSquare, Square, GitCommit, X, Pin } from 'lucide-react'
-import { NoteForm } from '@/components/NoteForm'
+import { NoteForm, type NoteFormValues } from '@/components/NoteForm'
 import { NoteComments } from '@/components/NoteComments'
 import { cn } from '@/lib/utils'
-import type { Note, CreateNoteData, UserDetail } from '@/types'
+import type { Note, UserDetail } from '@/types'
 
 interface NotesDrawerProps {
   repoId: string
@@ -12,7 +12,7 @@ interface NotesDrawerProps {
   noteCount: number
   showArchivedNotes: boolean
   onToggleArchivedNotes: () => void
-  createNoteMutation: { isPending: boolean; mutate: (data: CreateNoteData) => void }
+  createNoteMutation: { isPending: boolean; mutate: (data: NoteFormValues) => void }
   updateNoteMutation: { mutate: (args: { id: string; data: Partial<Note> }) => void }
   deleteNoteMutation: { mutate: (id: string) => void }
   users: UserDetail[] | undefined

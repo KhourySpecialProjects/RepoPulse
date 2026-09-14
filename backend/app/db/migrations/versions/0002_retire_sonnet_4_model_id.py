@@ -1,5 +1,10 @@
 """repoint app_settings rows off the retired claude-sonnet-4-20250514 model id
 
+Carried forward from the pre-squash chain (was revision 0015). A no-op on a
+freshly created database, kept because it is the only data migration in the
+history and dropping it would silently strip the fix from any environment
+replaying the chain.
+
 Changing the column default only affects rows created after this migration.
 Existing rows carry the retired id as data, and every route reads it in
 preference to the default (`user_settings.llm_model or DEFAULT_LLM_MODEL`) —
@@ -9,16 +14,16 @@ freshly seeded database works fine.
 Only rows still holding the retired id are touched; a user who deliberately
 chose another model keeps it.
 
-Revision ID: 0015
-Revises: 0014
-Create Date: 2026-09-10
+Revision ID: 0002
+Revises: 0001
+Create Date: 2026-09-11
 """
 from __future__ import annotations
 
 from alembic import op
 
-revision = "0015"
-down_revision = "0014"
+revision = "0002"
+down_revision = "0001"
 branch_labels = None
 depends_on = None
 

@@ -4,7 +4,7 @@ import { cleanup } from '@testing-library/react'
 import { server } from '@/mocks/server'
 
 // Polyfill ResizeObserver for Recharts in jsdom
-global.ResizeObserver = class ResizeObserver {
+globalThis.ResizeObserver = class ResizeObserver {
   observe() {}
   unobserve() {}
   disconnect() {}

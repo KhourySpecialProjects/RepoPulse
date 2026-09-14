@@ -19,11 +19,13 @@ class NoteComment(Base):
         UUID(as_uuid=True),
         ForeignKey("notes.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     author_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[DateTime] = mapped_column(

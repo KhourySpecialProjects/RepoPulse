@@ -13,19 +13,11 @@ import {
   Settings,
   Shield,
   LogOut,
-  X,
-  MessageSquare,
-  AtSign,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useCollections } from '@/hooks/useCollections'
 import { useRepos, useRepo } from '@/hooks/useRepos'
-import {
-  useUnreadCount,
-  useNotifications,
-  useMarkNotificationRead,
-  useMarkAllNotificationsRead,
-} from '@/hooks/useNotifications'
+import { useUnreadCount, useReminders } from '@/hooks/useNotifications'
 import {
   Tooltip,
   TooltipContent,
@@ -48,123 +40,6 @@ const NAV_BASE =
   'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer select-none'
 const NAV_DEFAULT = 'text-slate-300 hover:text-white hover:bg-slate-800'
 const NAV_ACTIVE = 'bg-indigo-600/20 text-indigo-300'
-
-// ── Notification dropdown ────────────────────────────────────────────────────
-function NotificationDropdown({ onClose }: { onClose: () => void }) {
-  const navigate = useNavigate()
-  const { data: notificationsData } = useNotifications({ limit: 20 })
-  const { data: unreadData } = useUnreadCount()
-  const markRead = useMarkNotificationRead()
-  const markAllRead = useMarkAllNotificationsRead()
-
-  const unreadCount = unreadData?.unread_count ?? 0
-  const notifications = notificationsData?.items ?? []
-
-  function formatTimeAgo(isoStr: string): string {
-    const ms = Date.now() - new Date(isoStr).getTime()
-    const minutes = Math.floor(ms / 60000)
-    if (minutes < 1) return 'just now'
-    if (minutes < 60) return `${minutes}m ago`
-    const hours = Math.floor(minutes / 60)
-    if (hours < 24) return `${hours}h ago`
-    const days = Math.floor(hours / 24)
-    return `${days}d ago`
-  }
-
-  async function handleNotificationClick(id: string, repoId: string | null) {
-    await markRead.mutateAsync(id)
-    onClose()
-    if (repoId) navigate(`/repos/${repoId}`)
-  }
-
-  async function handleMarkAllRead() {
-    await markAllRead.mutateAsync()
-  }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, x: -8, scale: 0.96 }}
-      animate={{ opacity: 1, x: 0, scale: 1 }}
-      exit={{ opacity: 0, x: -8, scale: 0.96 }}
-      transition={{ duration: 0.15 }}
-      className="absolute left-full top-0 ml-2 w-80 z-50 bg-white border border-border rounded-xl shadow-xl overflow-hidden"
-    >
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
-        <span className="text-sm font-semibold text-foreground">
-          Notifications
-          {unreadCount > 0 && (
-            <span className="ml-1.5 text-xs font-normal text-amber-600">
-              {unreadCount} unread
-            </span>
-          )}
-        </span>
-        <div className="flex items-center gap-1">
-          {unreadCount > 0 && (
-            <button
-              type="button"
-              onClick={handleMarkAllRead}
-              className="text-xs text-indigo-600 hover:text-indigo-700 transition-colors px-1.5 py-0.5 rounded"
-            >
-              Mark all read
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground p-0.5"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-      <div className="max-h-80 overflow-y-auto">
-        {notifications.length === 0 ? (
-          <div className="py-8 text-center text-muted-foreground">
-            <Bell className="h-6 w-6 mx-auto mb-2 opacity-30" />
-            <p className="text-sm">No notifications</p>
-          </div>
-        ) : (
-          notifications.map((notif) => (
-            <button
-              key={notif.id}
-              type="button"
-              onClick={() => handleNotificationClick(notif.id, notif.repo_id)}
-              className={`w-full text-left flex items-start gap-3 px-3 py-2.5 hover:bg-muted/50 transition-colors border-b border-border/50 last:border-0 ${
-                !notif.is_read ? 'bg-indigo-50/50' : ''
-              }`}
-            >
-              <div className="flex-shrink-0 mt-0.5">
-                {notif.type === 'mention' ? (
-                  <AtSign className="h-4 w-4 text-violet-500" />
-                ) : (
-                  <MessageSquare className="h-4 w-4 text-indigo-500" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-foreground">
-                  {notif.type === 'mention'
-                    ? 'You were mentioned'
-                    : 'New comment on your note'}
-                </p>
-                {notif.note_content_preview && (
-                  <p className="text-xs text-muted-foreground truncate mt-0.5">
-                    {notif.note_content_preview}
-                  </p>
-                )}
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  {formatTimeAgo(notif.created_at)}
-                </p>
-              </div>
-              {!notif.is_read && (
-                <div className="flex-shrink-0 w-2 h-2 rounded-full bg-amber-500 mt-1.5" />
-              )}
-            </button>
-          ))
-        )}
-      </div>
-    </motion.div>
-  )
-}
 
 // ── Collection tree item ──────────────────────────────────────────────────────
 function CollectionTreeItem({
@@ -368,9 +243,17 @@ export function AppSidebar() {
   })
 
   // Notification bell state
-  const [notifOpen, setNotifOpen] = useState(false)
   const { data: unreadData } = useUnreadCount()
-  const unreadCount = unreadData?.unread_count ?? 0
+  const { data: remindersData } = useReminders()
+  // Unread notifications plus outstanding reminders: the things still wanting
+  // attention. Reading a notification drops the number, so clicking one has a
+  // visible effect without needing Mark all read. Soft-deleted rows are already
+  // excluded server-side, so Recently deleted never counts.
+  const pendingCount =
+    (unreadData?.unread_count ?? 0) + (remindersData?.total ?? 0)
+  const badgeText = pendingCount > 99 ? '99+' : String(pendingCount)
+  const unreadLabel =
+    pendingCount > 0 ? `Notifications, ${pendingCount} pending` : 'Notifications'
 
   // Auto-expand collection containing the active repo
   useEffect(() => {
@@ -519,13 +402,17 @@ export function AppSidebar() {
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={() => setNotifOpen((v) => !v)}
+                  onClick={() => navigate('/notifications')}
+                  aria-label={unreadLabel}
                   className={`relative w-full flex items-center justify-center py-2 rounded-md transition-colors ${NAV_DEFAULT}`}
                 >
                   <Bell className="h-4 w-4" />
-                  {unreadCount > 0 && (
-                    <span className="absolute top-1 right-2 min-w-[14px] h-3.5 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center px-1">
-                      {unreadCount > 99 ? '99+' : unreadCount}
+                  {pendingCount > 0 && (
+                    <span
+                      data-testid="unread-badge"
+                      className="absolute right-2 top-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none tabular-nums text-white"
+                    >
+                      {badgeText}
                     </span>
                   )}
                 </button>
@@ -535,32 +422,25 @@ export function AppSidebar() {
           ) : (
             <button
               type="button"
-              onClick={() => setNotifOpen((v) => !v)}
-              className={`relative w-full ${NAV_BASE} ${NAV_DEFAULT}`}
+              onClick={() => navigate('/notifications')}
+              aria-label={unreadLabel}
+              className={`relative w-full ${NAV_BASE} ${
+                location.pathname === '/notifications' ? NAV_ACTIVE : NAV_DEFAULT
+              }`}
             >
               <Bell className="h-4 w-4 flex-shrink-0" />
               <span className="truncate">Notifications</span>
-              {unreadCount > 0 && (
-                <span className="ml-auto min-w-[18px] h-4 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center px-1">
-                  {unreadCount > 99 ? '99+' : unreadCount}
+              {pendingCount > 0 && (
+                <span
+                  data-testid="unread-badge"
+                  className="ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold leading-none tabular-nums text-white"
+                >
+                  {badgeText}
                 </span>
               )}
             </button>
           )}
 
-          <AnimatePresence>
-            {notifOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setNotifOpen(false)}
-                />
-                <div className="relative z-50">
-                  <NotificationDropdown onClose={() => setNotifOpen(false)} />
-                </div>
-              </>
-            )}
-          </AnimatePresence>
         </div>
 
         {/* ── Collection tree ── */}

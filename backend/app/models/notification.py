@@ -13,6 +13,7 @@ from app.db.database import Base
 class NotificationType(str, enum.Enum):
     mention = "mention"
     note_comment = "note_comment"
+    reminder = "reminder"
 
 
 class Notification(Base):
@@ -25,6 +26,7 @@ class Notification(Base):
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     type: Mapped[NotificationType] = mapped_column(
         Enum(NotificationType, name="notification_type", create_type=False),
@@ -41,7 +43,13 @@ class Notification(Base):
         nullable=True,
     )
     is_read: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default="false", nullable=False
+        Boolean, default=False, server_default="false", nullable=False, index=True
+    )
+    # Soft delete: dismissed notifications move to Recently deleted rather than
+    # disappearing, so an accidental dismissal can be undone. NULL means live.
+    # Every listing filters deleted rows out, so the column is indexed.
+    deleted_at: Mapped[DateTime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
     )
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

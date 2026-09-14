@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
 
 const ANTHROPIC_MODELS = [
   { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (recommended)' },
@@ -152,12 +153,16 @@ export function SettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="px-6 py-6 max-w-3xl">
-        <div className="h-8 w-32 bg-muted rounded animate-pulse mb-6" />
+      <div>
+        <div data-testid="page-header" className={PAGE_HEADER_CLASS}>
+          <h1 className="text-xl font-semibold">Settings</h1>
+        </div>
+        <div className={cn(PAGE_BODY_CLASS, 'max-w-3xl')}>
         <div className="space-y-4">
           <div className="h-40 bg-muted rounded-lg animate-pulse" />
           <div className="h-40 bg-muted rounded-lg animate-pulse" />
           <div className="h-48 bg-muted rounded-lg animate-pulse" />
+        </div>
         </div>
       </div>
     )
@@ -172,19 +177,22 @@ export function SettingsPage() {
 
   return (
     <motion.div
-      className="px-6 py-6 max-w-3xl"
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
     >
-      <div className="flex items-center gap-2 mb-1">
-        <h1 className="text-xl font-semibold">Settings</h1>
-        {currentUser?.role && (
-          <span className={`text-xs font-medium rounded-full px-2 py-0.5 ${roleBadgeClass}`}>
-            {currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1)}
-          </span>
-        )}
+      <div data-testid="page-header" className={PAGE_HEADER_CLASS}>
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-semibold">Settings</h1>
+          {currentUser?.role && (
+            <span className={`text-xs font-medium rounded-full px-2 py-0.5 ${roleBadgeClass}`}>
+              {currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1)}
+            </span>
+          )}
+        </div>
       </div>
+
+      <div className={cn(PAGE_BODY_CLASS, 'max-w-3xl')}>
       {currentUser && (
         <div className="mb-6 text-sm text-muted-foreground">
           Signed in as <span className="font-medium text-foreground">{currentUser.email}</span>
@@ -574,6 +582,7 @@ export function SettingsPage() {
           </Button>
         </div>
       </form>
+      </div>
     </motion.div>
   )
 }
