@@ -109,6 +109,7 @@ async def get_commit_quality(
 
     llm_cfg = await resolve_llm_settings(db, user_uuid)
     model_label = llm_cfg.label
+    current_criteria_hash = llm_cfg.criteria_hash
 
     # Fetch repos
     repos_result = await db.execute(
@@ -151,18 +152,31 @@ async def get_commit_quality(
         )
     )
     cached_rows = cached_result.scalars().all()
-    cache: dict[tuple[uuid.UUID, str], str | None] = {
-        (row.repo_id, row.commit_hash): row.score for row in cached_rows
+    cache: dict[tuple[uuid.UUID, str], tuple[str | None, str | None]] = {
+        (row.repo_id, row.commit_hash): (row.score, row.criteria_hash)
+        for row in cached_rows
     }
 
     # Identify commits still needing a score. A row can exist carrying only a
     # commit_type — the classifier writes those — so "a row exists" is not the
     # same as "already scored", and testing membership would strand those
     # commits with a permanent null.
+    #
+    # A score is also stale when the rubric it was graded under is not the one
+    # in force now. Plain equality, including NULL == NULL: a NULL hash means
+    # "graded with no instructor rubric", which is literally true both of rows
+    # written before this column existed and of a user who has not set one. So
+    # legacy rows stay valid for an instructor with no rubric, and go stale the
+    # moment one is saved — no special case for either.
     uncached: list[tuple[int, int]] = []  # (repo_idx, commit_idx)
     for repo_idx, (repo, commits) in enumerate(repo_commits):
         for commit_idx, commit in enumerate(commits):
-            if cache.get((repo.id, commit["full_hash"])) is None:
+            cached = cache.get((repo.id, commit["full_hash"]))
+            if (
+                cached is None
+                or cached[0] is None
+                or cached[1] != current_criteria_hash
+            ):
                 uncached.append((repo_idx, commit_idx))
 
     # Score uncached messages with the LLM
@@ -173,7 +187,11 @@ async def get_commit_quality(
             len(all_hashes) - len(uncached), len(uncached), collection_id,
         )
         classifier = build_classifier(
-            llm_cfg.provider, llm_cfg.model, llm_cfg.api_key, llm_cfg.ollama_url
+            llm_cfg.provider,
+            llm_cfg.model,
+            llm_cfg.api_key,
+            llm_cfg.ollama_url,
+            instructor_criteria=llm_cfg.commit_evaluation_criteria,
         )
         results = await classifier.classify([
             _commit_input(repo_commits[repo_idx][1][commit_idx])
@@ -195,6 +213,7 @@ async def get_commit_quality(
                 "commit_hash": commits[commit_idx]["full_hash"],
                 "score": result.score,
                 "model_used": model_label,
+                "criteria_hash": current_criteria_hash,
             })
 
         if rows_to_insert:
@@ -209,6 +228,9 @@ async def get_commit_quality(
                     "score": stmt.excluded.score,
                     "model_used": stmt.excluded.model_used,
                     "scored_at": datetime.utcnow(),
+                    # Moves with the score it describes — leaving the old hash
+                    # behind would mark a freshly re-graded row as stale again.
+                    "criteria_hash": stmt.excluded.criteria_hash,
                 },
             )
             await db.execute(stmt)

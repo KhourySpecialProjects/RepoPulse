@@ -24,6 +24,7 @@ def _settings_to_read(s: AppSettings) -> AppSettingsRead:
         health_thresholds=s.health_thresholds,
         anthropic_api_key_configured=bool(s.anthropic_api_key),
         ollama_base_url=s.ollama_base_url,
+        commit_evaluation_criteria=s.commit_evaluation_criteria,
     )
 
 
