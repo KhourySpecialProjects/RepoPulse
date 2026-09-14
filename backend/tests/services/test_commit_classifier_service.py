@@ -709,10 +709,18 @@ def test_rubric_does_not_displace_the_output_contract() -> None:
 
 
 def test_rubric_is_capped_in_the_prompt() -> None:
-    prompt = build_prompt([_commit()], "y" * (MAX_CRITERIA_CHARS + 5000))
+    """An oversized rubric is truncated, not passed through.
+
+    The rubric is re-sent with every chunk, so an uncapped one is a cost
+    multiplier rather than a one-off. Measured against the no-rubric prompt
+    because the static prompt text contains "y"s of its own.
+    """
+    commits = [_commit()]
+    baseline = len(build_prompt(commits))
+    prompt = build_prompt(commits, "y" * (MAX_CRITERIA_CHARS + 5000))
 
     assert "[rubric truncated]" in prompt
-    assert prompt.count("y") <= MAX_CRITERIA_CHARS
+    assert len(prompt) - baseline <= MAX_CRITERIA_CHARS + 500
 
 
 @pytest.mark.asyncio

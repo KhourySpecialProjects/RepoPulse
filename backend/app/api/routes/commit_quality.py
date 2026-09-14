@@ -152,8 +152,20 @@ async def get_commit_quality(
         )
     )
     cached_rows = cached_result.scalars().all()
-    cache: dict[tuple[uuid.UUID, str], tuple[str | None, str | None]] = {
-        (row.repo_id, row.commit_hash): (row.score, row.criteria_hash)
+    # A score graded under a different rubric is not a cache hit. Mapping it to
+    # None rather than dropping the key keeps a single notion of "usable cached
+    # score" for both the loop below and the response assembly further down,
+    # which reads this same dict to decide from_cache.
+    #
+    # Plain equality, NULL included: a NULL hash means "graded with no
+    # instructor rubric", which is literally true both of rows written before
+    # this column existed and of a user who has not set one. So legacy rows
+    # stay valid for an instructor with no rubric and go stale the moment one
+    # is saved — no special case for either.
+    cache: dict[tuple[uuid.UUID, str], str | None] = {
+        (row.repo_id, row.commit_hash): (
+            row.score if row.criteria_hash == current_criteria_hash else None
+        )
         for row in cached_rows
     }
 
@@ -161,22 +173,10 @@ async def get_commit_quality(
     # commit_type — the classifier writes those — so "a row exists" is not the
     # same as "already scored", and testing membership would strand those
     # commits with a permanent null.
-    #
-    # A score is also stale when the rubric it was graded under is not the one
-    # in force now. Plain equality, including NULL == NULL: a NULL hash means
-    # "graded with no instructor rubric", which is literally true both of rows
-    # written before this column existed and of a user who has not set one. So
-    # legacy rows stay valid for an instructor with no rubric, and go stale the
-    # moment one is saved — no special case for either.
     uncached: list[tuple[int, int]] = []  # (repo_idx, commit_idx)
     for repo_idx, (repo, commits) in enumerate(repo_commits):
         for commit_idx, commit in enumerate(commits):
-            cached = cache.get((repo.id, commit["full_hash"]))
-            if (
-                cached is None
-                or cached[0] is None
-                or cached[1] != current_criteria_hash
-            ):
+            if cache.get((repo.id, commit["full_hash"])) is None:
                 uncached.append((repo_idx, commit_idx))
 
     # Score uncached messages with the LLM
