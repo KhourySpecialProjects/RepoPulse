@@ -7,6 +7,7 @@ import {
   useSendTestEmail,
   useUpdateNotificationSettings,
 } from '@/hooks/useNotifications'
+import { useCurrentUser } from '@/hooks/useUsers'
 import { NOTIFICATION_EVENTS } from '@/lib/notificationEvents'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -66,11 +67,20 @@ function errorMessage(error: unknown, fallback: string): string {
  */
 export function EmailRelayPanel() {
   const { data: settings, isLoading } = useNotificationSettings()
+  const { data: currentUser } = useCurrentUser()
   const update = useUpdateNotificationSettings()
   const testEmail = useSendTestEmail()
 
   const [draft, setDraft] = useState<RelayDraft>(EMPTY_DRAFT)
   const [dirty, setDirty] = useState(false)
+  // Where the test probe goes. Prefilled with the account address, but
+  // editable: dev accounts are seeded with @example.com, and Resend and most
+  // other providers reject that domain outright as a recipient.
+  const [testTo, setTestTo] = useState('')
+
+  useEffect(() => {
+    if (currentUser?.email) setTestTo((current) => current || currentUser.email)
+  }, [currentUser?.email])
 
   // Seed the form from the server once, and on later refetches only while the
   // user has no unsaved edits — otherwise a background refetch would discard
@@ -147,7 +157,7 @@ export function EmailRelayPanel() {
 
   async function handleTestEmail() {
     try {
-      const result = await testEmail.mutateAsync()
+      const result = await testEmail.mutateAsync(testTo.trim() || undefined)
       toast.success(`Test email sent to ${result.sent_to}`)
     } catch (error) {
       toast.error(errorMessage(error, 'The test email could not be sent'))
@@ -210,7 +220,24 @@ export function EmailRelayPanel() {
         </div>
       )}
 
-      <div className={cn('px-5 py-4', !enabled && 'opacity-60')}>
+      {/* Nothing here is configurable until the relay is switched on. A
+          `fieldset` rather than a `disabled` prop on each control: it disables
+          every input, select and button inside it natively, so a control added
+          later cannot be left reachable by accident. */}
+      <fieldset
+        disabled={!enabled}
+        data-testid="relay-config"
+        className={cn(
+          'min-w-0 border-0 px-5 py-4',
+          !enabled && 'opacity-60'
+        )}
+      >
+        {!enabled && (
+          <p className="mb-4 text-xs text-muted-foreground">
+            Turn on email notifications above to configure the relay.
+          </p>
+        )}
+
         {/* Transport picker */}
         <div className="mb-4">
           <span className={FIELD_LABEL_CLASS}>Transport</span>
@@ -227,7 +254,7 @@ export function EmailRelayPanel() {
                 aria-checked={draft.transport === option}
                 onClick={() => edit('transport', option)}
                 className={cn(
-                  'rounded px-3 py-1 text-sm transition-colors',
+                  'rounded px-3 py-1 text-sm transition-colors disabled:cursor-not-allowed',
                   draft.transport === option
                     ? 'bg-indigo-600 text-white'
                     : 'text-muted-foreground hover:text-foreground'
@@ -356,18 +383,45 @@ export function EmailRelayPanel() {
           >
             Save relay
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleTestEmail}
-            loading={testEmail.isPending}
-            disabled={testEmail.isPending}
-          >
-            <Send className="mr-1.5 h-3.5 w-3.5" />
-            Send test email
-          </Button>
           {dirty && (
             <span className="text-xs text-amber-600">Unsaved changes</span>
+          )}
+        </div>
+
+        {/* Test send. The recipient is explicit rather than implied, because a
+            failure here is almost always about the recipient domain and a
+            hidden address makes that impossible to work out. */}
+        <div className="mt-4 border-t border-border pt-4">
+          <label className="block">
+            <span className={FIELD_LABEL_CLASS}>Send a test email to</span>
+            <div className="flex items-center gap-2">
+              <Input
+                type="email"
+                value={testTo}
+                onChange={(e) => setTestTo(e.target.value)}
+                placeholder="you@university.edu"
+                className="h-9"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleTestEmail}
+                loading={testEmail.isPending}
+                disabled={testEmail.isPending || !testTo.trim()}
+                className="flex-shrink-0"
+              >
+                <Send className="mr-1.5 h-3.5 w-3.5" />
+                Send
+              </Button>
+            </div>
+          </label>
+          {draft.transport === 'resend' && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Resend will only deliver from a domain you have verified, and
+              rejects placeholder recipients like <code>@example.com</code>.
+              Use a real address, or Resend's{' '}
+              <code>delivered@resend.dev</code> test inbox.
+            </p>
           )}
         </div>
 
@@ -379,7 +433,7 @@ export function EmailRelayPanel() {
             to the browser. Leave a password blank to keep the saved one.
           </span>
         </p>
-      </div>
+      </fieldset>
 
       {/* Per-event subscriptions */}
       <div className="border-t border-border px-5 py-4">

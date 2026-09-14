@@ -21,6 +21,7 @@ from app.schemas.errors import ErrorResponse
 from app.schemas.notification_settings import (
     NotificationSettingsRead,
     NotificationSettingsUpdate,
+    TestEmailRequest,
     TestEmailResponse,
 )
 from app.schemas.notifications import (
@@ -250,23 +251,29 @@ async def update_notification_settings(
     },
 )
 async def send_notification_test_email(
+    body: TestEmailRequest | None = None,
     db: AsyncSession = Depends(get_db_session),
     current_user_id: str = Depends(get_current_user),
 ) -> TestEmailResponse:
-    """Send a probe to the signed-in user's own address.
+    """Send a probe through the user's relay.
 
-    The recipient is never client-supplied: an endpoint that emails an
-    arbitrary address through a user's relay is an open relay for spam.
+    Defaults to the signed-in user's own address, with an optional override —
+    see `TestEmailRequest` for why the override exists and why it is not an
+    open relay.
     """
     user_uuid = uuid.UUID(current_user_id)
     setting = await _settings_row(db, user_uuid)
     await db.commit()
 
     user = await db.get(User, user_uuid)
-    if user is None or not user.email:
+    recipient = (body.to if body else None) or (user.email if user else None)
+    if not recipient:
         raise AppError(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Your account has no email address to send to.",
+            detail=(
+                "Your account has no email address, so there is nobody to send "
+                "the test to. Enter an address to send it to instead."
+            ),
             error_code="no_recipient_address",
         )
 
@@ -288,7 +295,7 @@ async def send_notification_test_email(
         )
 
     try:
-        await send_test_email(setting, user.email)
+        await send_test_email(setting, recipient)
     except EmailDeliveryError as exc:
         raise AppError(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -296,7 +303,7 @@ async def send_notification_test_email(
             error_code="email_delivery_failed",
         )
 
-    return TestEmailResponse(detail="Test email sent.", sent_to=user.email)
+    return TestEmailResponse(detail="Test email sent.", sent_to=recipient)
 
 
 @router.get(

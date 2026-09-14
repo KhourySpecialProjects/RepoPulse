@@ -160,5 +160,5 @@ export function useUpdateNotificationSettings() {
 }
 
 export function useSendTestEmail() {
-  return useMutation({ mutationFn: sendTestEmail })
+  return useMutation({ mutationFn: (to?: string) => sendTestEmail(to) })
 }

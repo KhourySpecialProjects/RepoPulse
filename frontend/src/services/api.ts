@@ -381,11 +381,13 @@ export async function updateNotificationSettings(
   return res.data
 }
 
-export async function sendTestEmail(): Promise<TestEmailResponse> {
-  // The backend always sends to the signed-in user's own address, so there is
-  // deliberately no recipient parameter to pass.
+export async function sendTestEmail(to?: string): Promise<TestEmailResponse> {
+  // Omitting `to` sends to the signed-in user's own account address. The
+  // override exists because dev accounts are seeded with @example.com, which
+  // real providers refuse to deliver to.
   const res = await apiClient.post<TestEmailResponse>(
-    '/notifications/settings/test-email'
+    '/notifications/settings/test-email',
+    { to: to ?? null }
   )
   return res.data
 }

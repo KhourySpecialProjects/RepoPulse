@@ -32,7 +32,21 @@ vi.mock('@/services/api', () => ({
   purgeNote: vi.fn(),
   getUsers: () => Promise.resolve([]),
   createReminder: vi.fn(),
+  createNote: vi.fn(),
   deleteNote: vi.fn(),
+  // EmailRelayPanel prefills its test recipient from the signed-in account.
+  getCurrentUser: () =>
+    Promise.resolve({
+      id: 'user-1',
+      email: 'me@example.edu',
+      display_name: 'Prof Owner',
+      role: 'instructor',
+    }),
+  // Reminder rows prefetch their repo on hover.
+  getRepo: vi.fn().mockResolvedValue({ id: 'repo-1', name: 'team-4' }),
+  getRepoCommits: vi
+    .fn()
+    .mockResolvedValue({ items: [], total: 0, limit: 500, offset: 0 }),
 }))
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))

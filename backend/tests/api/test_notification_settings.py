@@ -272,6 +272,49 @@ async def test_test_email_sends_to_the_current_user(
     assert send.await_args.args[1] == "test@example.com"
 
 
+async def test_test_email_can_target_a_different_address(
+    test_client: AsyncClient, auth_headers: dict[str, str], relay: NotificationSetting
+) -> None:
+    """Seeded accounts use @example.com, which real providers refuse to deliver
+    to, so the test recipient has to be overridable or the button can never
+    succeed in development."""
+    with patch(
+        "app.api.routes.notifications.send_test_email", new=AsyncMock()
+    ) as send:
+        response = await test_client.post(
+            TEST_EMAIL_URL, json={"to": "real.person@northeastern.edu"}, headers=auth_headers
+        )
+
+    assert response.status_code == 200, response.text
+    assert send.await_args.args[1] == "real.person@northeastern.edu"
+    assert response.json()["sent_to"] == "real.person@northeastern.edu"
+
+
+async def test_test_email_rejects_a_malformed_recipient(
+    test_client: AsyncClient, auth_headers: dict[str, str], relay: NotificationSetting
+) -> None:
+    response = await test_client.post(
+        TEST_EMAIL_URL, json={"to": "not-an-address"}, headers=auth_headers
+    )
+
+    assert response.status_code == 422
+
+
+async def test_test_email_falls_back_to_the_account_address(
+    test_client: AsyncClient, auth_headers: dict[str, str], relay: NotificationSetting
+) -> None:
+    """An empty override is the same as not sending one."""
+    with patch(
+        "app.api.routes.notifications.send_test_email", new=AsyncMock()
+    ) as send:
+        response = await test_client.post(
+            TEST_EMAIL_URL, json={"to": ""}, headers=auth_headers
+        )
+
+    assert response.status_code == 200, response.text
+    assert send.await_args.args[1] == "test@example.com"
+
+
 async def test_test_email_400s_when_the_relay_is_not_configured(
     test_client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:

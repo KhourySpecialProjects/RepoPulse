@@ -93,6 +93,35 @@ class NotificationSettingsUpdate(BaseModel):
         return value
 
 
+class TestEmailRequest(BaseModel):
+    """Optional override for who the probe goes to.
+
+    Defaults to the signed-in user's account address. An override is needed
+    because development accounts are seeded with `@example.com` addresses,
+    which Resend and most real providers refuse to deliver to — without it the
+    test button can never succeed locally.
+
+    This is not an open relay: the send goes through the caller's *own* stored
+    credentials, which they could use directly anyway, and their provider
+    applies its own rate limits and domain verification on top.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    to: Optional[str] = Field(default=None, max_length=255)
+
+    @field_validator("to")
+    @classmethod
+    def _looks_like_an_address(cls, value: Optional[str]) -> Optional[str]:
+        # "" means "no override", same as omitting the field.
+        if value is None or value.strip() == "":
+            return None
+        candidate = value.strip()
+        if "@" not in candidate or candidate.startswith("@") or candidate.endswith("@"):
+            raise ValueError("to must be an email address")
+        return candidate
+
+
 class TestEmailResponse(BaseModel):
     detail: str
     sent_to: str

@@ -13,6 +13,14 @@ vi.mock('@/services/api', () => ({
   getNotificationSettings: (...args: unknown[]) => getNotificationSettings(...args),
   updateNotificationSettings: (...args: unknown[]) => updateNotificationSettings(...args),
   sendTestEmail: (...args: unknown[]) => sendTestEmail(...args),
+  // The panel prefills the test recipient from the signed-in account.
+  getCurrentUser: () =>
+    Promise.resolve({
+      id: 'user-1',
+      email: 'me@example.edu',
+      display_name: 'Prof Owner',
+      role: 'instructor',
+    }),
 }))
 
 const toastSuccess = vi.fn()
@@ -109,7 +117,52 @@ describe('EmailRelayPanel', () => {
     )
   })
 
+  it('locks every relay control until email is switched on', async () => {
+    renderPanel()
+    await screen.findByText('Email relay')
+
+    // The fieldset disables its whole subtree, so each control reports itself
+    // as disabled to the accessibility tree and to user-event.
+    expect(screen.getByPlaceholderText('repopulse@university.edu')).toBeDisabled()
+    expect(screen.getByPlaceholderText('smtp.gmail.com')).toBeDisabled()
+    expect(screen.getByLabelText('Encryption')).toBeDisabled()
+    expect(screen.getByRole('radio', { name: 'SMTP' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Save relay' })).toBeDisabled()
+    expect(screen.getByLabelText('Send a test email to')).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Send/ })).toBeDisabled()
+    expect(screen.getByLabelText('Mentions')).toBeDisabled()
+
+    // ...and the master switch itself stays usable, or there would be no way out.
+    expect(
+      screen.getByRole('switch', { name: 'Enable email notifications' })
+    ).toBeEnabled()
+  })
+
+  it('ignores typing into a locked relay field', async () => {
+    renderPanel()
+    await screen.findByText('Email relay')
+    const from = screen.getByPlaceholderText(
+      'repopulse@university.edu'
+    ) as HTMLInputElement
+
+    await userEvent.type(from, 'nope@example.edu')
+
+    expect(from.value).toBe('')
+    expect(updateNotificationSettings).not.toHaveBeenCalled()
+  })
+
+  it('unlocks the relay controls once email is on', async () => {
+    getNotificationSettings.mockResolvedValue(settings({ email_enabled: true }))
+    renderPanel()
+    await screen.findByText('Email relay')
+
+    expect(screen.getByPlaceholderText('repopulse@university.edu')).toBeEnabled()
+    expect(screen.getByLabelText('Send a test email to')).toBeEnabled()
+    expect(screen.getByLabelText('Mentions')).toBeEnabled()
+  })
+
   it('saves SMTP relay fields only when Save is pressed', async () => {
+    getNotificationSettings.mockResolvedValue(settings({ email_enabled: true }))
     renderPanel()
     await screen.findByText('Email relay')
 
@@ -158,6 +211,7 @@ describe('EmailRelayPanel', () => {
   })
 
   it('swaps to the Resend API key field when Resend is chosen', async () => {
+    getNotificationSettings.mockResolvedValue(settings({ email_enabled: true }))
     renderPanel()
     await screen.findByText('Email relay')
 
@@ -187,25 +241,74 @@ describe('EmailRelayPanel', () => {
     expect(screen.queryByTestId('relay-incomplete-warning')).not.toBeInTheDocument()
   })
 
-  it('reports where a test email was sent', async () => {
+  it('prefills the test recipient with the account address', async () => {
+    getNotificationSettings.mockResolvedValue(settings({ email_enabled: true }))
     renderPanel()
     await screen.findByText('Email relay')
 
-    await userEvent.click(screen.getByRole('button', { name: /Send test email/ }))
+    await waitFor(() =>
+      expect(screen.getByLabelText('Send a test email to')).toHaveValue(
+        'me@example.edu'
+      )
+    )
+  })
+
+  it('reports where a test email was sent', async () => {
+    getNotificationSettings.mockResolvedValue(
+      settings({ email_enabled: true, deliverable: true })
+    )
+    renderPanel()
+    await screen.findByText('Email relay')
+
+    await userEvent.click(screen.getByRole('button', { name: /Send/ }))
 
     await waitFor(() =>
       expect(toastSuccess).toHaveBeenCalledWith('Test email sent to me@example.edu')
     )
   })
 
-  it('surfaces the backend reason when a test email fails', async () => {
-    sendTestEmail.mockRejectedValue({
-      response: { data: { detail: 'SMTP delivery failed: auth failed' } },
+  it('sends the test to an overridden recipient', async () => {
+    getNotificationSettings.mockResolvedValue(
+      settings({ email_enabled: true, deliverable: true })
+    )
+    sendTestEmail.mockResolvedValue({
+      detail: 'Test email sent.',
+      sent_to: 'real@northeastern.edu',
     })
     renderPanel()
     await screen.findByText('Email relay')
 
-    await userEvent.click(screen.getByRole('button', { name: /Send test email/ }))
+    const to = screen.getByLabelText('Send a test email to')
+    await userEvent.clear(to)
+    await userEvent.type(to, 'real@northeastern.edu')
+    await userEvent.click(screen.getByRole('button', { name: /Send/ }))
+
+    await waitFor(() =>
+      expect(sendTestEmail).toHaveBeenCalledWith('real@northeastern.edu')
+    )
+  })
+
+  it('warns about Resend recipient and domain rules', async () => {
+    getNotificationSettings.mockResolvedValue(
+      settings({ email_enabled: true, transport: 'resend' })
+    )
+    renderPanel()
+    await screen.findByText('Email relay')
+
+    expect(screen.getByText(/delivered@resend.dev/)).toBeInTheDocument()
+  })
+
+  it('surfaces the backend reason when a test email fails', async () => {
+    sendTestEmail.mockRejectedValue({
+      response: { data: { detail: 'SMTP delivery failed: auth failed' } },
+    })
+    getNotificationSettings.mockResolvedValue(
+      settings({ email_enabled: true, deliverable: true })
+    )
+    renderPanel()
+    await screen.findByText('Email relay')
+
+    await userEvent.click(screen.getByRole('button', { name: /Send/ }))
 
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith('SMTP delivery failed: auth failed')
