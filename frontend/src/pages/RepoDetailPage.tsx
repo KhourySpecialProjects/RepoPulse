@@ -2,6 +2,7 @@ import { ContextualActivityChart } from '@/components/ContextualActivityChart'
 import { useState, useEffect, useMemo, Fragment } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { TrickleProgress } from '@/components/ui/trickle-progress'
 import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, useUnmergeContributor, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests, useClassifyCommits, ALL_COMMITS_PARAMS } from '@/hooks/useRepos'
@@ -147,6 +148,18 @@ function GenerateSummaryButton({
   )
 }
 
+
+/** Loading state for the Commits card — same spinner, label, and trickling bar
+ *  the activity graph uses, so the two sections load alike. */
+function CommitsLoading() {
+  return (
+    <div role="status" aria-label="Loading commits" className="flex flex-col items-center justify-center gap-3 py-10">
+      <div aria-hidden="true" className="h-8 w-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin motion-reduce:animate-none" />
+      <p className="text-sm text-muted-foreground">Loading commits…</p>
+      <TrickleProgress label="Commits loading progress" />
+    </div>
+  )
+}
 
 function ContributorGenerateButton({ contributorId, repoId }: { contributorId: string; repoId: string }) {
   const generateMutation = useGenerateSummary()
@@ -1175,7 +1188,12 @@ export function RepoDetailPage() {
                   </Button>
                 </CardHeader>
                 <CardContent>
-              {!allCommitsData?.items.length ? (
+              {/* Checked before the empty case: while the query is in flight
+                  allCommitsData is undefined, which used to render "No commits
+                  found." at every page load. */}
+              {allCommitsLoading ? (
+                <CommitsLoading />
+              ) : !allCommitsData?.items.length ? (
                 <p className="text-muted-foreground text-sm">No commits found.</p>
               ) : (
                 <div className="flex flex-col gap-2">
