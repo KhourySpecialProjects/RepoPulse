@@ -264,13 +264,11 @@ export function RepoDetailPage() {
   const [activeCommitHash, setActiveCommitHash] = useState<string | null>(null)
   const [highlightedCommitHash, setHighlightedCommitHash] = useState<string | null>(null)
   const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
-  const [selectedAuthors, setSelectedAuthors] = useState<Set<string>>(new Set())
   const [selectedTypes, setSelectedTypes] = useState<Set<CommitTypeFilter>>(new Set())
   // Set when the backend answers `status: 'preview'` — holds the counts the
   // confirmation dialog quotes back to the user.
   const [classifyPreview, setClassifyPreview] = useState<ClassifyCommitsResponse | null>(null)
   const [showAllBranches, setShowAllBranches] = useState(false)
-  const [showAllAuthors, setShowAllAuthors] = useState(false)
   const [selectedContributorIds, setSelectedContributorIds] = useState<Set<string>>(new Set())
   const [editingContributorId, setEditingContributorId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
@@ -295,7 +293,8 @@ export function RepoDetailPage() {
   const [COMMITS_PER_PAGE, setCommitsPerPage] = useState(10)
   const [commitPageSizeOption, setCommitPageSizeOption] = useState('10')
   const [customCommitPageSize, setCustomCommitPageSize] = useState('20')
-  const MAX_FILTER_CHIPS = 8
+  // Branch chips collapse behind a "+N more" toggle past this many.
+  const MAX_BRANCH_CHIPS = 5
 
   const [summaryExpanded, setSummaryExpanded] = useState(true)
   const [summaryHistoryOpen, setSummaryHistoryOpen] = useState(false)
@@ -469,26 +468,11 @@ export function RepoDetailPage() {
     return Array.from(names).sort()
   }, [allCommitsData])
 
-  const allAuthors = useMemo(() => {
-    const names = new Set<string>()
-    allCommitsData?.items.forEach(c => names.add(resolvedAuthor(c)))
-    return Array.from(names).sort()
-  }, [allCommitsData, emailToDisplayName])
-
   function toggleBranch(branch: string) {
     setSelectedBranches(prev => {
       const next = new Set(prev)
       if (next.has(branch)) next.delete(branch)
       else next.add(branch)
-      return next
-    })
-  }
-
-  function toggleAuthor(author: string) {
-    setSelectedAuthors(prev => {
-      const next = new Set(prev)
-      if (next.has(author)) next.delete(author)
-      else next.add(author)
       return next
     })
   }
@@ -507,19 +491,16 @@ export function RepoDetailPage() {
       (contributors != null && contributors.length > 0 && contributors.every(contributor => selectedContributorIds.has(contributor.id)))
     return (allCommitsData?.items ?? []).filter(c => {
       const branchMatch = selectedBranches.size === 0 || c.branches.some(b => selectedBranches.has(b))
-      // Contributor checkboxes (left menu) and the Author chip row are
-      // independent filters: the first resolves aliases to a contributor, the
-      // second matches the commit's resolved display name.
+      // The contributor checkboxes (left menu) resolve aliases to a contributor.
       const contributorId = emailToContributorId[c.author_email.toLowerCase()]
       const contributorMatch = allContributorsSelected || selectedContributorIds.has(contributorId)
-      const authorMatch = selectedAuthors.size === 0 || selectedAuthors.has(resolvedAuthor(c))
       // A null commit_type is its own bucket rather than a missing value, so
       // "show me what still needs classifying" is expressible.
       const typeMatch =
         selectedTypes.size === 0 || selectedTypes.has(c.commit_type ?? 'unclassified')
-      return branchMatch && contributorMatch && authorMatch && typeMatch
+      return branchMatch && contributorMatch && typeMatch
     })
-  }, [allCommitsData, selectedBranches, selectedContributorIds, contributors, emailToContributorId, selectedAuthors, selectedTypes, emailToDisplayName])
+  }, [allCommitsData, selectedBranches, selectedContributorIds, contributors, emailToContributorId, selectedTypes])
 
   const displayedCommits = filteredCommits.slice(
     commitPage * COMMITS_PER_PAGE,
@@ -633,7 +614,7 @@ export function RepoDetailPage() {
   // Reset to page 0 when filters change
   useEffect(() => {
     setCommitPage(0)
-  }, [selectedBranches, selectedContributorIds, selectedAuthors, selectedTypes])
+  }, [selectedBranches, selectedContributorIds, selectedTypes])
 
   useEffect(() => {
     if (repo?.expected_contributor_count != null) {
@@ -908,56 +889,62 @@ export function RepoDetailPage() {
                 Overview
               </h2>
 
-        <div className="flex gap-8 items-start">
+        {/* AI Summary — spans the full width above the two columns */}
+        <motion.div variants={sectionVariants} initial="hidden" animate="visible">
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <button
+                  className="flex items-center gap-1.5 text-base font-semibold hover:text-indigo-600 transition-colors"
+                  onClick={() => latestSummary && setSummaryExpanded(v => !v)}
+                >
+                  AI Summary
+                  {latestSummary && (summaryExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />)}
+                </button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleGenerateSummary}
+                  loading={generateSummaryMutation.isPending} disabled={generateSummaryMutation.isPending}
+                >
+                  <Sparkles className={cn('h-4 w-4 mr-1.5', generateSummaryMutation.isPending && 'animate-pulse')} />
+                  {generateSummaryMutation.isPending ? 'Generating...' : 'Generate Summary'}
+                </Button>
+              </div>
+            </CardHeader>
+            {summaryExpanded && (
+            <CardContent>
+              {(generateSummaryMutation.isPending || summariesLoading) && (
+                <LoadingContent label={generateSummaryMutation.isPending ? 'Generating your summary… This may take a minute.' : 'Loading summary…'} />
+              )}
+              {latestSummary ? (
+                <div>
+                  <MarkdownContent content={latestSummary.content} />
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Generated {formatDateTime(latestSummary.generated_at)} · {latestSummary.model_used}
+                  </p>
+                </div>
+              ) : !generateSummaryMutation.isPending && !summariesLoading ? (
+                <p className="text-sm text-muted-foreground">
+                  No summary generated yet. Click "Generate Summary" to create one.
+                </p>
+              ) : null}
+            </CardContent>
+            )}
+          </Card>
+        </motion.div>
 
-          {/* Left column — main content */}
-          <div className="flex-1 min-w-0 flex flex-col gap-6">
+        {/* Two columns: sidebar (PRs + contributors) renders to the left of the
+            main content via grid placement, so the DOM keeps main content first
+            for screen readers and tab order. */}
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[20rem_minmax(0,1fr)] xl:grid-cols-[24rem_minmax(0,1fr)]">
 
-            {/* Overview section */}
+          {/* Main content column — commit activity + commits */}
+          <div className="min-w-0 flex flex-col gap-6 lg:col-start-2 lg:row-start-1">
+
+            {/* Commit activity section */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible">
               <div className="flex flex-col gap-5">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <button
-                        className="flex items-center gap-1.5 text-base font-semibold hover:text-indigo-600 transition-colors"
-                        onClick={() => latestSummary && setSummaryExpanded(v => !v)}
-                      >
-                        AI Summary
-                        {latestSummary && (summaryExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />)}
-                      </button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleGenerateSummary}
-                        loading={generateSummaryMutation.isPending} disabled={generateSummaryMutation.isPending}
-                      >
-                        <Sparkles className={cn('h-4 w-4 mr-1.5', generateSummaryMutation.isPending && 'animate-pulse')} />
-                        {generateSummaryMutation.isPending ? 'Generating...' : 'Generate Summary'}
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  {summaryExpanded && (
-                  <CardContent>
-                    {(generateSummaryMutation.isPending || summariesLoading) && (
-                      <LoadingContent label={generateSummaryMutation.isPending ? 'Generating your summary… This may take a minute.' : 'Loading summary…'} />
-                    )}
-                    {latestSummary ? (
-                      <div>
-                        <MarkdownContent content={latestSummary.content} />
-                        <p className="text-xs text-muted-foreground mt-3">
-                          Generated {formatDateTime(latestSummary.generated_at)} · {latestSummary.model_used}
-                        </p>
-                      </div>
-                    ) : !generateSummaryMutation.isPending && !summariesLoading ? (
-                      <p className="text-sm text-muted-foreground">
-                        No summary generated yet. Click "Generate Summary" to create one.
-                      </p>
-                    ) : null}
-                  </CardContent>
-                  )}
-                </Card>
-
                 <ContextualActivityChart key={id} collectionId={repo.collection_id} repoId={repo.id}
                   selectedContributorIds={Array.from(selectedContributorIds)}
                   actions={<>
@@ -1059,7 +1046,7 @@ export function RepoDetailPage() {
                         >
                           All
                         </button>
-                        {(showAllBranches ? allBranches : allBranches.slice(0, MAX_FILTER_CHIPS)).map(b => (
+                        {(showAllBranches ? allBranches : allBranches.slice(0, MAX_BRANCH_CHIPS)).map(b => (
                           <button
                             key={b}
                             onClick={() => toggleBranch(b)}
@@ -1073,57 +1060,19 @@ export function RepoDetailPage() {
                             {b}
                           </button>
                         ))}
-                        {allBranches.length > MAX_FILTER_CHIPS && (
+                        {allBranches.length > MAX_BRANCH_CHIPS && (
                           <button
                             onClick={() => setShowAllBranches(v => !v)}
                             className="text-xs px-1.5 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
                           >
-                            {showAllBranches ? 'Show less' : `+${allBranches.length - MAX_FILTER_CHIPS} more`}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {allAuthors.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground mr-1">Author:</span>
-                        <button
-                          onClick={() => setSelectedAuthors(new Set())}
-                          className={cn(
-                            'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                            selectedAuthors.size === 0
-                              ? 'bg-violet-600 text-white border-violet-600'
-                              : 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
-                          )}
-                        >
-                          All
-                        </button>
-                        {(showAllAuthors ? allAuthors : allAuthors.slice(0, MAX_FILTER_CHIPS)).map(a => (
-                          <button
-                            key={a}
-                            onClick={() => toggleAuthor(a)}
-                            className={cn(
-                              'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                              selectedAuthors.has(a)
-                                ? 'bg-violet-600 text-white border-violet-600'
-                                : 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
-                            )}
-                          >
-                            {a}
-                          </button>
-                        ))}
-                        {allAuthors.length > MAX_FILTER_CHIPS && (
-                          <button
-                            onClick={() => setShowAllAuthors(v => !v)}
-                            className="text-xs px-1.5 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
-                          >
-                            {showAllAuthors ? 'Show less' : `+${allAuthors.length - MAX_FILTER_CHIPS} more`}
+                            {showAllBranches ? 'Show less' : `+${allBranches.length - MAX_BRANCH_CHIPS} more`}
                           </button>
                         )}
                       </div>
                     )}
                     {/* role/aria-label so tests and screen readers can tell this
-                        row apart — "All" appears in the Branch and Author rows
-                        and the chart range selector too. */}
+                        row apart — "All" appears in the Branch row and the
+                        chart range selector too. */}
                     <div
                       role="group"
                       aria-label="Filter by commit type"
@@ -1358,8 +1307,10 @@ export function RepoDetailPage() {
 
           </div>
 
-          {/* Right column — Pull Requests + Contributors */}
-          <div className="w-80 xl:w-96 flex-shrink-0 self-stretch flex flex-col gap-6">
+          {/* Sidebar column — Pull Requests + Contributors. self-stretch keeps
+              this column as tall as the main content so the sticky Contributors
+              panel has room to travel as you scroll. */}
+          <div className="min-w-0 self-stretch flex flex-col gap-6 lg:col-start-1 lg:row-start-1">
 
             {/* Pull Requests panel */}
             <div className="shrink-0 bg-gray-50 rounded-xl border border-border p-4">
@@ -1637,9 +1588,9 @@ export function RepoDetailPage() {
               )}
             </div>
 
-          </div>{/* end right column */}
+          </div>{/* end sidebar column */}
 
-        </div>{/* end inner two-column flex */}
+        </div>{/* end inner two-column grid */}
         </div>{/* end main sections column */}
 
         <NotesDrawer
