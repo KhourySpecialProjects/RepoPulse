@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -12,6 +12,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 logger = logging.getLogger(__name__)
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.deps import get_current_user, get_db_session
@@ -57,10 +58,66 @@ def _derive_repo_name(github_url: str) -> str:
     return name or "unknown"
 
 
+#: A sync that has been "running" this long is treated as dead. Nothing clears
+#: the flag if the worker is killed mid-clone, and a spinner that outlives the
+#: process is worse than an under-reported one — the repo reads as idle again
+#: and can be re-synced.
+SYNC_STALE_AFTER_SECONDS = 15 * 60
+
+
+def _reported_sync_status(repo: Repo) -> str:
+    if repo.sync_status != "syncing" or repo.sync_started_at is None:
+        return repo.sync_status
+    started = repo.sync_started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    if (datetime.now(timezone.utc) - started).total_seconds() > SYNC_STALE_AFTER_SECONDS:
+        return "idle"
+    return "syncing"
+
+
+async def _finish_sync(db: AsyncSession, repo: Repo, *, error: str | None) -> None:
+    """Close out a sync, successfully or not.
+
+    Always runs, including on the failure path, so a repo cannot be left
+    pinned to 'syncing' by an exception.
+    """
+    repo.sync_status = "failed" if error else "idle"
+    repo.sync_error = error[:500] if error else None
+
+
+async def _load_repo_for_read(db: AsyncSession, repo_id: uuid.UUID) -> Repo | None:
+    """Fetch a repo with everything `_repo_to_read` touches already loaded.
+
+    `db.get` hands back an identity-mapped instance untouched, so the mapper's
+    `lazy="selectin"` never fires and reading `repo.contributors` attempts IO
+    from sync serialisation code — a MissingGreenlet. It only ever worked here
+    because the access check happened to pull the rows in first on some paths.
+    """
+    result = await db.execute(
+        select(Repo)
+        .options(
+            selectinload(Repo.contributors),
+            selectinload(Repo.sync_started_by),
+        )
+        .where(Repo.id == repo_id)
+    )
+    return result.scalar_one_or_none()
+
+
 def _repo_to_read(repo: Repo, contributor_count: int | None = None, active_reminder_count: int = 0) -> RepoRead:
     if contributor_count is None:
         contributor_count = len(repo.contributors)
+    reported = _reported_sync_status(repo)
     return RepoRead(
+        sync_status=reported,
+        sync_started_at=repo.sync_started_at if reported == "syncing" else None,
+        sync_started_by_name=(
+            repo.sync_started_by.display_name
+            if reported == "syncing" and repo.sync_started_by is not None
+            else None
+        ),
+        sync_error=repo.sync_error if reported == "failed" else None,
         id=repo.id,
         collection_id=repo.collection_id,
         github_url=repo.github_url,
@@ -205,11 +262,20 @@ async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: s
                 previous_status=previous_status,
                 new_status=health["status"],
             )
+            await _finish_sync(db, repo, error=None)
             await db.commit()
             await deliver_emails(db, raised)
             logger.info("Indexed %s: %d commits, status=%s", repo.name, len(commits), health["status"])
         except Exception as exc:
             logger.exception("Failed to index repo %s (%s): %s", repo.name, repo.github_url, exc)
+            # The session may be poisoned by whatever went wrong, so roll back
+            # before recording the failure — otherwise the repo stays pinned to
+            # 'syncing' and the dashboard spins for everyone until it goes stale.
+            await db.rollback()
+            failed = await db.get(Repo, repo_id)
+            if failed is not None:
+                await _finish_sync(db, failed, error=str(exc))
+                await db.commit()
 
 
 async def _clone_and_index(repo_id: uuid.UUID, token: str | None = None) -> None:
@@ -366,7 +432,7 @@ async def get_repo(
     current_user_id: str = Depends(get_current_user),
 ) -> RepoRead:
     user_uuid = uuid.UUID(current_user_id)
-    repo = await db.get(Repo, repo_id)
+    repo = await _load_repo_for_read(db, repo_id)
     if repo is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -525,6 +591,17 @@ async def sync_repo(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="GitHub token not configured. Add a token in your profile to enable syncing.",
         )
+    # Marked before the task is queued, so the state is already visible to
+    # every other viewer by the time this 202 comes back.
+    repo.sync_status = "syncing"
+    repo.sync_started_at = datetime.now(timezone.utc)
+    # The relationship, not the bare FK: assigning the id alone leaves a
+    # already-loaded `sync_started_by` pointing at the old value, so the very
+    # next read reports nobody started it.
+    repo.sync_started_by = user_record
+    repo.sync_error = None
+    await db.commit()
+
     background_tasks.add_task(_fetch_and_recompute, repo_id, user_record.github_token)
     return {"detail": "Sync started", "repo_id": str(repo_id)}
 
