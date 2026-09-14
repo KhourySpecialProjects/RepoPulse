@@ -5,7 +5,7 @@ import { motion } from 'framer-motion'
 import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, useUnmergeContributor, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests, useClassifyCommits, ALL_COMMITS_PARAMS } from '@/hooks/useRepos'
-import { useRepoSummaries, useContributorSummaries, useGenerateSummary } from '@/hooks/useSummaries'
+import { useRepoSummaries, useContributorSummaries, useGenerateSummary, summaryKeys } from '@/hooks/useSummaries'
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '@/hooks/useNotes'
 import { useUsers, useCurrentUser } from '@/hooks/useUsers'
 import { useAuth } from '@/hooks/useAuth'
@@ -13,6 +13,9 @@ import { HealthBadge } from '@/components/HealthBadge'
 import { CommitScorePill } from '@/components/CommitScorePill'
 import { CommitNotesPanel } from '@/components/CommitNotesPanel'
 import { MarkdownContent } from '@/components/MarkdownContent'
+import { TypedMarkdown } from '@/components/TypedMarkdown'
+import { ThinkingLabel } from '@/components/ThinkingLabel'
+import { SummaryLiquidBackground } from '@/components/SummaryLiquidBackground'
 import { NotesDrawer } from '@/components/NotesDrawer'
 import { Button } from '@/components/ui/button'
 import { LoadingContent } from '@/components/ui/loading-content'
@@ -89,6 +92,58 @@ function formatDateTime(dateStr: string): string {
     month: 'short', day: 'numeric', year: 'numeric',
     hour: 'numeric', minute: '2-digit',
   })
+}
+
+
+/** Reserve label space so the typing animation never shifts the controls. */
+function GenerateSummaryButton({
+  onClick,
+  isPending,
+}: {
+  onClick: () => void
+  isPending: boolean
+}) {
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={onClick}
+      loading={isPending}
+      disabled={isPending}
+      className="group relative"
+      aria-label={isPending ? 'Generating summary' : 'Generate Summary'}
+    >
+      <motion.span
+        aria-hidden
+        className="mr-1.5 inline-flex"
+        animate={
+          isPending
+            ? { rotate: [0, 180, 360], scale: [1, 1.18, 1] }
+            : { rotate: 0, scale: 1 }
+        }
+        transition={
+          isPending
+            ? { duration: 1.4, repeat: Infinity, ease: 'easeInOut' }
+            : { type: 'spring', stiffness: 300, damping: 18 }
+        }
+        whileHover={isPending ? undefined : { rotate: -12, scale: 1.15 }}
+      >
+        <Sparkles
+          className={cn(
+            'h-4 w-4 transition-colors',
+            isPending ? 'text-violet-600' : 'group-hover:text-violet-600'
+          )}
+        />
+      </motion.span>
+
+      <span className="inline-grid text-left">
+        <span aria-hidden="true" className="invisible col-start-1 row-start-1 pr-1">Generate Summary</span>
+        <span className="col-start-1 row-start-1 inline-flex items-center">
+          {isPending ? <ThinkingLabel /> : 'Generate Summary'}
+        </span>
+      </span>
+    </Button>
+  )
 }
 
 
@@ -335,6 +390,9 @@ export function RepoDetailPage() {
   const MAX_BRANCH_CHIPS = 5
 
   const [summaryExpanded, setSummaryExpanded] = useState(true)
+  // Set to the id of a just-generated summary so only that one types itself in;
+  // summaries loaded from history render instantly.
+  const [typingSummaryId, setTypingSummaryId] = useState<string | null>(null)
   const [summaryHistoryOpen, setSummaryHistoryOpen] = useState(false)
   const [showArchivedNotes, setShowArchivedNotes] = useState(false)
   const [notesPinned, setNotesPinned] = useState(false)
@@ -623,10 +681,25 @@ export function RepoDetailPage() {
   }
 
   async function handleGenerateSummary() {
-    await generateSummaryMutation.mutateAsync({
-      repo_id: id ?? null,
-      summary_type: 'repo_overview',
-    })
+    setSummaryExpanded(true)
+    setTypingSummaryId(null)
+    try {
+      await generateSummaryMutation.mutateAsync({
+        repo_id: id ?? null,
+        summary_type: 'repo_overview',
+      }, {
+        onSuccess: created => {
+          // Publish the new summary before pending ends, so the previous text
+          // cannot flash back while the history request is still refreshing.
+          queryClient.setQueryData<Summary[]>(summaryKeys.repoSummaries(id ?? ''), current =>
+            [created, ...(current ?? []).filter(summary => summary.id !== created.id)]
+          )
+          setTypingSummaryId(created.id)
+        },
+      })
+    } catch {
+      toast.error('Could not generate the summary. Please try again.')
+    }
   }
 
   function handleRemove() {
@@ -999,8 +1072,9 @@ export function RepoDetailPage() {
 
         {/* AI Summary — spans the full width above the two columns */}
         <motion.div variants={sectionVariants} initial="hidden" animate="visible">
-          <Card>
-            <CardHeader className="pb-2">
+          <Card className="relative overflow-hidden">
+            <SummaryLiquidBackground generating={generateSummaryMutation.isPending} />
+            <CardHeader className="relative z-10 pb-2">
               <div className="flex items-center justify-between">
                 <button
                   className="flex items-center gap-1.5 text-base font-semibold hover:text-indigo-600 transition-colors"
@@ -1009,25 +1083,26 @@ export function RepoDetailPage() {
                   AI Summary
                   {latestSummary && (summaryExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />)}
                 </button>
-                <Button
-                  size="sm"
-                  variant="outline"
+                <GenerateSummaryButton
                   onClick={handleGenerateSummary}
-                  loading={generateSummaryMutation.isPending} disabled={generateSummaryMutation.isPending}
-                >
-                  <Sparkles className={cn('h-4 w-4 mr-1.5', generateSummaryMutation.isPending && 'animate-pulse')} />
-                  {generateSummaryMutation.isPending ? 'Generating...' : 'Generate Summary'}
-                </Button>
+                  isPending={generateSummaryMutation.isPending}
+                />
               </div>
             </CardHeader>
             {summaryExpanded && (
-            <CardContent>
+            <CardContent className="relative z-10">
               {(generateSummaryMutation.isPending || summariesLoading) && (
-                <LoadingContent label={generateSummaryMutation.isPending ? 'Generating your summary… This may take a minute.' : 'Loading summary…'} />
+                <LoadingContent label={summariesLoading ? 'Loading summary…' : ''} />
               )}
-              {latestSummary ? (
+              {/* Hidden while pending so the previous summary cannot sit under
+                  the thinking state, then revealed by the typing animation. */}
+              {!generateSummaryMutation.isPending && latestSummary ? (
                 <div>
-                  <MarkdownContent content={latestSummary.content} />
+                  <TypedMarkdown
+                    content={latestSummary.content}
+                    animate={latestSummary.id === typingSummaryId}
+                    onDone={() => setTypingSummaryId(null)}
+                  />
                   <p className="text-xs text-muted-foreground mt-3">
                     Generated {formatDateTime(latestSummary.generated_at)} · {latestSummary.model_used}
                   </p>
