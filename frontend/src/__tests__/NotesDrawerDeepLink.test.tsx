@@ -1,27 +1,15 @@
 /**
- * Arriving from a notification has to open the drawer on the right note.
+ * Arriving from a notification has to point at the right note.
  *
- * The notes drawer starts closed, so a deep link that only navigated to the
- * repo left the note it was about behind a shut panel. `highlightNoteId` is
- * the one signal that opens it and marks the note, so the reader sees what
- * they were notified about instead of a closed drawer.
+ * The panel is always on the page now, so the job is no longer opening it —
+ * it is singling out one note among however many the repo has.
+ * `highlightNoteId` marks that note and scrolls to it, so a reader who clicked
+ * a mention is not left scanning a list for the one they were told about.
  */
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { NotesDrawer } from '@/components/NotesDrawer'
 import type { Note, UserDetail } from '@/types'
-
-vi.mock('framer-motion', () => ({
-  motion: {
-    div: ({
-      children,
-      ...props
-    }: React.HTMLAttributes<HTMLDivElement> & { children?: React.ReactNode }) => (
-      <div {...props}>{children}</div>
-    ),
-  },
-  AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}))
 
 vi.mock('@/components/NoteForm', () => ({
   NoteForm: () => <form data-testid="note-form" />,
@@ -70,7 +58,6 @@ const users: UserDetail[] = [
 function renderDrawer(highlightNoteId: string | null) {
   return render(
     <NotesDrawer
-      repoId="repo-abc"
       notes={notes}
       noteCount={notes.length}
       showArchivedNotes={false}
@@ -87,14 +74,15 @@ function renderDrawer(highlightNoteId: string | null) {
 }
 
 describe('NotesDrawer deep link', () => {
-  it('stays shut when nothing is being pointed at', () => {
+  it('singles out nothing when no note is being pointed at', () => {
     renderDrawer(null)
-    expect(screen.queryByText('the mentioned one')).not.toBeInTheDocument()
-  })
 
-  it('opens itself when a note is deep-linked', () => {
-    renderDrawer('note-2')
+    // Both notes are on the page regardless — the panel is always open now.
     expect(screen.getByText('the mentioned one')).toBeInTheDocument()
+    expect(document.getElementById('note-note-2')).not.toHaveAttribute(
+      'data-highlighted',
+      'true'
+    )
   })
 
   it('marks the linked note so it is findable among the others', () => {
