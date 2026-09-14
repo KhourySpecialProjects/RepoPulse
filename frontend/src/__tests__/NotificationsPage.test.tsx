@@ -242,20 +242,20 @@ describe('NotificationsPage — notification list', () => {
     expect(await screen.findByText('No notifications')).toBeInTheDocument()
   })
 
-  it('flies a nyan cat across the empty state', async () => {
+  it('puts the mascot on the empty state', async () => {
     setup({ items: [] })
     renderPage()
 
-    expect(await screen.findByTestId('nyan-cat')).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: /nyan cat/i })).toBeInTheDocument()
+    expect(await screen.findByTestId('empty-inbox-mascot')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /snowman/i })).toBeInTheDocument()
   })
 
-  it('hides the nyan cat once notifications arrive', async () => {
+  it('hides the mascot once notifications arrive', async () => {
     setup({ items: [mention] })
     renderPage()
 
     await screen.findByText('You were mentioned')
-    expect(screen.queryByTestId('nyan-cat')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('empty-inbox-mascot')).not.toBeInTheDocument()
   })
 
   it('marks a notification read and opens the note it was about', async () => {

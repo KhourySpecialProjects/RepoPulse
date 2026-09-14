@@ -308,7 +308,6 @@ export function RepoDetailPage() {
   const [summaryExpanded, setSummaryExpanded] = useState(true)
   const [summaryHistoryOpen, setSummaryHistoryOpen] = useState(false)
   const [showArchivedNotes, setShowArchivedNotes] = useState(false)
-  const [notesPinned, setNotesPinned] = useState(false)
 
   const [checkIns, setCheckIns] = useState<string[]>(() => {
     if (!id) return []
@@ -968,11 +967,11 @@ export function RepoDetailPage() {
         </div>
       </div>
 
-      {/* Body — flex-row when notes are pinned, flex-col otherwise */}
-      <div className={cn(PAGE_BODY_CLASS, 'flex gap-6', notesPinned ? 'flex-row items-start' : 'flex-col')}>
+      {/* Body — content beside the notes column, which is always present */}
+      <div className={cn(PAGE_BODY_CLASS, 'flex flex-row items-start gap-6')}>
 
         {/* Main sections column */}
-        <div className={cn('flex flex-col gap-3', notesPinned ? 'flex-1 min-w-0' : 'w-full')}>
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <BarChart2 className="h-4 w-4 text-muted-foreground" />
                 Overview
@@ -1685,7 +1684,6 @@ export function RepoDetailPage() {
         </div>{/* end main sections column */}
 
         <NotesDrawer
-          repoId={id ?? ''}
           notes={notes}
           noteCount={noteCount}
           showArchivedNotes={showArchivedNotes}
@@ -1696,7 +1694,6 @@ export function RepoDetailPage() {
           users={users}
           currentUser={currentUser}
           onScrollToCommit={handleScrollToCommit}
-          onPinnedChange={setNotesPinned}
           highlightNoteId={highlightedNoteId}
         />
 

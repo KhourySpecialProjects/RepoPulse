@@ -32,7 +32,7 @@ import {
 } from '@/hooks/useNotifications'
 import { ActiveRemindersPanel, ICON_BUTTON_CLASS } from '@/components/ActiveRemindersPanel'
 import { EmailRelayPanel } from '@/components/EmailRelayPanel'
-import { NyanCat } from '@/components/NyanCat'
+import { EmptyInboxMascot } from '@/components/EmptyInboxMascot'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { feedTitleFor } from '@/lib/notificationEvents'
@@ -254,7 +254,7 @@ export function NotificationsPage() {
               data-testid="notifications-empty"
               className="px-5 py-16 text-center text-muted-foreground"
             >
-              <NyanCat className="mx-auto mb-3" />
+              <EmptyInboxMascot className="mx-auto mb-3" />
               <p className="text-sm font-medium">No notifications</p>
               <p className="mt-1 text-sm">
                 Mentions, replies and due reminders will appear here.
