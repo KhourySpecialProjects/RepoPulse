@@ -236,6 +236,22 @@ describe('NotificationsPage — notification list', () => {
     expect(await screen.findByText('No notifications')).toBeInTheDocument()
   })
 
+  it('flies a nyan cat across the empty state', async () => {
+    setup({ items: [] })
+    renderPage()
+
+    expect(await screen.findByTestId('nyan-cat')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /nyan cat/i })).toBeInTheDocument()
+  })
+
+  it('hides the nyan cat once notifications arrive', async () => {
+    setup({ items: [mention] })
+    renderPage()
+
+    await screen.findByText('You were mentioned')
+    expect(screen.queryByTestId('nyan-cat')).not.toBeInTheDocument()
+  })
+
   it('marks a notification read and navigates to its repo', async () => {
     const onPatchRead = vi.fn()
     setup({ items: [mention], onPatchRead })
