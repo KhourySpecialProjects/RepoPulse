@@ -14,6 +14,7 @@ import type {
   NoteComment,
   Notification,
   NotificationListResponse,
+  NotificationSettings,
   CollectionAccessEntry,
   PRStats,
   PRListResponse,
@@ -269,6 +270,31 @@ const mockUserDetails: UserDetail[] = [
 const mockNoteComments: NoteComment[] = []
 
 const mockNotifications: Notification[] = []
+
+/** A relay that has never been configured — the default a new user sees. */
+const mockNotificationSettings: NotificationSettings = {
+  email_enabled: false,
+  transport: 'smtp',
+  from_email: null,
+  from_name: null,
+  smtp_host: null,
+  smtp_port: null,
+  smtp_username: null,
+  smtp_encryption: 'starttls',
+  smtp_password_set: false,
+  resend_api_key_set: false,
+  subscribed_events: {
+    mention: true,
+    note_comment: true,
+    reminder: true,
+    repo_added: true,
+    repo_removed: true,
+    repo_health_declined: true,
+    pr_opened: true,
+    pr_merged: true,
+  },
+  deliverable: false,
+}
 
 const mockCollectionAccess: CollectionAccessEntry[] = []
 
@@ -649,11 +675,34 @@ export const handlers = [
       created_at: new Date().toISOString(),
       note_content_preview: null,
       repo_id: null,
+      subject: null,
+      body: null,
+      emailed_at: null,
     }
     return HttpResponse.json(notif)
   }),
   http.post(`${BASE}/notifications/mark-all-read`, () => {
     return HttpResponse.json({ marked_read: 0 })
+  }),
+
+  // Email relay settings
+  http.get(`${BASE}/notifications/settings`, () => {
+    return HttpResponse.json(mockNotificationSettings)
+  }),
+  http.put(`${BASE}/notifications/settings`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>
+    const { subscribed_events, ...rest } = body
+    return HttpResponse.json({
+      ...mockNotificationSettings,
+      ...rest,
+      subscribed_events: {
+        ...mockNotificationSettings.subscribed_events,
+        ...((subscribed_events as Record<string, boolean>) ?? {}),
+      },
+    })
+  }),
+  http.post(`${BASE}/notifications/settings/test-email`, () => {
+    return HttpResponse.json({ detail: 'Test email sent.', sent_to: 'test@example.com' })
   }),
 
   // Pull Requests

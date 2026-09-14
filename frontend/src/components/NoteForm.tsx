@@ -1,4 +1,6 @@
 import { useState, useRef } from 'react'
+import { useMentions } from '@/hooks/useMentions'
+import { MentionSuggestions } from '@/components/MentionSuggestions'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
@@ -27,38 +29,18 @@ export function NoteForm({ onSubmit, initialValues, isLoading = false, submitLab
   const [isReminder, setIsReminder] = useState(initialValues?.is_reminder ?? false)
   const [reminderContext, setReminderContext] = useState(initialValues?.reminder_context ?? '')
   const [remindAtLocal, setRemindAtLocal] = useState('')
-  const [mentionSearch, setMentionSearch] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  const filteredUsers = mentionSearch !== null
-    ? users.filter(u => u.display_name.toLowerCase().includes(mentionSearch.toLowerCase())).slice(0, 5)
-    : []
+  const mentions = useMentions(users, textareaRef)
 
   function handleContentChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const val = e.target.value
     setContent(val)
-    const cursor = e.target.selectionStart ?? val.length
-    const textUpToCursor = val.slice(0, cursor)
-    const lastAtIndex = textUpToCursor.lastIndexOf('@')
-    if (lastAtIndex !== -1) {
-      const afterAt = textUpToCursor.slice(lastAtIndex + 1)
-      if (!afterAt.includes(' ') && !afterAt.includes('\n')) {
-        setMentionSearch(afterAt)
-        return
-      }
-    }
-    setMentionSearch(null)
+    mentions.handleChange(val, e.target.selectionStart ?? val.length)
   }
 
   function insertMention(user: UserDetail) {
     const cursor = textareaRef.current?.selectionStart ?? content.length
-    const textUpToCursor = content.slice(0, cursor)
-    const lastAtIndex = textUpToCursor.lastIndexOf('@')
-    const slug = user.display_name.replace(/\s+/g, '_')
-    const newContent = content.slice(0, lastAtIndex) + `@${slug} ` + content.slice(cursor)
-    setContent(newContent)
-    setMentionSearch(null)
-    setTimeout(() => textareaRef.current?.focus(), 0)
+    setContent(mentions.insert(user, content, cursor))
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -85,25 +67,14 @@ export function NoteForm({ onSubmit, initialValues, isLoading = false, submitLab
           value={content}
           onChange={handleContentChange}
           onKeyDown={(e) => {
-            if (e.key === 'Escape') setMentionSearch(null)
+            if (e.key === 'Escape') mentions.cancel()
           }}
           placeholder="Write a note... use @ to mention a user"
           className="min-h-[80px] resize-y"
           required
         />
-        {mentionSearch !== null && filteredUsers.length > 0 && (
-          <div className="absolute z-50 bottom-full mb-1 left-0 bg-white border border-border rounded-lg shadow-lg overflow-hidden min-w-[180px]">
-            {filteredUsers.map(user => (
-              <button
-                key={user.id}
-                type="button"
-                onMouseDown={(e) => { e.preventDefault(); insertMention(user) }}
-                className="w-full text-left px-3 py-1.5 text-sm hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
-              >
-                @{user.display_name}
-              </button>
-            ))}
-          </div>
+        {mentions.search !== null && (
+          <MentionSuggestions users={mentions.matches} onSelect={insertMention} />
         )}
       </div>
 

@@ -28,7 +28,10 @@ import type {
   NoteComment,
   Notification,
   NotificationListResponse,
+  NotificationSettings,
   ReminderListResponse,
+  TestEmailResponse,
+  UpdateNotificationSettingsData,
   RecentlyDeletedListResponse,
   CommitQualityResponse,
   ClassifyCommitsResponse,
@@ -362,6 +365,28 @@ export async function markAllNotificationsUnread(): Promise<{ marked_unread: num
 
 export async function markAllNotificationsRead(): Promise<{ marked_read: number }> {
   const res = await apiClient.post<{ marked_read: number }>('/notifications/mark-all-read')
+  return res.data
+}
+
+// Email relay settings
+export async function getNotificationSettings(): Promise<NotificationSettings> {
+  const res = await apiClient.get<NotificationSettings>('/notifications/settings')
+  return res.data
+}
+
+export async function updateNotificationSettings(
+  data: UpdateNotificationSettingsData
+): Promise<NotificationSettings> {
+  const res = await apiClient.put<NotificationSettings>('/notifications/settings', data)
+  return res.data
+}
+
+export async function sendTestEmail(): Promise<TestEmailResponse> {
+  // The backend always sends to the signed-in user's own address, so there is
+  // deliberately no recipient parameter to pass.
+  const res = await apiClient.post<TestEmailResponse>(
+    '/notifications/settings/test-email'
+  )
   return res.data
 }
 

@@ -21,6 +21,7 @@ from app.models.contributor import Contributor
 from app.models.user import User
 from app.models.contributor_alias import ContributorAlias
 from app.models.note import Note
+from app.models.notification import Notification, NotificationType
 from app.models.repo import Repo
 from app.schemas.commits import CommitRead, CommitTypeFilter, PaginatedCommits
 from app.schemas.contributors import ContributorRead, AliasRead
@@ -35,6 +36,11 @@ from app.services.permission_service import (
 )
 
 from app.schemas.repos import RepoDeleteResponse
+from app.services.notification_service import (
+    deliver_emails,
+    notify_health_change,
+    notify_repo_event,
+)
 from app.services.repo_removal_service import remove_repo_records
 
 router = APIRouter()
@@ -182,12 +188,25 @@ async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: s
                 actual_contributor_count=actual_count,
             )
 
+            # Captured before the overwrite: the previous status is the only
+            # record of it anywhere, and it is what decides whether this sync
+            # represents a decline worth notifying about.
+            previous_status = repo.health_status
+
             repo.health_status = health["status"]
             repo.health_score = health
             repo.last_synced_at = datetime.utcnow()
             if commits:
                 repo.last_commit_at = max(c["date"] for c in commits)
+
+            raised = await notify_health_change(
+                db,
+                repo=repo,
+                previous_status=previous_status,
+                new_status=health["status"],
+            )
             await db.commit()
+            await deliver_emails(db, raised)
             logger.info("Indexed %s: %d commits, status=%s", repo.name, len(commits), health["status"])
         except Exception as exc:
             logger.exception("Failed to index repo %s (%s): %s", repo.name, repo.github_url, exc)
@@ -301,6 +320,7 @@ async def add_repos(
         )
 
     created_repos: list[RepoRead] = []
+    raised: list[Notification] = []
     for url in body.urls:
         name = _derive_repo_name(url)
         local_path = (
@@ -318,7 +338,20 @@ async def add_repos(
         background_tasks.add_task(_clone_and_index, repo.id, user_record.github_token)
         created_repos.append(_repo_to_read(repo, contributor_count=0))
 
+        raised += await notify_repo_event(
+            db,
+            repo=repo,
+            type=NotificationType.repo_added,
+            subject=f"{repo.name} was added to {collection.name}",
+            body=(
+                f"{user_record.display_name} added {repo.name} "
+                f"({repo.github_url}) to {collection.name}."
+            ),
+            exclude_user_id=user_uuid,
+        )
+
     await db.commit()
+    await deliver_emails(db, raised)
     return created_repos
 
 
@@ -369,7 +402,27 @@ async def delete_repo(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Repo not found",
         )
+    actor = await db.get(User, user_uuid)
+    collection = await db.get(Collection, repo.collection_id)
+    # Raised before the delete, while the repo and its collection are still
+    # readable. link_repo=False keeps the rows out of the FK cascade.
+    raised = await notify_repo_event(
+        db,
+        repo=repo,
+        type=NotificationType.repo_removed,
+        subject=f"{repo.name} was removed from {collection.name if collection else 'a collection'}",
+        body=(
+            f"{actor.display_name if actor else 'Someone'} removed {repo.name} "
+            f"({repo.github_url}). Its notes, summaries and contributor data "
+            f"were deleted with it."
+        ),
+        exclude_user_id=user_uuid,
+        link_repo=False,
+    )
+    await db.flush()
+
     await remove_repo_records(db, repo.id)
+    await deliver_emails(db, raised)
     return RepoDeleteResponse(detail="Repo deleted")
 
 

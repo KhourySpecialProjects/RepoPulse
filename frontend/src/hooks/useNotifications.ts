@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   dismissNotification,
   getNotifications,
+  getNotificationSettings,
   getRecentlyDeleted,
   getReminders,
   getUnreadCount,
@@ -13,7 +14,10 @@ import {
   markNotificationUnread,
   markAllNotificationsRead,
   markAllNotificationsUnread,
+  sendTestEmail,
+  updateNotificationSettings,
 } from '@/services/api'
+import type { UpdateNotificationSettingsData } from '@/types'
 
 export function useNotifications(params?: {
   unread_only?: boolean
@@ -130,4 +134,31 @@ export function useMarkAllNotificationsUnread() {
       qc.invalidateQueries({ queryKey: ['notifications'] })
     },
   })
+}
+
+// ── Email relay ─────────────────────────────────────────────────────────────
+
+export function useNotificationSettings() {
+  return useQuery({
+    queryKey: ['notifications', 'settings'],
+    queryFn: getNotificationSettings,
+    staleTime: 60_000,
+  })
+}
+
+export function useUpdateNotificationSettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: UpdateNotificationSettingsData) =>
+      updateNotificationSettings(data),
+    onSuccess: (settings) => {
+      // The response is the full new state, so seed the cache with it rather
+      // than invalidating and refetching what we were just handed.
+      qc.setQueryData(['notifications', 'settings'], settings)
+    },
+  })
+}
+
+export function useSendTestEmail() {
+  return useMutation({ mutationFn: sendTestEmail })
 }
