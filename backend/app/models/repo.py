@@ -46,18 +46,12 @@ class Repo(Base):
     collection: Mapped[object] = relationship(
         "Collection", back_populates="repos", lazy="selectin"
     )
-    # Without the cascade SQLAlchemy nulls the children's repo_id on delete:
-    # contributors.repo_id is NOT NULL so the delete fails outright, and notes
-    # and summaries survive as orphans detached from any repo.
     contributors: Mapped[list["Contributor"]] = relationship(
-        "Contributor", back_populates="repo", lazy="selectin",
-        cascade="all, delete-orphan",
+        "Contributor", back_populates="repo", lazy="selectin"
     )
     notes: Mapped[list["Note"]] = relationship(
-        "Note", back_populates="repo", lazy="selectin",
-        cascade="all, delete-orphan",
+        "Note", back_populates="repo", lazy="selectin"
     )
     summaries: Mapped[list["Summary"]] = relationship(
-        "Summary", back_populates="repo", lazy="selectin",
-        cascade="all, delete-orphan",
+        "Summary", back_populates="repo", lazy="selectin"
     )

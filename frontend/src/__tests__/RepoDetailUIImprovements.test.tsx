@@ -262,19 +262,11 @@ describe('RepoDetailPage - Commit notes panel', () => {
     renderPage()
     await screen.findByText('abc1234')
     const notesBtn = screen.getAllByText('Add note')[0].closest('button') as HTMLElement
-
-    // Before opening: only 1 textarea (the repo Notes panel)
-    const countBefore = screen.getAllByPlaceholderText(/^Write a note/).length
-
     fireEvent.click(notesBtn)
-    // After opening: 2 textareas (repo Notes + commit Notes panel)
-    await waitFor(() => {
-      expect(screen.getAllByPlaceholderText(/^Write a note/).length).toBe(countBefore + 1)
-    })
-
+    expect(await screen.findByText('This commit looks suspicious')).toBeInTheDocument()
     fireEvent.click(notesBtn)
     await waitFor(() => {
-      expect(screen.getAllByPlaceholderText(/^Write a note/).length).toBe(countBefore)
+      expect(screen.queryByText('This commit looks suspicious')).not.toBeInTheDocument()
     })
   })
 })

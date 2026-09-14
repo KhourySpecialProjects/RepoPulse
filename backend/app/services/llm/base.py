@@ -9,6 +9,6 @@ class LLMService(ABC):
         self,
         prompt: str,
         system: str | None = None,
-        max_tokens: int = 2048,
+        max_tokens: int = 1024,
     ) -> str:
         ...

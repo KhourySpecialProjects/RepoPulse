@@ -91,10 +91,7 @@ Write 2-4 paragraphs covering: overall activity level and timeline, collaboratio
 code quality signals from commit messages, code churn and its implications, \
 and any concerns the instructor should be aware of."""
 
-        # Ceiling, not a target — billing follows actual output. Sized well
-        # above the 2-4 paragraphs asked for so replies end on their own
-        # instead of being cut mid-sentence.
-        return await self._llm.generate(prompt, system=_SYSTEM_PROMPT, max_tokens=2000)
+        return await self._llm.generate(prompt, system=_SYSTEM_PROMPT, max_tokens=600)
 
     async def generate_contributor_activity(
         self, contributor_data: dict[str, Any]
@@ -164,7 +161,7 @@ Recent commit messages (with churn):
 Write 1-3 paragraphs covering: contribution frequency and consistency, \
 quality of commit messages, areas of the codebase worked on, and overall engagement level."""
 
-        return await self._llm.generate(prompt, system=_SYSTEM_PROMPT, max_tokens=1500)
+        return await self._llm.generate(prompt, system=_SYSTEM_PROMPT, max_tokens=450)
 
     async def generate_health_explanation(self, health_data: dict[str, Any]) -> str:
         """Explain health scores in plain English for an instructor."""
@@ -203,4 +200,4 @@ Signal Breakdown:
 Write 1-2 paragraphs explaining what these scores mean in practical terms, \
 what the students are doing well, and what they should improve."""
 
-        return await self._llm.generate(prompt, system=_SYSTEM_PROMPT, max_tokens=1200)
+        return await self._llm.generate(prompt, system=_SYSTEM_PROMPT, max_tokens=350)

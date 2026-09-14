@@ -47,11 +47,8 @@ class Contributor(Base):
     repo: Mapped[object] = relationship(
         "Repo", back_populates="contributors", lazy="selectin"
     )
-    # alias.contributor_id is NOT NULL, so this cascade is what lets a repo
-    # delete reach all the way down through its contributors.
     aliases: Mapped[list["ContributorAlias"]] = relationship(
-        "ContributorAlias", back_populates="contributor", lazy="selectin",
-        cascade="all, delete-orphan",
+        "ContributorAlias", back_populates="contributor", lazy="selectin"
     )
     notes: Mapped[list["Note"]] = relationship(
         "Note", back_populates="contributor", lazy="selectin"

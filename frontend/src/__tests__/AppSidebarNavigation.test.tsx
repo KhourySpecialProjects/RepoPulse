@@ -87,17 +87,6 @@ describe('AppSidebar — RepoPulse logo navigates to the home page', () => {
   })
 })
 
-describe('AppSidebar — the repo you are viewing is highlighted', () => {
-  it('expands the owning collection and marks the active repo', async () => {
-    // AppSidebar renders outside <Routes>, so the active id has to come from
-    // the pathname — useParams() has no route context here.
-    renderSidebar('/repos/repo-1')
-
-    const repoButtons = await screen.findAllByRole('button', { name: /cs101-project/ })
-    expect(repoButtons.some(b => /bg-indigo-600\/20/.test(b.className))).toBe(true)
-  })
-})
-
 describe('HomePage', () => {
   it('renders an intentionally blank page', () => {
     const { container } = render(

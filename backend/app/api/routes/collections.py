@@ -319,6 +319,7 @@ async def get_collection_commit_activity(
     )
     repos = result.scalars().all()
 
+    seen_hashes: set[str] = set()
     date_counts: dict[str, int] = {}
 
     for repo in repos:
@@ -326,11 +327,6 @@ async def get_collection_commit_activity(
             commits = await _git_service.parse_commits(repo.local_path)
         except Exception:
             continue
-
-        # Per repo, not per collection: student repos forked from a shared
-        # starter template carry identical SHAs, and a collection-wide set
-        # silently dropped those commits from every repo after the first.
-        seen_hashes: set[str] = set()
 
         for commit in commits:
             commit_hash = commit.get("hash", "")
