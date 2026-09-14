@@ -57,6 +57,33 @@ function formatDate(dateStr: string | null | undefined): string {
   })
 }
 
+/** A commit's calendar day as `YYYY-MM-DD` in the viewer's timezone.
+ *
+ * Local, not UTC, so the filter agrees with the date the table already shows —
+ * a commit rendered as "Sep 14" must match a Sep 14 filter even when its UTC
+ * timestamp falls on the 13th or 15th. Sortable and comparable as a plain
+ * string, which is what the date filter's option values hold.
+ */
+function toLocalDateKey(dateStr: string): string {
+  const d = new Date(dateStr)
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${month}-${day}`
+}
+
+/** A `YYYY-MM-DD` key as "Sep 14" — month and day, no year.
+ *
+ * Built with the local Date constructor rather than `new Date(key)`, which
+ * parses a bare date string as UTC midnight and would render the day before
+ * in any negative-offset timezone.
+ */
+function formatMonthDay(dateKey: string): string {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric',
+  })
+}
+
 function formatDateTime(dateStr: string): string {
   return new Date(dateStr).toLocaleString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
@@ -272,6 +299,10 @@ export function RepoDetailPage() {
   const [highlightedCommitHash, setHighlightedCommitHash] = useState<string | null>(null)
   const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
   const [selectedTypes, setSelectedTypes] = useState<Set<CommitTypeFilter>>(new Set())
+  // Empty string means "no date filter" — it is the "All" option's value. Held
+  // as YYYY-MM-DD so it compares directly against toLocalDateKey; the year is
+  // hidden in the label only, so days never collide across years.
+  const [selectedDate, setSelectedDate] = useState('')
   // Set when the backend answers `status: 'preview'` — holds the counts the
   // confirmation dialog quotes back to the user.
   const [classifyPreview, setClassifyPreview] = useState<ClassifyCommitsResponse | null>(null)
@@ -471,6 +502,14 @@ export function RepoDetailPage() {
   const resolvedAuthor = (commit: { author_name: string; author_email: string }) =>
     emailToDisplayName[commit.author_email.toLowerCase()] ?? commit.author_name
 
+  // Distinct days that actually have commits, newest first to match the commit
+  // list's own order. Options rather than a calendar, so empty days can't be
+  // picked and the year can stay off the label.
+  const commitDates = useMemo(() => {
+    const keys = new Set((allCommitsData?.items ?? []).map(c => toLocalDateKey(c.date)))
+    return Array.from(keys).sort().reverse()
+  }, [allCommitsData])
+
   // Owning branches only. Building this from `branches` listed every branch
   // that merely contains a commit, so branches with no work of their own still
   // got a chip that then matched most of the repo.
@@ -513,9 +552,12 @@ export function RepoDetailPage() {
       // "show me what still needs classifying" is expressible.
       const typeMatch =
         selectedTypes.size === 0 || selectedTypes.has(c.commit_type ?? 'unclassified')
-      return branchMatch && contributorMatch && typeMatch
+      // Exact calendar day, compared in the viewer's timezone so it agrees
+      // with the date shown in the row.
+      const dateMatch = !selectedDate || toLocalDateKey(c.date) === selectedDate
+      return branchMatch && contributorMatch && typeMatch && dateMatch
     })
-  }, [allCommitsData, selectedBranches, selectedContributorIds, contributors, emailToContributorId, selectedTypes])
+  }, [allCommitsData, selectedBranches, selectedContributorIds, contributors, emailToContributorId, selectedTypes, selectedDate])
 
   const displayedCommits = filteredCommits.slice(
     commitPage * COMMITS_PER_PAGE,
@@ -652,7 +694,7 @@ export function RepoDetailPage() {
   // Reset to page 0 when filters change
   useEffect(() => {
     setCommitPage(0)
-  }, [selectedBranches, selectedContributorIds, selectedTypes])
+  }, [selectedBranches, selectedContributorIds, selectedTypes, selectedDate])
 
   useEffect(() => {
     if (repo?.expected_contributor_count != null) {
@@ -1100,7 +1142,7 @@ export function RepoDetailPage() {
                   <div className="flex flex-col gap-2">
                     {allBranches.length > 0 && (
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground mr-1">Branch:</span>
+                        <span className="w-14 shrink-0 text-xs text-muted-foreground">Branch:</span>
                         <button
                           onClick={() => setSelectedBranches(new Set())}
                           className={cn(
@@ -1144,7 +1186,7 @@ export function RepoDetailPage() {
                       aria-label="Filter by commit type"
                       className="flex flex-wrap items-center gap-1.5"
                     >
-                      <span className="text-xs text-muted-foreground mr-1">Type:</span>
+                      <span className="w-14 shrink-0 text-xs text-muted-foreground">Type:</span>
                       <button
                         onClick={() => setSelectedTypes(new Set())}
                         className={cn(
@@ -1175,6 +1217,37 @@ export function RepoDetailPage() {
                           </button>
                         )
                       })}
+                    </div>
+                    <div
+                      role="group"
+                      aria-label="Filter by commit date"
+                      className="flex flex-wrap items-center gap-1.5"
+                    >
+                      <span className="w-14 shrink-0 text-xs text-muted-foreground">Date:</span>
+                      {/* "All" is the first option rather than a separate reset
+                          button, so this row starts with the same affordance as
+                          the Branch and Type rows above it. */}
+                      <select
+                        aria-label="Filter commits by date"
+                        value={selectedDate}
+                        onChange={e => setSelectedDate(e.target.value)}
+                        className={cn(
+                          'text-xs px-1.5 py-0.5 rounded border transition-colors focus:outline-none focus:border-indigo-400',
+                          selectedDate
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                        )}
+                      >
+                        <option value="">All</option>
+                        {commitDates.map(d => (
+                          <option key={d} value={d}>{formatMonthDay(d)}</option>
+                        ))}
+                      </select>
+                      {commitDates.length > 0 && (
+                        <span className="text-xs italic text-gray-400">
+                          *only showing dates with commits
+                        </span>
+                      )}
                     </div>
                   </div>
                     <div className="flex flex-wrap items-center justify-between gap-3 py-1">
