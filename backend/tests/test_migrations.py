@@ -131,6 +131,43 @@ async def test_migrated_schema_matches_the_models(empty_database: str) -> None:
     )
 
 
+async def test_repo_size_columns_are_bigint(empty_database: str) -> None:
+    """Integer width is the one thing the metadata diff above will not catch.
+
+    Alembic's autogenerate comparison does not reliably report int4-vs-int8,
+    so a size column silently declared Integer would pass every other test
+    here and then fail at write time with an out-of-range error — on the
+    largest repo in the instance, which is the one the storage dashboard
+    exists to surface. int4 caps at ~2 GiB; a full non-shallow clone's .git
+    exceeds that.
+    """
+    upgrade = _run_alembic("upgrade", "head", database_url=empty_database)
+    assert upgrade.returncode == 0, (
+        f"alembic upgrade head failed.\n\nstderr:\n{upgrade.stderr}"
+    )
+
+    engine = create_async_engine(empty_database, poolclass=NullPool)
+    async with engine.connect() as conn:
+        rows = (
+            await conn.execute(
+                text(
+                    """
+                    SELECT column_name, data_type
+                    FROM information_schema.columns
+                    WHERE table_name = 'repos'
+                      AND column_name IN ('size_bytes', 'git_size_bytes')
+                    """
+                )
+            )
+        ).all()
+    await engine.dispose()
+
+    types = dict(rows)
+    assert types == {"size_bytes": "bigint", "git_size_bytes": "bigint"}, (
+        f"repo size columns must be bigint, got {types}"
+    )
+
+
 def test_migration_chain_has_exactly_one_head() -> None:
     """Two heads means a branch merge left the chain forked.
 

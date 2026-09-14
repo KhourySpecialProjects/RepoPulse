@@ -1,7 +1,9 @@
 import { useState } from 'react'
-import { Clock, Plus, Trash2, Users, X } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Clock, GitCommit, Plus, Trash2, Users, X } from 'lucide-react'
 import { useReminders } from '@/hooks/useNotifications'
 import { useCreateNote, useDeleteNote } from '@/hooks/useNotes'
+import { usePrefetchRepo } from '@/hooks/useRepos'
 import { useUsers } from '@/hooks/useUsers'
 import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@/lib/utils'
@@ -9,6 +11,7 @@ import {
   formatReminderCountdown,
   isReminderOverdue,
   localInputToIso,
+  reminderTarget,
 } from '@/lib/reminders'
 
 /** Shared control sizing, kept large enough to hit comfortably. */
@@ -21,6 +24,8 @@ export const ICON_BUTTON_CLASS =
  */
 export function ActiveRemindersPanel() {
   const { data, isLoading } = useReminders()
+  const navigate = useNavigate()
+  const prefetchRepo = usePrefetchRepo()
   const { user } = useAuth()
   const { data: allUsers } = useUsers()
   const createNote = useCreateNote()
@@ -150,12 +155,10 @@ export function ActiveRemindersPanel() {
         <ul data-testid="reminders-list">
           {reminders.map((reminder) => {
             const overdue = isReminderOverdue(reminder.remind_at)
-            return (
-              <li
-                key={reminder.id}
-                data-testid="reminder-row"
-                className="flex items-start gap-3 border-b border-border/40 px-5 py-4 transition-colors last:border-0 hover:bg-muted/40"
-              >
+            const target = reminderTarget(reminder)
+
+            const details = (
+              <>
                 <Clock
                   className={cn(
                     'mt-0.5 h-5 w-5 flex-shrink-0',
@@ -185,7 +188,46 @@ export function ActiveRemindersPanel() {
                       Shared with {reminder.shared_with.join(', ')}
                     </p>
                   )}
+                  {reminder.commit_hash && (
+                    <p className="mt-1 flex items-center gap-1.5 font-mono text-xs text-indigo-600">
+                      <GitCommit className="h-3.5 w-3.5 flex-shrink-0" />
+                      {reminder.commit_hash.slice(0, 7)}
+                    </p>
+                  )}
                 </div>
+              </>
+            )
+
+            return (
+              <li
+                key={reminder.id}
+                data-testid="reminder-row"
+                className="flex items-start gap-3 border-b border-border/40 px-5 py-4 transition-colors last:border-0 hover:bg-muted/40"
+              >
+                {target ? (
+                  <button
+                    type="button"
+                    onClick={() => navigate(target)}
+                    // Warm the repo's queries before the click lands, so the
+                    // page can jump to the commit without a cold fetch first.
+                    onMouseEnter={() => prefetchRepo(reminder.repo_id!)}
+                    onFocus={() => prefetchRepo(reminder.repo_id!)}
+                    title={
+                      reminder.commit_hash
+                        ? 'Go to the commit this reminder is on'
+                        : 'Go to the repository this reminder is on'
+                    }
+                    className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                  >
+                    {details}
+                  </button>
+                ) : (
+                  // Nothing to navigate to, so this stays plain text.
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    {details}
+                  </div>
+                )}
+
                 {reminder.is_owner && (
                   <button
                     type="button"

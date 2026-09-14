@@ -39,24 +39,7 @@ def ta_auth_headers(ta_user: User) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-@pytest_asyncio.fixture
-async def admin_user(db_session: AsyncSession) -> User:
-    user = User(
-        id=uuid.uuid4(),
-        email="admin_rbac@example.com",
-        display_name="Admin User",
-        role="admin",
-        password_hash=None,
-    )
-    db_session.add(user)
-    await db_session.flush()
-    return user
-
-
-@pytest.fixture
-def admin_auth_headers(admin_user: User) -> dict[str, str]:
-    token = create_access_token({"sub": str(admin_user.id)})
-    return {"Authorization": f"Bearer {token}"}
+# admin_user and admin_auth_headers now come from tests/conftest.py.
 
 
 @pytest_asyncio.fixture

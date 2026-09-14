@@ -24,7 +24,13 @@ class CommitRead(BaseModel):
     author_email: str
     date: datetime
     message: str
+    # Every branch containing the commit. Good for "where can I find this",
+    # useless for filtering: a trunk commit is contained in every branch cut
+    # from it.
     branches: list[str]
+    # The single branch the work was done on. This is what the branch filter
+    # matches against.
+    origin_branch: str
     insertions: int
     deletions: int
     files_changed: int

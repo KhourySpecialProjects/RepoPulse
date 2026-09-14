@@ -8,11 +8,22 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db_session
+from app.core.errors import AppError
 from app.models.note import Note
 from app.models.notification import Notification
+from app.models.notification_setting import (
+    DEFAULT_SUBSCRIBED_EVENTS,
+    NotificationSetting,
+)
 from app.models.reminder_share import ReminderShare
 from app.models.user import User
 from app.schemas.errors import ErrorResponse
+from app.schemas.notification_settings import (
+    NotificationSettingsRead,
+    NotificationSettingsUpdate,
+    TestEmailRequest,
+    TestEmailResponse,
+)
 from app.schemas.notifications import (
     NotificationListResponse,
     NotificationRead,
@@ -21,7 +32,8 @@ from app.schemas.notifications import (
     ReminderListResponse,
     ReminderRead,
 )
-from app.services.notification_service import fire_due_reminders
+from app.services.email.base import EmailDeliveryError
+from app.services.notification_service import fire_due_reminders, send_test_email
 
 router = APIRouter()
 
@@ -30,14 +42,24 @@ NOTIFICATION_LABELS = {
     "mention": "Mention",
     "note_comment": "Comment on your note",
     "reminder": "Reminder due",
+    "repo_added": "Repository added",
+    "repo_removed": "Repository removed",
+    "repo_health_declined": "Repository health declined",
+    "pr_opened": "Pull request opened",
+    "pr_merged": "Pull request merged",
 }
 
 
 def _notif_to_read(
     notif: Notification,
-    note_content_preview: str | None = None,
-    repo_id: uuid.UUID | None = None,
+    note: Note | None = None,
 ) -> NotificationRead:
+    """Build the payload, deriving everything link-related from the note.
+
+    Takes the note itself rather than pre-extracted fields: every caller has
+    already loaded it, and each one was repeating the same preview/repo_id
+    derivation, so adding `commit_hash` would have meant a fourth copy.
+    """
     return NotificationRead(
         id=notif.id,
         type=notif.type.value if hasattr(notif.type, "value") else notif.type,
@@ -45,8 +67,16 @@ def _notif_to_read(
         comment_id=notif.comment_id,
         is_read=notif.is_read,
         created_at=notif.created_at,
-        note_content_preview=note_content_preview,
-        repo_id=repo_id,
+        note_content_preview=(
+            note.content[:80] if note is not None and note.content else None
+        ),
+        # A repo-scoped event links to its repo directly; a note-scoped one
+        # inherits the repo of the note it belongs to.
+        repo_id=notif.repo_id or (note.repo_id if note is not None else None),
+        commit_hash=note.commit_hash if note is not None else None,
+        subject=notif.subject,
+        body=notif.body,
+        emailed_at=notif.emailed_at,
     )
 
 
@@ -103,7 +133,8 @@ async def list_notifications(
     result = await db.execute(list_q)
     notifs = result.scalars().all()
 
-    # Bulk-load note previews and repo_ids
+    # Bulk-load the notes these notifications point at; everything the client
+    # needs to build a link (preview, repo, commit) comes off them.
     note_ids = list({n.note_id for n in notifs if n.note_id is not None})
     note_map: dict[uuid.UUID, Note] = {}
     for nid in note_ids:
@@ -111,21 +142,175 @@ async def list_notifications(
         if note:
             note_map[nid] = note
 
-    items = []
-    for notif in notifs:
-        preview = None
-        repo_id = None
-        if notif.note_id and notif.note_id in note_map:
-            note = note_map[notif.note_id]
-            preview = note.content[:80] if note.content else None
-            repo_id = note.repo_id
-        items.append(_notif_to_read(notif, preview, repo_id))
+    items = [
+        _notif_to_read(
+            notif,
+            note_map.get(notif.note_id) if notif.note_id else None,
+        )
+        for notif in notifs
+    ]
 
     return NotificationListResponse(
         items=items,
         total=total,
         unread_count=unread_count,
     )
+
+
+# ---------------------------------------------------------------------------
+# Email relay settings
+# ---------------------------------------------------------------------------
+#
+# Declared before the `/{notification_id}` routes so "settings" is never
+# captured as a notification id.
+
+
+async def _settings_row(db: AsyncSession, user_uuid: uuid.UUID) -> NotificationSetting:
+    """This user's settings row, created on first access.
+
+    Materialising a default row rather than returning a transient object keeps
+    the update path a plain field assignment, and means `subscribed_events`
+    has somewhere to live the moment the user toggles one.
+    """
+    result = await db.execute(
+        select(NotificationSetting).where(NotificationSetting.user_id == user_uuid)
+    )
+    setting = result.scalar_one_or_none()
+    if setting is None:
+        setting = NotificationSetting(user_id=user_uuid)
+        db.add(setting)
+        await db.flush()
+    return setting
+
+
+def _settings_to_read(setting: NotificationSetting) -> NotificationSettingsRead:
+    # Defaults merged under the stored map, so a notification type added after
+    # the user last saved shows as subscribed rather than missing.
+    events = {**DEFAULT_SUBSCRIBED_EVENTS, **(setting.subscribed_events or {})}
+    return NotificationSettingsRead(
+        email_enabled=setting.email_enabled,
+        transport=setting.transport,
+        from_email=setting.from_email,
+        from_name=setting.from_name,
+        smtp_host=setting.smtp_host,
+        smtp_port=setting.smtp_port,
+        smtp_username=setting.smtp_username,
+        smtp_encryption=setting.smtp_encryption,
+        smtp_password_set=bool(setting.smtp_password),
+        resend_api_key_set=bool(setting.resend_api_key),
+        subscribed_events=events,
+        deliverable=setting.is_deliverable(),
+    )
+
+
+@router.get("/settings", response_model=NotificationSettingsRead)
+async def get_notification_settings(
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> NotificationSettingsRead:
+    setting = await _settings_row(db, uuid.UUID(current_user_id))
+    await db.commit()
+    return _settings_to_read(setting)
+
+
+@router.put("/settings", response_model=NotificationSettingsRead)
+async def update_notification_settings(
+    body: NotificationSettingsUpdate,
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> NotificationSettingsRead:
+    setting = await _settings_row(db, uuid.UUID(current_user_id))
+
+    # exclude_unset is what makes this a partial update: a field the client did
+    # not send keeps its stored value, which is how the password survives a
+    # save from a form that never received it.
+    changes = body.model_dump(exclude_unset=True)
+
+    for field in ("smtp_password", "resend_api_key"):
+        if field in changes:
+            # "" is the explicit "forget this credential" signal; anything else
+            # replaces it.
+            changes[field] = changes[field] or None
+
+    if "subscribed_events" in changes and changes["subscribed_events"] is not None:
+        # Merge rather than replace, so a client that sends only the toggle it
+        # changed does not silently reset every other event.
+        changes["subscribed_events"] = {
+            **DEFAULT_SUBSCRIBED_EVENTS,
+            **(setting.subscribed_events or {}),
+            **changes["subscribed_events"],
+        }
+
+    for field, value in changes.items():
+        setattr(setting, field, value)
+
+    await db.commit()
+    await db.refresh(setting)
+    return _settings_to_read(setting)
+
+
+@router.post(
+    "/settings/test-email",
+    response_model=TestEmailResponse,
+    responses={
+        400: {"model": ErrorResponse},
+        502: {"model": ErrorResponse},
+    },
+)
+async def send_notification_test_email(
+    body: TestEmailRequest | None = None,
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> TestEmailResponse:
+    """Send a probe through the user's relay.
+
+    Defaults to the signed-in user's own address, with an optional override —
+    see `TestEmailRequest` for why the override exists and why it is not an
+    open relay.
+    """
+    user_uuid = uuid.UUID(current_user_id)
+    setting = await _settings_row(db, user_uuid)
+    await db.commit()
+
+    user = await db.get(User, user_uuid)
+    recipient = (body.to if body else None) or (user.email if user else None)
+    if not recipient:
+        raise AppError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Your account has no email address, so there is nobody to send "
+                "the test to. Enter an address to send it to instead."
+            ),
+            error_code="no_recipient_address",
+        )
+
+    # Checked without the master switch, so credentials can be verified before
+    # delivery is turned on.
+    if not setting.has_transport_config():
+        raise AppError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Add a sender address and "
+                + (
+                    "a Resend API key"
+                    if setting.transport == "resend"
+                    else "an SMTP host and port"
+                )
+                + " before sending a test email."
+            ),
+            error_code="email_relay_not_configured",
+        )
+
+    try:
+        await send_test_email(setting, recipient)
+    except EmailDeliveryError as exc:
+        raise AppError(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+            error_code="email_delivery_failed",
+        )
+
+    return TestEmailResponse(detail="Test email sent.", sent_to=recipient)
 
 
 @router.get(
@@ -236,15 +421,9 @@ async def mark_notification_read(
     await db.commit()
     await db.refresh(notif)
 
-    preview = None
-    repo_id = None
-    if notif.note_id:
-        note = await db.get(Note, notif.note_id)
-        if note:
-            preview = note.content[:80] if note.content else None
-            repo_id = note.repo_id
+    note = await db.get(Note, notif.note_id) if notif.note_id else None
 
-    return _notif_to_read(notif, preview, repo_id)
+    return _notif_to_read(notif, note)
 
 
 @router.patch(
@@ -271,15 +450,9 @@ async def mark_notification_unread(
     await db.commit()
     await db.refresh(notif)
 
-    preview = None
-    repo_id = None
-    if notif.note_id:
-        note = await db.get(Note, notif.note_id)
-        if note:
-            preview = note.content[:80] if note.content else None
-            repo_id = note.repo_id
+    note = await db.get(Note, notif.note_id) if notif.note_id else None
 
-    return _notif_to_read(notif, preview, repo_id)
+    return _notif_to_read(notif, note)
 
 
 @router.post(
@@ -445,15 +618,9 @@ async def restore_notification(
     await db.commit()
     await db.refresh(notif)
 
-    preview = None
-    repo_id = None
-    if notif.note_id:
-        note = await db.get(Note, notif.note_id)
-        if note:
-            preview = note.content[:80] if note.content else None
-            repo_id = note.repo_id
+    note = await db.get(Note, notif.note_id) if notif.note_id else None
 
-    return _notif_to_read(notif, preview, repo_id)
+    return _notif_to_read(notif, note)
 
 
 @router.delete(

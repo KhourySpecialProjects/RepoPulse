@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.app_settings import AppSettings
+from app.services.llm.criteria import criteria_fingerprint, normalize_criteria
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,14 @@ class LLMSettings:
     model: str
     api_key: str | None
     ollama_url: str | None
+    #: The instructor's rubric, normalised. Empty means no addendum — which
+    #: is also what every score cached before this feature was graded under.
+    commit_evaluation_criteria: str = ""
+
+    @property
+    def criteria_hash(self) -> str | None:
+        """Which rubric a score graded under; see CommitClassification."""
+        return criteria_fingerprint(self.commit_evaluation_criteria)
 
     @property
     def label(self) -> str:
@@ -53,6 +62,7 @@ async def resolve_llm_settings(db: AsyncSession, user_id: uuid.UUID) -> LLMSetti
             model=settings.DEFAULT_LLM_MODEL,
             api_key=None,
             ollama_url=None,
+            commit_evaluation_criteria="",
         )
 
     return LLMSettings(
@@ -60,4 +70,10 @@ async def resolve_llm_settings(db: AsyncSession, user_id: uuid.UUID) -> LLMSetti
         model=user_settings.llm_model or settings.DEFAULT_LLM_MODEL,
         api_key=user_settings.anthropic_api_key or None,
         ollama_url=user_settings.ollama_base_url or None,
+        # Normalised on read, not on write: one call site, the DB keeps the
+        # instructor's exact formatting, and the text that gets hashed is
+        # provably the text that reaches the prompt.
+        commit_evaluation_criteria=normalize_criteria(
+            user_settings.commit_evaluation_criteria
+        ),
     )

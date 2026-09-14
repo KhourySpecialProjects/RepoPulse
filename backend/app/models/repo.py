@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, JSON, String, func
+from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, Integer, JSON, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -35,6 +35,47 @@ class Repo(Base):
     expected_contributor_count: Mapped[int | None] = mapped_column(
         Integer, nullable=True
     )
+    # Size on disk, persisted rather than measured per request: walking full
+    # clones on every dashboard load is unbounded work in a request handler.
+    #
+    # BigInteger, not Integer: int4 caps at 2 GiB and a full non-shallow
+    # clone's .git passes that, so Integer would fail on exactly the largest
+    # repo — the one an admin most needs to see.
+    #
+    # Nullable with no server default. NULL means "never measured"; 0 means
+    # "measured, and empty". Collapsing those makes staleness unreportable.
+    # There is no worktree_bytes column: it is derived as
+    # size_bytes - git_size_bytes, so it cannot disagree with the other two.
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    git_size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    size_computed_at: Mapped[DateTime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Sync state lives on the repo, not in the client that started it, so that
+    # every member of the collection sees the same thing: a TA's sync shows up
+    # on the instructor's dashboard while it runs.
+    sync_status: Mapped[str] = mapped_column(
+        Enum("idle", "syncing", "failed", name="syncstatus"),
+        nullable=False,
+        server_default="idle",
+        default="idle",
+    )
+    sync_started_at: Mapped[DateTime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    sync_started_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        # SET NULL, not CASCADE: deleting a user must not delete the repos they
+        # happened to sync. Named so the migration's constraint matches.
+        ForeignKey(
+            "users.id",
+            ondelete="SET NULL",
+            name="fk_repos_sync_started_by_id",
+        ),
+        nullable=True,
+    )
+    sync_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -45,6 +86,10 @@ class Repo(Base):
     # Relationships
     collection: Mapped[object] = relationship(
         "Collection", back_populates="repos", lazy="selectin"
+    )
+    # Named so viewers can be told *who* is syncing, not just that someone is.
+    sync_started_by: Mapped["User | None"] = relationship(
+        "User", foreign_keys=[sync_started_by_id], lazy="selectin"
     )
     contributors: Mapped[list["Contributor"]] = relationship(
         "Contributor", back_populates="repo", lazy="selectin"

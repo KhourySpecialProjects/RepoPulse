@@ -55,6 +55,10 @@ const mockRepo: Repo = {
   contributor_count: 2,
   active_reminder_count: 0,
   expected_contributor_count: null,
+  sync_status: 'idle',
+  sync_started_at: null,
+  sync_started_by_name: null,
+  sync_error: null,
 }
 
 const mockCommit: Commit = {
@@ -64,6 +68,7 @@ const mockCommit: Commit = {
   date: '2025-10-14T14:00:00Z',
   message: 'feat: implement auth',
   branches: ['main'],
+  origin_branch: 'main',
   insertions: 142,
   deletions: 23,
   files_changed: 6,

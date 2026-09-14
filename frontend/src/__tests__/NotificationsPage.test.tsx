@@ -34,6 +34,10 @@ const mention: Notification = {
   created_at: '2026-09-10T11:00:00Z',
   note_content_preview: 'Hey @Mark take a look',
   repo_id: 'repo-1',
+  commit_hash: null,
+  subject: null,
+  body: null,
+  emailed_at: null,
 }
 
 const reminderNotif: Notification = {
@@ -45,6 +49,10 @@ const reminderNotif: Notification = {
   created_at: '2026-09-10T11:30:00Z',
   note_content_preview: 'Office hours',
   repo_id: null,
+  commit_hash: null,
+  subject: null,
+  body: null,
+  emailed_at: null,
 }
 
 const commentNotif: Notification = {
@@ -56,6 +64,10 @@ const commentNotif: Notification = {
   created_at: '2026-09-10T10:00:00Z',
   note_content_preview: 'Replied to you',
   repo_id: 'repo-2',
+  commit_hash: null,
+  subject: null,
+  body: null,
+  emailed_at: null,
 }
 
 const activeReminder: Reminder = {
@@ -116,7 +128,10 @@ function setup(opts?: {
 
 function LocationDisplay() {
   const location = useLocation()
-  return <span data-testid="location">{location.pathname}</span>
+  // Includes the query string: the deep link that carries which note or commit
+  // a notification was about lives there, so a pathname-only probe would
+  // report success for a click that landed on the bare repo page.
+  return <span data-testid="location">{location.pathname + location.search}</span>
 }
 
 function renderPage() {
@@ -227,7 +242,23 @@ describe('NotificationsPage — notification list', () => {
     expect(await screen.findByText('No notifications')).toBeInTheDocument()
   })
 
-  it('marks a notification read and navigates to its repo', async () => {
+  it('puts the mascot on the empty state', async () => {
+    setup({ items: [] })
+    renderPage()
+
+    expect(await screen.findByTestId('empty-inbox-mascot')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /snowman/i })).toBeInTheDocument()
+  })
+
+  it('hides the mascot once notifications arrive', async () => {
+    setup({ items: [mention] })
+    renderPage()
+
+    await screen.findByText('You were mentioned')
+    expect(screen.queryByTestId('empty-inbox-mascot')).not.toBeInTheDocument()
+  })
+
+  it('marks a notification read and opens the note it was about', async () => {
     const onPatchRead = vi.fn()
     setup({ items: [mention], onPatchRead })
     renderPage()
@@ -235,6 +266,36 @@ describe('NotificationsPage — notification list', () => {
     fireEvent.click(await screen.findByText('You were mentioned'))
 
     await waitFor(() => expect(onPatchRead).toHaveBeenCalledWith('n-mention'))
+    // Not just `/repos/repo-1`: landing on the repo leaves the reader to find
+    // the note themselves, which is what this click is supposed to save them.
+    await waitFor(() => expect(currentPath()).toBe('/repos/repo-1?note=note-1'))
+  })
+
+  it('jumps to the commit when the mention was made on one', async () => {
+    setup({ items: [{ ...mention, commit_hash: 'abc1234' }] })
+    renderPage()
+
+    fireEvent.click(await screen.findByText('You were mentioned'))
+
+    await waitFor(() => expect(currentPath()).toBe('/repos/repo-1?commit=abc1234'))
+  })
+
+  it('still goes to the repo for an event with no note behind it', async () => {
+    setup({
+      items: [
+        {
+          ...mention,
+          id: 'n-repo-added',
+          type: 'repo_added',
+          note_id: null,
+          subject: 'Repository added',
+        },
+      ],
+    })
+    renderPage()
+
+    fireEvent.click(await screen.findByText('Repository added'))
+
     await waitFor(() => expect(currentPath()).toBe('/repos/repo-1'))
   })
 

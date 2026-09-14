@@ -1,18 +1,23 @@
 import { ContextualActivityChart } from '@/components/ContextualActivityChart'
 import { useState, useEffect, useMemo, Fragment } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { TrickleProgress } from '@/components/ui/trickle-progress'
 import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, useUnmergeContributor, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests, useClassifyCommits } from '@/hooks/useRepos'
-import { useRepoSummaries, useContributorSummaries, useGenerateSummary } from '@/hooks/useSummaries'
+import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, useUnmergeContributor, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests, useClassifyCommits, ALL_COMMITS_PARAMS } from '@/hooks/useRepos'
+import { useRepoSummaries, useContributorSummaries, useGenerateSummary, summaryKeys } from '@/hooks/useSummaries'
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '@/hooks/useNotes'
 import { useUsers, useCurrentUser } from '@/hooks/useUsers'
 import { useAuth } from '@/hooks/useAuth'
 import { HealthBadge } from '@/components/HealthBadge'
+import { HealthSignalPills } from '@/components/HealthSignalPills'
 import { CommitScorePill } from '@/components/CommitScorePill'
 import { CommitNotesPanel } from '@/components/CommitNotesPanel'
 import { MarkdownContent } from '@/components/MarkdownContent'
+import { TypedMarkdown } from '@/components/TypedMarkdown'
+import { ThinkingLabel } from '@/components/ThinkingLabel'
+import { SummaryLiquidBackground } from '@/components/SummaryLiquidBackground'
 import { NotesDrawer } from '@/components/NotesDrawer'
 import { Button } from '@/components/ui/button'
 import { LoadingContent } from '@/components/ui/loading-content'
@@ -57,6 +62,33 @@ function formatDate(dateStr: string | null | undefined): string {
   })
 }
 
+/** A commit's calendar day as `YYYY-MM-DD` in the viewer's timezone.
+ *
+ * Local, not UTC, so the filter agrees with the date the table already shows —
+ * a commit rendered as "Sep 14" must match a Sep 14 filter even when its UTC
+ * timestamp falls on the 13th or 15th. Sortable and comparable as a plain
+ * string, which is what the date filter's option values hold.
+ */
+function toLocalDateKey(dateStr: string): string {
+  const d = new Date(dateStr)
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${month}-${day}`
+}
+
+/** A `YYYY-MM-DD` key as "Sep 14" — month and day, no year.
+ *
+ * Built with the local Date constructor rather than `new Date(key)`, which
+ * parses a bare date string as UTC midnight and would render the day before
+ * in any negative-offset timezone.
+ */
+function formatMonthDay(dateKey: string): string {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric',
+  })
+}
+
 function formatDateTime(dateStr: string): string {
   return new Date(dateStr).toLocaleString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
@@ -64,6 +96,70 @@ function formatDateTime(dateStr: string): string {
   })
 }
 
+
+/** Reserve label space so the typing animation never shifts the controls. */
+function GenerateSummaryButton({
+  onClick,
+  isPending,
+}: {
+  onClick: () => void
+  isPending: boolean
+}) {
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={onClick}
+      loading={isPending}
+      disabled={isPending}
+      className="group relative"
+      aria-label={isPending ? 'Generating summary' : 'Generate Summary'}
+    >
+      <motion.span
+        aria-hidden
+        className="mr-1.5 inline-flex"
+        animate={
+          isPending
+            ? { rotate: [0, 180, 360], scale: [1, 1.18, 1] }
+            : { rotate: 0, scale: 1 }
+        }
+        transition={
+          isPending
+            ? { duration: 1.4, repeat: Infinity, ease: 'easeInOut' }
+            : { type: 'spring', stiffness: 300, damping: 18 }
+        }
+        whileHover={isPending ? undefined : { rotate: -12, scale: 1.15 }}
+      >
+        <Sparkles
+          className={cn(
+            'h-4 w-4 transition-colors',
+            isPending ? 'text-violet-600' : 'group-hover:text-violet-600'
+          )}
+        />
+      </motion.span>
+
+      <span className="inline-grid text-left">
+        <span aria-hidden="true" className="invisible col-start-1 row-start-1 pr-1">Generate Summary</span>
+        <span className="col-start-1 row-start-1 inline-flex items-center">
+          {isPending ? <ThinkingLabel /> : 'Generate Summary'}
+        </span>
+      </span>
+    </Button>
+  )
+}
+
+
+/** Loading state for the Commits card — same spinner, label, and trickling bar
+ *  the activity graph uses, so the two sections load alike. */
+function CommitsLoading() {
+  return (
+    <div role="status" aria-label="Loading commits" className="flex flex-col items-center justify-center gap-3 py-10">
+      <div aria-hidden="true" className="h-8 w-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin motion-reduce:animate-none" />
+      <p className="text-sm text-muted-foreground">Loading commits…</p>
+      <TrickleProgress label="Commits loading progress" />
+    </div>
+  )
+}
 
 function ContributorGenerateButton({ contributorId, repoId }: { contributorId: string; repoId: string }) {
   const generateMutation = useGenerateSummary()
@@ -260,17 +356,28 @@ function readPullRequestsExpanded(repoId: string | undefined): boolean {
 export function RepoDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  // Held separately from `searchParams` so the banner survives the param being
+  // cleared, and so it can be shown during the initial load when there are no
+  // commits to scroll to yet.
+  const [pendingCommitJump, setPendingCommitJump] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get('commit')
+  )
   const [commitPage, setCommitPage] = useState(0)
   const [activeCommitHash, setActiveCommitHash] = useState<string | null>(null)
   const [highlightedCommitHash, setHighlightedCommitHash] = useState<string | null>(null)
+  // Set when arriving from a notification about a note; opens the drawer on it.
+  const [highlightedNoteId, setHighlightedNoteId] = useState<string | null>(null)
   const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
-  const [selectedAuthors, setSelectedAuthors] = useState<Set<string>>(new Set())
   const [selectedTypes, setSelectedTypes] = useState<Set<CommitTypeFilter>>(new Set())
+  // Empty string means "no date filter" — it is the "All" option's value. Held
+  // as YYYY-MM-DD so it compares directly against toLocalDateKey; the year is
+  // hidden in the label only, so days never collide across years.
+  const [selectedDate, setSelectedDate] = useState('')
   // Set when the backend answers `status: 'preview'` — holds the counts the
   // confirmation dialog quotes back to the user.
   const [classifyPreview, setClassifyPreview] = useState<ClassifyCommitsResponse | null>(null)
   const [showAllBranches, setShowAllBranches] = useState(false)
-  const [showAllAuthors, setShowAllAuthors] = useState(false)
   const [selectedContributorIds, setSelectedContributorIds] = useState<Set<string>>(new Set())
   const [editingContributorId, setEditingContributorId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
@@ -295,12 +402,15 @@ export function RepoDetailPage() {
   const [COMMITS_PER_PAGE, setCommitsPerPage] = useState(10)
   const [commitPageSizeOption, setCommitPageSizeOption] = useState('10')
   const [customCommitPageSize, setCustomCommitPageSize] = useState('20')
-  const MAX_FILTER_CHIPS = 8
+  // Branch chips collapse behind a "+N more" toggle past this many.
+  const MAX_BRANCH_CHIPS = 5
 
   const [summaryExpanded, setSummaryExpanded] = useState(true)
+  // Set to the id of a just-generated summary so only that one types itself in;
+  // summaries loaded from history render instantly.
+  const [typingSummaryId, setTypingSummaryId] = useState<string | null>(null)
   const [summaryHistoryOpen, setSummaryHistoryOpen] = useState(false)
   const [showArchivedNotes, setShowArchivedNotes] = useState(false)
-  const [notesPinned, setNotesPinned] = useState(false)
 
   const [checkIns, setCheckIns] = useState<string[]>(() => {
     if (!id) return []
@@ -340,7 +450,9 @@ export function RepoDetailPage() {
     limit: COMMITS_PER_PAGE,
     offset: commitPage * COMMITS_PER_PAGE,
   })
-  const { data: allCommitsData, isLoading: allCommitsLoading } = useRepoCommits(id ?? '', { limit: 500, offset: 0 })
+  // Same params object as usePrefetchRepo warms, so a hovered reminder's
+  // prefetch is a cache hit here rather than a second identical request.
+  const { data: allCommitsData, isLoading: allCommitsLoading } = useRepoCommits(id ?? '', ALL_COMMITS_PARAMS)
   const { data: contributors, isLoading: contributorsLoading } = useRepoContributors(id ?? '')
   const updateContributorMutation = useUpdateContributor(id ?? '')
   const mergeContributorsMutation = useMergeContributors(id ?? '')
@@ -463,32 +575,28 @@ export function RepoDetailPage() {
   const resolvedAuthor = (commit: { author_name: string; author_email: string }) =>
     emailToDisplayName[commit.author_email.toLowerCase()] ?? commit.author_name
 
-  const allBranches = useMemo(() => {
-    const names = new Set<string>()
-    allCommitsData?.items.forEach(c => c.branches.forEach(b => names.add(b)))
-    return Array.from(names).sort()
+  // Distinct days that actually have commits, newest first to match the commit
+  // list's own order. Options rather than a calendar, so empty days can't be
+  // picked and the year can stay off the label.
+  const commitDates = useMemo(() => {
+    const keys = new Set((allCommitsData?.items ?? []).map(c => toLocalDateKey(c.date)))
+    return Array.from(keys).sort().reverse()
   }, [allCommitsData])
 
-  const allAuthors = useMemo(() => {
+  // Owning branches only. Building this from `branches` listed every branch
+  // that merely contains a commit, so branches with no work of their own still
+  // got a chip that then matched most of the repo.
+  const allBranches = useMemo(() => {
     const names = new Set<string>()
-    allCommitsData?.items.forEach(c => names.add(resolvedAuthor(c)))
+    allCommitsData?.items.forEach(c => { if (c.origin_branch) names.add(c.origin_branch) })
     return Array.from(names).sort()
-  }, [allCommitsData, emailToDisplayName])
+  }, [allCommitsData])
 
   function toggleBranch(branch: string) {
     setSelectedBranches(prev => {
       const next = new Set(prev)
       if (next.has(branch)) next.delete(branch)
       else next.add(branch)
-      return next
-    })
-  }
-
-  function toggleAuthor(author: string) {
-    setSelectedAuthors(prev => {
-      const next = new Set(prev)
-      if (next.has(author)) next.delete(author)
-      else next.add(author)
       return next
     })
   }
@@ -506,20 +614,23 @@ export function RepoDetailPage() {
     const allContributorsSelected = selectedContributorIds.size === 0 ||
       (contributors != null && contributors.length > 0 && contributors.every(contributor => selectedContributorIds.has(contributor.id)))
     return (allCommitsData?.items ?? []).filter(c => {
-      const branchMatch = selectedBranches.size === 0 || c.branches.some(b => selectedBranches.has(b))
-      // Contributor checkboxes (left menu) and the Author chip row are
-      // independent filters: the first resolves aliases to a contributor, the
-      // second matches the commit's resolved display name.
+      // Match the owning branch exactly. `c.branches.some(...)` matched any
+      // branch *containing* the commit, so selecting `dev` returned all of
+      // trunk's history too.
+      const branchMatch = selectedBranches.size === 0 || selectedBranches.has(c.origin_branch)
+      // The contributor checkboxes (left menu) resolve aliases to a contributor.
       const contributorId = emailToContributorId[c.author_email.toLowerCase()]
       const contributorMatch = allContributorsSelected || selectedContributorIds.has(contributorId)
-      const authorMatch = selectedAuthors.size === 0 || selectedAuthors.has(resolvedAuthor(c))
       // A null commit_type is its own bucket rather than a missing value, so
       // "show me what still needs classifying" is expressible.
       const typeMatch =
         selectedTypes.size === 0 || selectedTypes.has(c.commit_type ?? 'unclassified')
-      return branchMatch && contributorMatch && authorMatch && typeMatch
+      // Exact calendar day, compared in the viewer's timezone so it agrees
+      // with the date shown in the row.
+      const dateMatch = !selectedDate || toLocalDateKey(c.date) === selectedDate
+      return branchMatch && contributorMatch && typeMatch && dateMatch
     })
-  }, [allCommitsData, selectedBranches, selectedContributorIds, contributors, emailToContributorId, selectedAuthors, selectedTypes, emailToDisplayName])
+  }, [allCommitsData, selectedBranches, selectedContributorIds, contributors, emailToContributorId, selectedTypes, selectedDate])
 
   const displayedCommits = filteredCommits.slice(
     commitPage * COMMITS_PER_PAGE,
@@ -585,10 +696,25 @@ export function RepoDetailPage() {
   }
 
   async function handleGenerateSummary() {
-    await generateSummaryMutation.mutateAsync({
-      repo_id: id ?? null,
-      summary_type: 'repo_overview',
-    })
+    setSummaryExpanded(true)
+    setTypingSummaryId(null)
+    try {
+      await generateSummaryMutation.mutateAsync({
+        repo_id: id ?? null,
+        summary_type: 'repo_overview',
+      }, {
+        onSuccess: created => {
+          // Publish the new summary before pending ends, so the previous text
+          // cannot flash back while the history request is still refreshing.
+          queryClient.setQueryData<Summary[]>(summaryKeys.repoSummaries(id ?? ''), current =>
+            [created, ...(current ?? []).filter(summary => summary.id !== created.id)]
+          )
+          setTypingSummaryId(created.id)
+        },
+      })
+    } catch {
+      toast.error('Could not generate the summary. Please try again.')
+    }
   }
 
   function handleRemove() {
@@ -630,10 +756,54 @@ export function RepoDetailPage() {
     }
   }, [highlightedCommitHash, displayedCommits])
 
+  // Deep link from a reminder: `/repos/:id?commit=<hash>`. The jump has to wait
+  // for the full commit list, since a commit's page number is only derivable
+  // from its index in that list — hovering the reminder prefetches it, so this
+  // usually fires on the first render after mount.
+  //
+  // The param is cleared once consumed so that a later manual jump, or a
+  // reload, does not silently drag the user back to this commit.
+  useEffect(() => {
+    const targetHash = searchParams.get('commit')
+    if (!targetHash || allCommitsLoading) return
+
+    handleScrollToCommit(targetHash)
+    setPendingCommitJump(null)
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current)
+        next.delete('commit')
+        return next
+      },
+      { replace: true }
+    )
+  }, [searchParams, allCommitsLoading])
+
+  // Deep link from a notification about a note: `/repos/:id?note=<id>`. The
+  // drawer opens on that note. Unlike the commit jump this needs nothing
+  // loaded first — the drawer renders whatever notes it has and re-scrolls
+  // when they arrive — so the param is consumed immediately.
+  //
+  // Cleared like `?commit=`, so a reload does not drag the reader back here.
+  useEffect(() => {
+    const targetNote = searchParams.get('note')
+    if (!targetNote) return
+
+    setHighlightedNoteId(targetNote)
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current)
+        next.delete('note')
+        return next
+      },
+      { replace: true }
+    )
+  }, [searchParams])
+
   // Reset to page 0 when filters change
   useEffect(() => {
     setCommitPage(0)
-  }, [selectedBranches, selectedContributorIds, selectedAuthors, selectedTypes])
+  }, [selectedBranches, selectedContributorIds, selectedTypes, selectedDate])
 
   useEffect(() => {
     if (repo?.expected_contributor_count != null) {
@@ -712,6 +882,22 @@ export function RepoDetailPage() {
   if (repoLoading) {
     return (
       <div className="px-6 py-8">
+        {/* Arriving from a reminder, say where we are going. An unexplained
+            skeleton reads as a stall; naming the destination makes the same
+            wait legible. */}
+        {pendingCommitJump && (
+          <p
+            data-testid="commit-jump-pending"
+            className="mb-4 flex items-center gap-2 text-sm text-muted-foreground"
+          >
+            <GitCommit className="h-4 w-4 flex-shrink-0 text-indigo-500" />
+            Opening commit{' '}
+            <span className="font-mono text-foreground">
+              {pendingCommitJump.slice(0, 7)}
+            </span>
+            …
+          </p>
+        )}
         <div className="h-8 w-64 bg-muted rounded animate-pulse mb-4" />
         <div className="h-4 w-40 bg-muted rounded animate-pulse mb-8" />
         <div className="h-64 bg-muted rounded-lg animate-pulse" />
@@ -738,6 +924,18 @@ export function RepoDetailPage() {
           />
         </div>
       )}
+      {/* The repo header has rendered but the commit list has not, so the jump
+          cannot happen yet. Keep the destination on screen until it does. */}
+      {pendingCommitJump && (
+        <div
+          data-testid="commit-jump-pending"
+          className="flex items-center gap-2 border-b border-indigo-100 bg-indigo-50 px-6 py-2 text-sm text-indigo-800"
+        >
+          <GitCommit className="h-4 w-4 flex-shrink-0" />
+          Opening commit{' '}
+          <span className="font-mono">{pendingCommitJump.slice(0, 7)}</span>…
+        </div>
+      )}
       {/* Clean white page header */}
       <div data-testid="page-header" className={PAGE_HEADER_CLASS}>
         <div className="grid w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4">
@@ -751,82 +949,22 @@ export function RepoDetailPage() {
             </button>
             <div className="flex min-w-0 items-center gap-3">
                 <h1 className="min-w-0">
-                  <a href={repo.github_url} target="_blank" rel="noopener noreferrer" title="Open repository on GitHub" className="inline-flex max-w-full items-center gap-2 rounded-md border border-border px-3 py-1.5 text-lg font-semibold text-foreground transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <a href={repo.github_url} target="_blank" rel="noopener noreferrer" title="Open repository on GitHub" className="inline-flex max-w-full items-center gap-2 rounded-md border border-border px-3 py-1.5 text-2xl font-semibold text-foreground transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     <span className="truncate">{repo.name}</span>
                     <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   </a>
                 </h1>
 
-              {healthScore && (() => {
-                const signals = [
-                  {
-                    label: 'Frequency',
-                    value: healthScore.commit_frequency,
-                    tip: 'Avg commits/week over the last 4 weeks. Green ≥10/wk, yellow 4–9/wk, red ≤3/wk.',
-                  },
-                  {
-                    label: 'Recency',
-                    value: healthScore.recency,
-                    tip: 'Days since the most recent commit. Green <3 days, yellow 3–7 days, red >7 days.',
-                  },
-                  {
-                    label: 'Distribution',
-                    value: healthScore.distribution,
-                    tip: 'How evenly commits are spread across contributors (Gini coefficient). Green = well distributed, red = one person dominates.',
-                  },
-                  {
-                    label: 'Branches',
-                    value: healthScore.branch_activity,
-                    tip: 'Active branch count. Green ≥2 branches, yellow = 1 branch with recent activity, red = stale or no branches.',
-                  },
-                  {
-                    label: 'Msg Quality',
-                    value: healthScore.commit_message_quality,
-                    tip: 'Percentage of commits with descriptive messages (≥10 chars, multi-word). Green <10% low-quality, red >30%.',
-                  },
-                  {
-                    label: 'Participation',
-                    value: healthScore.participation ?? 0,
-                    tip: 'Actual vs expected unique contributors. Green = at or above expected, yellow ≥60%, red <60%.',
-                  },
-                ]
-                return (
-                  <details className="group relative shrink-0 text-xs text-muted-foreground">
-                    <summary className={cn('flex cursor-pointer list-none items-center gap-1.5 rounded-full border px-3 py-1 font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden', healthScore.composite >= 0.75 ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : healthScore.composite >= 0.375 ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100')}>
-                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                      Health details
-                      <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
-                    </summary>
-                    <div className="absolute left-0 top-full z-30 mt-2 grid w-72 grid-cols-2 gap-3 rounded-lg border border-border bg-white p-4 shadow-lg">
-                    <div className="col-span-2 flex items-center justify-between border-b border-border pb-3">
-                      <HealthBadge status={healthScore.status ?? repo.health_status} />
-                      <span className="font-semibold text-foreground">{Math.round(healthScore.composite * 100)}/100</span>
-                    </div>
-                    {signals.map((signal) => {
-                      const norm = signal.value / 2
-                      const dotClass = norm >= 0.7
-                        ? 'bg-emerald-500'
-                        : norm >= 0.4
-                        ? 'bg-amber-500'
-                        : 'bg-red-500'
-                      return (
-                        <div
-                          key={signal.label}
-                          title={signal.tip}
-                          className={cn(
-                            'flex items-center gap-1.5 text-xs font-medium text-foreground cursor-default'
-                          )}
-                        >
-                          <span className={cn('h-2 w-2 rounded-full flex-shrink-0', dotClass)} />
-                          <span>{signal.label}</span>
-                          <span className="sr-only">{norm >= 0.7 ? 'Healthy' : norm >= 0.4 ? 'Needs attention' : 'At risk'}</span>
-                        </div>
-                      )
-                    })}
-                    </div>
-                  </details>
-                )
-              })()}
+              {/* The per-signal breakdown now lives on the Commit Activity
+                  card; the header keeps only the composite it rolls up to. */}
+              {healthScore && (
+                <div className="flex shrink-0 items-center gap-2">
+                  <HealthBadge status={healthScore.status ?? repo.health_status} />
+                  <span className="text-xs font-semibold text-muted-foreground">
+                    {Math.round(healthScore.composite * 100)}/100
+                  </span>
+                </div>
+              )}
             </div>
           </div>
           <span className="flex items-center justify-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
@@ -898,66 +1036,74 @@ export function RepoDetailPage() {
         </div>
       </div>
 
-      {/* Body — flex-row when notes are pinned, flex-col otherwise */}
-      <div className={cn(PAGE_BODY_CLASS, 'flex gap-6', notesPinned ? 'flex-row items-start' : 'flex-col')}>
+      {/* Body — content beside the notes column, which is always present */}
+      <div className={cn(PAGE_BODY_CLASS, 'flex flex-row items-start gap-6')}>
 
         {/* Main sections column */}
-        <div className={cn('flex flex-col gap-3', notesPinned ? 'flex-1 min-w-0' : 'w-full')}>
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <BarChart2 className="h-4 w-4 text-muted-foreground" />
                 Overview
               </h2>
 
-        <div className="flex gap-8 items-start">
+        {/* AI Summary — spans the full width above the two columns */}
+        <motion.div variants={sectionVariants} initial="hidden" animate="visible">
+          <Card className="relative overflow-hidden">
+            <SummaryLiquidBackground generating={generateSummaryMutation.isPending} />
+            <CardHeader className="relative z-10 pb-2">
+              <div className="flex items-center justify-between">
+                <button
+                  className="flex items-center gap-1.5 text-base font-semibold hover:text-indigo-600 transition-colors"
+                  onClick={() => latestSummary && setSummaryExpanded(v => !v)}
+                >
+                  AI Summary
+                  {latestSummary && (summaryExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />)}
+                </button>
+                <GenerateSummaryButton
+                  onClick={handleGenerateSummary}
+                  isPending={generateSummaryMutation.isPending}
+                />
+              </div>
+            </CardHeader>
+            {summaryExpanded && (
+            <CardContent className="relative z-10">
+              {(generateSummaryMutation.isPending || summariesLoading) && (
+                <LoadingContent label={summariesLoading ? 'Loading summary…' : ''} />
+              )}
+              {/* Hidden while pending so the previous summary cannot sit under
+                  the thinking state, then revealed by the typing animation. */}
+              {!generateSummaryMutation.isPending && latestSummary ? (
+                <div>
+                  <TypedMarkdown
+                    content={latestSummary.content}
+                    animate={latestSummary.id === typingSummaryId}
+                    onDone={() => setTypingSummaryId(null)}
+                  />
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Generated {formatDateTime(latestSummary.generated_at)} · {latestSummary.model_used}
+                  </p>
+                </div>
+              ) : !generateSummaryMutation.isPending && !summariesLoading ? (
+                <p className="text-sm text-muted-foreground">
+                  No summary generated yet. Click "Generate Summary" to create one.
+                </p>
+              ) : null}
+            </CardContent>
+            )}
+          </Card>
+        </motion.div>
 
-          {/* Left column — main content */}
-          <div className="flex-1 min-w-0 flex flex-col gap-6">
+        {/* Two columns: sidebar (PRs + contributors) renders to the left of the
+            main content via grid placement, so the DOM keeps main content first
+            for screen readers and tab order. */}
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[20rem_minmax(0,1fr)] xl:grid-cols-[24rem_minmax(0,1fr)]">
 
-            {/* Overview section */}
+          {/* Main content column — commit activity + commits */}
+          <div className="min-w-0 flex flex-col gap-6 lg:col-start-2 lg:row-start-1">
+
+            {/* Commit activity section */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible">
               <div className="flex flex-col gap-5">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <button
-                        className="flex items-center gap-1.5 text-base font-semibold hover:text-indigo-600 transition-colors"
-                        onClick={() => latestSummary && setSummaryExpanded(v => !v)}
-                      >
-                        AI Summary
-                        {latestSummary && (summaryExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />)}
-                      </button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleGenerateSummary}
-                        loading={generateSummaryMutation.isPending} disabled={generateSummaryMutation.isPending}
-                      >
-                        <Sparkles className={cn('h-4 w-4 mr-1.5', generateSummaryMutation.isPending && 'animate-pulse')} />
-                        {generateSummaryMutation.isPending ? 'Generating...' : 'Generate Summary'}
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  {summaryExpanded && (
-                  <CardContent>
-                    {(generateSummaryMutation.isPending || summariesLoading) && (
-                      <LoadingContent label={generateSummaryMutation.isPending ? 'Generating your summary… This may take a minute.' : 'Loading summary…'} />
-                    )}
-                    {latestSummary ? (
-                      <div>
-                        <MarkdownContent content={latestSummary.content} />
-                        <p className="text-xs text-muted-foreground mt-3">
-                          Generated {formatDateTime(latestSummary.generated_at)} · {latestSummary.model_used}
-                        </p>
-                      </div>
-                    ) : !generateSummaryMutation.isPending && !summariesLoading ? (
-                      <p className="text-sm text-muted-foreground">
-                        No summary generated yet. Click "Generate Summary" to create one.
-                      </p>
-                    ) : null}
-                  </CardContent>
-                  )}
-                </Card>
-
                 <ContextualActivityChart key={id} collectionId={repo.collection_id} repoId={repo.id}
                   selectedContributorIds={Array.from(selectedContributorIds)}
                   actions={<>
@@ -984,6 +1130,7 @@ export function RepoDetailPage() {
 
                   </>}
                 >
+                  <HealthSignalPills health={healthScore} className="py-1" />
                   {checkIns.length > 0 && <p className="text-xs text-muted-foreground">Last checked: {formatRelativeDays(checkIns[checkIns.length - 1])}</p>}
                     {showPastCheckIn && (
                       <div className="flex items-center gap-2 mt-2 pt-2 border-t">
@@ -1017,7 +1164,7 @@ export function RepoDetailPage() {
             {/* Commits section */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible" transition={{ delay: 0.1 }}>
               <Card>
-                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+                <CardHeader className="pt-4 pb-2 flex flex-row items-center justify-between space-y-0">
                   <CardTitle className="text-base">Commits</CardTitle>
                   <Button
                     size="sm"
@@ -1040,14 +1187,19 @@ export function RepoDetailPage() {
                   </Button>
                 </CardHeader>
                 <CardContent>
-              {!allCommitsData?.items.length ? (
+              {/* Checked before the empty case: while the query is in flight
+                  allCommitsData is undefined, which used to render "No commits
+                  found." at every page load. */}
+              {allCommitsLoading ? (
+                <CommitsLoading />
+              ) : !allCommitsData?.items.length ? (
                 <p className="text-muted-foreground text-sm">No commits found.</p>
               ) : (
                 <div className="flex flex-col gap-2">
                   <div className="flex flex-col gap-2">
                     {allBranches.length > 0 && (
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground mr-1">Branch:</span>
+                        <span className="w-14 shrink-0 text-xs text-muted-foreground">Branch:</span>
                         <button
                           onClick={() => setSelectedBranches(new Set())}
                           className={cn(
@@ -1059,7 +1211,7 @@ export function RepoDetailPage() {
                         >
                           All
                         </button>
-                        {(showAllBranches ? allBranches : allBranches.slice(0, MAX_FILTER_CHIPS)).map(b => (
+                        {(showAllBranches ? allBranches : allBranches.slice(0, MAX_BRANCH_CHIPS)).map(b => (
                           <button
                             key={b}
                             onClick={() => toggleBranch(b)}
@@ -1073,63 +1225,25 @@ export function RepoDetailPage() {
                             {b}
                           </button>
                         ))}
-                        {allBranches.length > MAX_FILTER_CHIPS && (
+                        {allBranches.length > MAX_BRANCH_CHIPS && (
                           <button
                             onClick={() => setShowAllBranches(v => !v)}
                             className="text-xs px-1.5 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
                           >
-                            {showAllBranches ? 'Show less' : `+${allBranches.length - MAX_FILTER_CHIPS} more`}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {allAuthors.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground mr-1">Author:</span>
-                        <button
-                          onClick={() => setSelectedAuthors(new Set())}
-                          className={cn(
-                            'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                            selectedAuthors.size === 0
-                              ? 'bg-violet-600 text-white border-violet-600'
-                              : 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
-                          )}
-                        >
-                          All
-                        </button>
-                        {(showAllAuthors ? allAuthors : allAuthors.slice(0, MAX_FILTER_CHIPS)).map(a => (
-                          <button
-                            key={a}
-                            onClick={() => toggleAuthor(a)}
-                            className={cn(
-                              'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                              selectedAuthors.has(a)
-                                ? 'bg-violet-600 text-white border-violet-600'
-                                : 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
-                            )}
-                          >
-                            {a}
-                          </button>
-                        ))}
-                        {allAuthors.length > MAX_FILTER_CHIPS && (
-                          <button
-                            onClick={() => setShowAllAuthors(v => !v)}
-                            className="text-xs px-1.5 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
-                          >
-                            {showAllAuthors ? 'Show less' : `+${allAuthors.length - MAX_FILTER_CHIPS} more`}
+                            {showAllBranches ? 'Show less' : `+${allBranches.length - MAX_BRANCH_CHIPS} more`}
                           </button>
                         )}
                       </div>
                     )}
                     {/* role/aria-label so tests and screen readers can tell this
-                        row apart — "All" appears in the Branch and Author rows
-                        and the chart range selector too. */}
+                        row apart — "All" appears in the Branch row and the
+                        chart range selector too. */}
                     <div
                       role="group"
                       aria-label="Filter by commit type"
                       className="flex flex-wrap items-center gap-1.5"
                     >
-                      <span className="text-xs text-muted-foreground mr-1">Type:</span>
+                      <span className="w-14 shrink-0 text-xs text-muted-foreground">Type:</span>
                       <button
                         onClick={() => setSelectedTypes(new Set())}
                         className={cn(
@@ -1160,6 +1274,37 @@ export function RepoDetailPage() {
                           </button>
                         )
                       })}
+                    </div>
+                    <div
+                      role="group"
+                      aria-label="Filter by commit date"
+                      className="flex flex-wrap items-center gap-1.5"
+                    >
+                      <span className="w-14 shrink-0 text-xs text-muted-foreground">Date:</span>
+                      {/* "All" is the first option rather than a separate reset
+                          button, so this row starts with the same affordance as
+                          the Branch and Type rows above it. */}
+                      <select
+                        aria-label="Filter commits by date"
+                        value={selectedDate}
+                        onChange={e => setSelectedDate(e.target.value)}
+                        className={cn(
+                          'text-xs px-1.5 py-0.5 rounded border transition-colors focus:outline-none focus:border-indigo-400',
+                          selectedDate
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                        )}
+                      >
+                        <option value="">All</option>
+                        {commitDates.map(d => (
+                          <option key={d} value={d}>{formatMonthDay(d)}</option>
+                        ))}
+                      </select>
+                      {commitDates.length > 0 && (
+                        <span className="text-xs italic text-gray-400">
+                          *only showing dates with commits
+                        </span>
+                      )}
                     </div>
                   </div>
                     <div className="flex flex-wrap items-center justify-between gap-3 py-1">
@@ -1287,7 +1432,9 @@ export function RepoDetailPage() {
                               {(() => {
                                 const mainNames = ['main', 'master']
                                 const onMain = commit.branches.some(b => mainNames.includes(b))
-                                const originBranch = commit.branches.find(b => !mainNames.includes(b)) ?? commit.branches[0]
+                                // The backend decides which branch owns a commit, so the
+                                // chip shown here is exactly what the filter matches on.
+                                const originBranch = commit.origin_branch
                                 const displayBranch = originBranch && originBranch.length > 22
                                   ? originBranch.slice(0, 20) + '…'
                                   : originBranch
@@ -1358,8 +1505,10 @@ export function RepoDetailPage() {
 
           </div>
 
-          {/* Right column — Pull Requests + Contributors */}
-          <div className="w-80 xl:w-96 flex-shrink-0 self-stretch flex flex-col gap-6">
+          {/* Sidebar column — Pull Requests + Contributors. self-stretch keeps
+              this column as tall as the main content so the sticky Contributors
+              panel has room to travel as you scroll. */}
+          <div className="min-w-0 self-stretch flex flex-col gap-6 lg:col-start-1 lg:row-start-1">
 
             {/* Pull Requests panel */}
             <div className="shrink-0 bg-gray-50 rounded-xl border border-border p-4">
@@ -1637,13 +1786,12 @@ export function RepoDetailPage() {
               )}
             </div>
 
-          </div>{/* end right column */}
+          </div>{/* end sidebar column */}
 
-        </div>{/* end inner two-column flex */}
+        </div>{/* end inner two-column grid */}
         </div>{/* end main sections column */}
 
         <NotesDrawer
-          repoId={id ?? ''}
           notes={notes}
           noteCount={noteCount}
           showArchivedNotes={showArchivedNotes}
@@ -1654,7 +1802,7 @@ export function RepoDetailPage() {
           users={users}
           currentUser={currentUser}
           onScrollToCommit={handleScrollToCommit}
-          onPinnedChange={setNotesPinned}
+          highlightNoteId={highlightedNoteId}
         />
 
       </div>{/* end body flex wrapper */}

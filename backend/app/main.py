@@ -55,9 +55,11 @@ from sqlalchemy import text
 
 from app.api.routes import api_router
 from app.db.database import engine
+from app.core.errors import AppError
 from app.services.contributor_service import ContributorOperationError
 from app.schemas.errors import ErrorResponse
 from app.schemas.meta import HealthzResponse
+from app.services.system_status_service import SchemaProbe, probe_schema
 
 app = FastAPI(
     title="RepoPulse API",
@@ -83,6 +85,14 @@ app.add_middleware(
 
 @app.exception_handler(ContributorOperationError)
 async def contributor_operation_error_handler(request: Request, exc: ContributorOperationError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=ErrorResponse(detail=exc.detail, error_code=exc.error_code).model_dump(),
+    )
+
+
+@app.exception_handler(AppError)
+async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content=ErrorResponse(detail=exc.detail, error_code=exc.error_code).model_dump(),
@@ -141,22 +151,18 @@ async def healthz(response: Response) -> HealthzResponse:
     first real request 500s — this endpoint is what makes that state visible,
     and what lets a compose healthcheck catch it.
     """
+    # The probe itself is shared with GET /api/v1/admin/system so the two
+    # cannot drift into disagreeing about whether the schema is migrated.
+    # The global engine is deliberate here: a container healthcheck should
+    # test the real DATABASE_URL, not an injected session.
     try:
         async with engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-            # to_regclass rather than querying alembic_version directly: a
-            # missing table would raise, abort the transaction, and get
-            # reported as "unreachable" when the database is in fact fine.
-            table = (
-                await conn.execute(text("SELECT to_regclass('public.alembic_version')"))
-            ).scalar()
-            revision = None
-            if table is not None:
-                revision = (
-                    await conn.execute(text("SELECT version_num FROM alembic_version"))
-                ).scalar_one_or_none()
+            probe = await probe_schema(conn)
     except Exception as exc:  # noqa: BLE001 — any failure here means unhealthy
-        _app_logger.warning("healthz: database probe failed: %s", exc)
+        _app_logger.warning("healthz: could not open a connection: %s", exc)
+        probe = SchemaProbe(reachable=False)
+
+    if not probe.reachable:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return HealthzResponse(
             status="error",
@@ -164,6 +170,7 @@ async def healthz(response: Response) -> HealthzResponse:
             detail="Database is unreachable.",
         )
 
+    revision = probe.revision
     if revision is None:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return HealthzResponse(

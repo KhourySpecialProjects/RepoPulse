@@ -79,6 +79,10 @@ const notifOf = (
   created_at: '2026-09-11T11:00:00Z',
   note_content_preview: `Preview ${id}`,
   repo_id: 'repo-1',
+  commit_hash: null,
+  subject: null,
+  body: null,
+  emailed_at: null,
   ...over,
 })
 

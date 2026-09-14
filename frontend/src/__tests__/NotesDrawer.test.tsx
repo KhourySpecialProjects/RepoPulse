@@ -1,17 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+/**
+ * Notes are part of the page, not a drawer you have to summon.
+ *
+ * This panel used to have three states — a vertical tab on the right edge, a
+ * sliding overlay, and a pinned inline column — plus a pin toggle persisted to
+ * localStorage. Reading a repo's notes meant a click every time, and the pin
+ * was a preference with no wrong answer that still had to be discovered.
+ *
+ * It now renders inline, always, with no open/close and no pin.
+ */
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { NotesDrawer } from '@/components/NotesDrawer'
 import type { Note, UserDetail } from '@/types'
 
-// Mock framer-motion so tests don't need animation support
-vi.mock('framer-motion', () => ({
-  motion: {
-    div: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement> & { children?: React.ReactNode }) => <div {...props}>{children}</div>,
-  },
-  AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}))
-
-// Mock NoteForm and NoteComments
 vi.mock('@/components/NoteForm', () => ({
   NoteForm: ({ onSubmit }: { onSubmit: () => void }) => (
     <form data-testid="note-form" onSubmit={onSubmit}>
@@ -39,8 +40,8 @@ const mockNote: Note = {
   remind_at: null,
   is_checked: false,
   is_archived: false,
-  created_at: '2025-01-15T10:00:00Z',
-  updated_at: '2025-01-15T10:00:00Z',
+  created_at: '2026-01-15T10:00:00Z',
+  updated_at: '2026-01-15T10:00:00Z',
   comments: [],
 }
 
@@ -51,13 +52,12 @@ const mockUsers: UserDetail[] = [
     email: 'alice@example.com',
     role: 'instructor',
     github_token_configured: false,
-    created_at: '2025-01-01T00:00:00Z',
-    updated_at: '2025-01-01T00:00:00Z',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
   },
 ]
 
 const defaultProps = {
-  repoId: 'repo-abc',
   notes: [mockNote],
   noteCount: 1,
   showArchivedNotes: false,
@@ -71,97 +71,67 @@ const defaultProps = {
 }
 
 describe('NotesDrawer', () => {
-  beforeEach(() => {
-    localStorage.clear()
-  })
-
-  it('renders the trigger strip with Notes label', () => {
+  it('shows its notes straight away, with nothing to click first', () => {
     render(<NotesDrawer {...defaultProps} />)
-    expect(screen.getByText('Notes')).toBeInTheDocument()
+
+    expect(screen.getByText('This is a test note')).toBeInTheDocument()
+    expect(screen.getByTestId('note-form')).toBeInTheDocument()
   })
 
-  it('shows a badge with note count on the trigger strip when notes exist', () => {
+  it('has no tab, close, or pin control', () => {
+    render(<NotesDrawer {...defaultProps} />)
+
+    expect(screen.queryByTitle('Open notes')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Close')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Pin open')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Unpin')).not.toBeInTheDocument()
+  })
+
+  it('keeps its heading and note count', () => {
     render(<NotesDrawer {...defaultProps} noteCount={3} />)
+
+    expect(screen.getByText('Notes')).toBeInTheDocument()
     expect(screen.getByText('3')).toBeInTheDocument()
   })
 
-  it('does not show a badge when noteCount is 0', () => {
+  it('shows no count badge when there are no notes', () => {
     render(<NotesDrawer {...defaultProps} noteCount={0} notes={[]} />)
-    // Only the "Notes" label should be present, no count badge
+
     expect(screen.getByText('Notes')).toBeInTheDocument()
     expect(screen.queryByText('0')).not.toBeInTheDocument()
   })
 
-  it('drawer is closed by default', () => {
+  it('renders comments for each note', () => {
     render(<NotesDrawer {...defaultProps} />)
-    // The NoteForm is inside the drawer body, which should not be visible when closed
-    expect(screen.queryByTestId('note-form')).not.toBeInTheDocument()
-  })
-
-  it('opens the drawer when trigger strip is clicked', () => {
-    render(<NotesDrawer {...defaultProps} />)
-    const strip = screen.getByTitle('Open notes')
-    fireEvent.click(strip)
-    expect(screen.getByTestId('note-form')).toBeInTheDocument()
-  })
-
-  it('closes the drawer when close button is clicked', () => {
-    render(<NotesDrawer {...defaultProps} />)
-    // Open first
-    fireEvent.click(screen.getByTitle('Open notes'))
-    expect(screen.getByTestId('note-form')).toBeInTheDocument()
-    // Close
-    fireEvent.click(screen.getByTitle('Close'))
-    expect(screen.queryByTestId('note-form')).not.toBeInTheDocument()
-  })
-
-  it('renders note content inside the open drawer', () => {
-    render(<NotesDrawer {...defaultProps} />)
-    fireEvent.click(screen.getByTitle('Open notes'))
-    expect(screen.getByText('This is a test note')).toBeInTheDocument()
-  })
-
-  it('renders the pin button inside the open drawer', () => {
-    render(<NotesDrawer {...defaultProps} />)
-    fireEvent.click(screen.getByTitle('Open notes'))
-    expect(screen.getByTitle('Pin open')).toBeInTheDocument()
-  })
-
-  it('toggling pin calls onPinnedChange with true when pinning while open', () => {
-    const onPinnedChange = vi.fn()
-    render(<NotesDrawer {...defaultProps} onPinnedChange={onPinnedChange} />)
-    fireEvent.click(screen.getByTitle('Open notes'))
-    fireEvent.click(screen.getByTitle('Pin open'))
-    expect(onPinnedChange).toHaveBeenCalledWith(true)
-  })
-
-  it('shows Unpin title when already pinned', () => {
-    const onPinnedChange = vi.fn()
-    render(<NotesDrawer {...defaultProps} onPinnedChange={onPinnedChange} />)
-    fireEvent.click(screen.getByTitle('Open notes'))
-    fireEvent.click(screen.getByTitle('Pin open'))
-    expect(screen.getByTitle('Unpin')).toBeInTheDocument()
-  })
-
-  it('renders NoteComments for each note', () => {
-    render(<NotesDrawer {...defaultProps} />)
-    fireEvent.click(screen.getByTitle('Open notes'))
     expect(screen.getByTestId('note-comments-note-1')).toBeInTheDocument()
   })
 
-  it('renders archive toggle when notes have archived items', () => {
+  it('offers the archive toggle when something is archived', () => {
     const archivedNote: Note = { ...mockNote, id: 'note-2', is_archived: true }
     render(<NotesDrawer {...defaultProps} notes={[mockNote, archivedNote]} />)
-    fireEvent.click(screen.getByTitle('Open notes'))
+
     expect(screen.getByText(/Show archived/)).toBeInTheDocument()
   })
 
-  it('calls onToggleArchivedNotes when archive toggle is clicked', () => {
+  it('calls onToggleArchivedNotes when that toggle is clicked', () => {
     const onToggle = vi.fn()
     const archivedNote: Note = { ...mockNote, id: 'note-2', is_archived: true }
-    render(<NotesDrawer {...defaultProps} notes={[mockNote, archivedNote]} onToggleArchivedNotes={onToggle} />)
-    fireEvent.click(screen.getByTitle('Open notes'))
+    render(
+      <NotesDrawer
+        {...defaultProps}
+        notes={[mockNote, archivedNote]}
+        onToggleArchivedNotes={onToggle}
+      />
+    )
+
     fireEvent.click(screen.getByText(/Show archived/))
     expect(onToggle).toHaveBeenCalled()
+  })
+
+  it('does not persist any drawer preference', () => {
+    // The pin used to write `notes-drawer-pinned-<repoId>`. Nothing should be
+    // storing layout state per repo now.
+    render(<NotesDrawer {...defaultProps} />)
+    expect(localStorage.getItem('notes-drawer-pinned-repo-abc')).toBeNull()
   })
 })

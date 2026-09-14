@@ -55,6 +55,10 @@ const mockRepo: Repo = {
   contributor_count: 2,
   active_reminder_count: 0,
   expected_contributor_count: null,
+  sync_status: 'idle',
+  sync_started_at: null,
+  sync_started_by_name: null,
+  sync_error: null,
 }
 
 function commit(overrides: Partial<Commit> & Pick<Commit, 'hash' | 'message'>): Commit {
@@ -63,6 +67,7 @@ function commit(overrides: Partial<Commit> & Pick<Commit, 'hash' | 'message'>): 
     author_email: 'alice@example.com',
     date: '2025-10-14T14:00:00Z',
     branches: ['main'],
+    origin_branch: 'main',
     insertions: 10,
     deletions: 2,
     files_changed: 1,

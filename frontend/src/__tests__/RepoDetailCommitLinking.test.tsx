@@ -55,6 +55,10 @@ const mockRepo: Repo = {
   contributor_count: 1,
   active_reminder_count: 0,
   expected_contributor_count: null,
+  sync_status: 'idle',
+  sync_started_at: null,
+  sync_started_by_name: null,
+  sync_error: null,
 }
 
 const mockCommit: Commit = {
@@ -64,6 +68,7 @@ const mockCommit: Commit = {
   date: '2025-10-14T14:00:00Z',
   message: 'feat: implement auth',
   branches: ['main'],
+  origin_branch: 'main',
   insertions: 142,
   deletions: 23,
   files_changed: 6,
@@ -145,16 +150,19 @@ function setupHandlers(notes: Note[] = []) {
   )
 }
 
-async function openNotesDrawer() {
-  await waitFor(() => expect(screen.getByTitle('Open notes')).toBeInTheDocument())
-  fireEvent.click(screen.getByTitle('Open notes'))
+/**
+ * The notes panel is part of the page now — there is nothing to open. This
+ * still waits for it, so the assertions after it are not racing the render.
+ */
+async function waitForNotesPanel() {
+  await waitFor(() => expect(screen.getByTestId('notes-panel')).toBeInTheDocument())
 }
 
 describe('RepoDetailPage - commit linking from Notes panel', () => {
   it('does not render a commit link button for notes without a commit_hash', async () => {
     setupHandlers([noteWithoutCommitHash])
     renderPage()
-    await openNotesDrawer()
+    await waitForNotesPanel()
     await waitFor(() => expect(screen.getByText('Regular repo note')).toBeInTheDocument())
     // Should not render any element with text that looks like a short commit hash link
     expect(screen.queryByTitle('Jump to commit')).not.toBeInTheDocument()
@@ -163,7 +171,7 @@ describe('RepoDetailPage - commit linking from Notes panel', () => {
   it('renders a commit link button next to the timestamp for notes with a commit_hash', async () => {
     setupHandlers([noteWithCommitHash])
     renderPage()
-    await openNotesDrawer()
+    await waitForNotesPanel()
     await waitFor(() => expect(screen.getByText('Note linked to a commit')).toBeInTheDocument())
     const commitLinkBtn = screen.getByTitle('Jump to commit')
     expect(commitLinkBtn).toBeInTheDocument()
@@ -182,7 +190,7 @@ describe('RepoDetailPage - commit linking from Notes panel', () => {
   it('highlights the commit row when the commit link button is clicked', async () => {
     setupHandlers([noteWithCommitHash])
     renderPage()
-    await openNotesDrawer()
+    await waitForNotesPanel()
     await waitFor(() => expect(screen.getByText('Note linked to a commit')).toBeInTheDocument())
 
     const commitRow = document.getElementById('commit-abc1234567890') as HTMLElement
@@ -200,7 +208,7 @@ describe('RepoDetailPage - commit linking from Notes panel', () => {
   it('does not show a commit link for notes without a hash even when other notes have hashes', async () => {
     setupHandlers([noteWithCommitHash, noteWithoutCommitHash])
     renderPage()
-    await openNotesDrawer()
+    await waitForNotesPanel()
     await waitFor(() => {
       expect(screen.getByText('Note linked to a commit')).toBeInTheDocument()
       expect(screen.getByText('Regular repo note')).toBeInTheDocument()

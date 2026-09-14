@@ -1,9 +1,13 @@
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  Bell,
   AtSign,
   Clock,
+  FolderMinus,
+  FolderPlus,
+  GitMerge,
+  GitPullRequest,
+  HeartPulse,
   MessageSquare,
   Trash2,
   RotateCcw,
@@ -27,8 +31,12 @@ import {
   usePurgeNote,
 } from '@/hooks/useNotifications'
 import { ActiveRemindersPanel, ICON_BUTTON_CLASS } from '@/components/ActiveRemindersPanel'
+import { EmailRelayPanel } from '@/components/EmailRelayPanel'
+import { EmptyInboxMascot } from '@/components/EmptyInboxMascot'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { feedTitleFor } from '@/lib/notificationEvents'
+import { notificationTarget } from '@/lib/notificationTarget'
 import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
 import type { Notification, RecentlyDeletedItem } from '@/types'
 
@@ -56,13 +64,13 @@ function formatTimeAgo(isoStr: string): string {
 function NotificationIcon({ type }: { type: Notification['type'] }) {
   if (type === 'mention') return <AtSign className="h-5 w-5 text-violet-500" />
   if (type === 'reminder') return <Clock className="h-5 w-5 text-amber-500" />
+  if (type === 'repo_health_declined')
+    return <HeartPulse className="h-5 w-5 text-red-500" />
+  if (type === 'pr_opened') return <GitPullRequest className="h-5 w-5 text-sky-500" />
+  if (type === 'pr_merged') return <GitMerge className="h-5 w-5 text-emerald-500" />
+  if (type === 'repo_added') return <FolderPlus className="h-5 w-5 text-emerald-500" />
+  if (type === 'repo_removed') return <FolderMinus className="h-5 w-5 text-red-500" />
   return <MessageSquare className="h-5 w-5 text-indigo-500" />
-}
-
-function notificationTitle(type: Notification['type']): string {
-  if (type === 'mention') return 'You were mentioned'
-  if (type === 'reminder') return 'Reminder due'
-  return 'New comment on your note'
 }
 
 const SECTION_CLASS = 'mb-8 overflow-hidden rounded-xl border border-border bg-white'
@@ -166,9 +174,12 @@ export function NotificationsPage() {
   )
   const hasRead = notifications.some((n) => n.is_read)
 
-  async function handleNotificationClick(id: string, repoId: string | null) {
-    await markRead.mutateAsync(id)
-    if (repoId) navigate(`/repos/${repoId}`)
+  async function handleNotificationClick(notif: Notification) {
+    await markRead.mutateAsync(notif.id)
+    // Resolves to the commit or note behind the notification, not just the
+    // repo, so the reader arrives at what they were actually told about.
+    const target = notificationTarget(notif)
+    if (target) navigate(target)
   }
 
   return (
@@ -213,7 +224,16 @@ export function NotificationsPage() {
         </div>
       </div>
 
-      <div data-testid="notifications-body" className={PAGE_BODY_CLASS}>
+      {/*
+        Two columns from `lg` up: everything that reports what happened on the
+        left, the email relay configuration on the right. Below `lg` they stack
+        in the same order, so the feed stays the first thing you see.
+      */}
+      <div
+        data-testid="notifications-body"
+        className={cn(PAGE_BODY_CLASS, 'lg:grid lg:grid-cols-[minmax(0,1fr)_24rem] lg:gap-6')}
+      >
+        <div className="min-w-0">
         {/* Reminders you can manage directly */}
         <section className={SECTION_CLASS}>
           <ActiveRemindersPanel />
@@ -234,7 +254,7 @@ export function NotificationsPage() {
               data-testid="notifications-empty"
               className="px-5 py-16 text-center text-muted-foreground"
             >
-              <Bell className="mx-auto mb-3 h-8 w-8 opacity-30" />
+              <EmptyInboxMascot className="mx-auto mb-3" />
               <p className="text-sm font-medium">No notifications</p>
               <p className="mt-1 text-sm">
                 Mentions, replies and due reminders will appear here.
@@ -254,7 +274,7 @@ export function NotificationsPage() {
                 >
                   <button
                     type="button"
-                    onClick={() => handleNotificationClick(notif.id, notif.repo_id)}
+                    onClick={() => handleNotificationClick(notif)}
                     className="flex min-w-0 flex-1 items-start gap-3 text-left"
                   >
                     <span className="mt-0.5 flex-shrink-0">
@@ -262,15 +282,29 @@ export function NotificationsPage() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-medium text-foreground">
-                        {notificationTitle(notif.type)}
+                        {/*
+                          Repo events carry their own subject (it names the
+                          repo); note-scoped ones use the generic per-type
+                          title and quote the note underneath.
+                        */}
+                        {notif.subject ?? feedTitleFor(notif.type)}
                       </span>
-                      {notif.note_content_preview && (
+                      {(notif.note_content_preview ?? notif.body) && (
                         <span className="mt-0.5 block truncate text-sm text-muted-foreground">
-                          {notif.note_content_preview}
+                          {notif.note_content_preview ?? notif.body}
                         </span>
                       )}
-                      <span className="mt-1 block text-xs text-muted-foreground">
+                      <span className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                         {formatTimeAgo(notif.created_at)}
+                        {notif.emailed_at && (
+                          <span
+                            title="Also delivered by email"
+                            className="inline-flex items-center gap-0.5 text-muted-foreground"
+                          >
+                            <Mail className="h-3 w-3" />
+                            emailed
+                          </span>
+                        )}
                       </span>
                     </span>
                   </button>
@@ -315,6 +349,12 @@ export function NotificationsPage() {
 
         {/* Undo surface for anything deleted by mistake */}
         <RecentlyDeletedSection />
+        </div>
+
+        {/* Where notifications go besides this page */}
+        <aside className="min-w-0">
+          <EmailRelayPanel />
+        </aside>
       </div>
     </motion.div>
   )

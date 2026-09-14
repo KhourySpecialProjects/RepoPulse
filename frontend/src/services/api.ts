@@ -28,13 +28,23 @@ import type {
   NoteComment,
   Notification,
   NotificationListResponse,
+  NotificationSettings,
   ReminderListResponse,
+  TestEmailResponse,
+  UpdateNotificationSettingsData,
   RecentlyDeletedListResponse,
   CommitQualityResponse,
   ClassifyCommitsResponse,
   PRListResponse,
   PRStats,
   PRSyncResponse,
+  AdminStorageSummary,
+  AdminRepoStorageItem,
+  AdminRepoSizeSort,
+  AdminRecalculateResult,
+  AdminOverview,
+  AdminSystemStatus,
+  AdminLlmUsage,
   CollectionCommitActivity,
 } from '@/types'
 
@@ -75,13 +85,19 @@ export function clearAuthToken() {
 }
 
 // Auth
+const AUTH_TIMEOUT_MS = 10_000
+
 export async function devLogin(userId: string): Promise<TokenResponse> {
-  const response = await apiClient.post<TokenResponse>('/auth/dev-login', { user_id: userId })
+  const response = await apiClient.post<TokenResponse>('/auth/dev-login', { user_id: userId }, {
+    signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
+  })
   return response.data
 }
 
 export async function login(email: string, password: string): Promise<TokenResponse> {
-  const response = await apiClient.post<TokenResponse>('/auth/login', { email, password })
+  const response = await apiClient.post<TokenResponse>('/auth/login', { email, password }, {
+    signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
+  })
   return response.data
 }
 
@@ -365,6 +381,30 @@ export async function markAllNotificationsRead(): Promise<{ marked_read: number 
   return res.data
 }
 
+// Email relay settings
+export async function getNotificationSettings(): Promise<NotificationSettings> {
+  const res = await apiClient.get<NotificationSettings>('/notifications/settings')
+  return res.data
+}
+
+export async function updateNotificationSettings(
+  data: UpdateNotificationSettingsData
+): Promise<NotificationSettings> {
+  const res = await apiClient.put<NotificationSettings>('/notifications/settings', data)
+  return res.data
+}
+
+export async function sendTestEmail(to?: string): Promise<TestEmailResponse> {
+  // Omitting `to` sends to the signed-in user's own account address. The
+  // override exists because dev accounts are seeded with @example.com, which
+  // real providers refuse to deliver to.
+  const res = await apiClient.post<TestEmailResponse>(
+    '/notifications/settings/test-email',
+    { to: to ?? null }
+  )
+  return res.data
+}
+
 // Commit Quality
 // Commit Classification
 export async function classifyRepoCommits(
@@ -443,4 +483,67 @@ export async function restoreNote(id: string): Promise<void> {
 
 export async function purgeNote(id: string): Promise<void> {
   await apiClient.delete(`/notes/${id}/permanent`)
+}
+
+// ---------------------------------------------------------------------------
+// Admin
+//
+// Instance-wide, admin-gated. Every one of these 403s for a non-admin
+// server-side; the client-side role check is presentation only.
+// These return the response envelope as-is rather than unwrapping to a bare
+// array — unwrapping is what made getUsers and its MSW handler disagree.
+// ---------------------------------------------------------------------------
+
+export async function getAdminStorage(
+  includeOrphanSize = false,
+): Promise<AdminStorageSummary> {
+  const res = await apiClient.get<AdminStorageSummary>('/admin/storage', {
+    params: { include_orphan_size: includeOrphanSize },
+  })
+  return res.data
+}
+
+export async function getAdminRepoStorage(params?: {
+  limit?: number
+  offset?: number
+  sort?: AdminRepoSizeSort
+  collection_id?: string
+}): Promise<PaginatedResponse<AdminRepoStorageItem>> {
+  const res = await apiClient.get<PaginatedResponse<AdminRepoStorageItem>>(
+    '/admin/storage/repos',
+    { params },
+  )
+  return res.data
+}
+
+export async function recalculateAdminStorage(body?: {
+  repo_ids?: string[]
+  collection_id?: string
+}): Promise<AdminRecalculateResult> {
+  const res = await apiClient.post<AdminRecalculateResult>(
+    '/admin/storage/recalculate',
+    body ?? {},
+  )
+  return res.data
+}
+
+export async function getAdminOverview(
+  staleAfterDays = 7,
+): Promise<AdminOverview> {
+  const res = await apiClient.get<AdminOverview>('/admin/overview', {
+    params: { stale_after_days: staleAfterDays },
+  })
+  return res.data
+}
+
+export async function getAdminSystem(): Promise<AdminSystemStatus> {
+  const res = await apiClient.get<AdminSystemStatus>('/admin/system')
+  return res.data
+}
+
+export async function getAdminLlmUsage(days = 30): Promise<AdminLlmUsage> {
+  const res = await apiClient.get<AdminLlmUsage>('/admin/llm-usage', {
+    params: { days },
+  })
+  return res.data
 }

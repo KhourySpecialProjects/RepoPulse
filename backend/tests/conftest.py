@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import os
+import subprocess
 import uuid
+from pathlib import Path
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -17,10 +21,11 @@ from sqlalchemy.pool import NullPool
 from app.core.auth import create_access_token
 from app.core.config import settings
 from app.core.deps import get_db_session
-from app.db.database import Base
 from app.main import app
 from app.models.user import User
 from app.services.llm.base import LLMService
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 # ---------------------------------------------------------------------------
 # Database engine & tables
@@ -41,23 +46,58 @@ from app.services.llm.base import LLMService
 #      closed inside the test's own loop and never reused across loops.
 
 
-@pytest_asyncio.fixture(scope="session", loop_scope="session")
-async def _database_schema() -> AsyncGenerator[None, None]:
-    """Build the schema once per run, leaking no connections into test loops."""
-    import app.models  # noqa: F401 — ensure all models are registered
+async def _reset_public_schema() -> None:
+    """Drop everything in the test database, types included.
 
+    `DROP SCHEMA public CASCADE` rather than `Base.metadata.drop_all` because
+    the schema is Alembic's to build: drop_all only knows about tables the
+    models declare, and would leave behind the enum types the models mark
+    `create_type=False` (notification_type, collection_role) along with
+    alembic_version. A stale enum is the worst of those — it survives, so a
+    migration that adds a value appears to work while the old type is still in
+    place.
+    """
     engine = create_async_engine(settings.TEST_DATABASE_URL, poolclass=NullPool)
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(text("DROP SCHEMA public CASCADE"))
+        await conn.execute(text("CREATE SCHEMA public"))
     await engine.dispose()
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def _database_schema() -> AsyncGenerator[None, None]:
+    """Build the schema once per run, leaking no connections into test loops.
+
+    The schema comes from `alembic upgrade head`, not `create_all`: migrations
+    are the single source of truth, so the suite runs against the same DDL a
+    real deployment gets. `tests/test_migrations.py` separately guards that the
+    chain and the models agree.
+
+    Alembic runs in a subprocess with DATABASE_URL pointed at the test database
+    — `app/db/migrations/env.py` reads `settings.DATABASE_URL` unconditionally
+    and calls `asyncio.run()` at import, which cannot happen inside this
+    already-running loop. Same reasoning as `tests/test_migrations.py`.
+    """
+    import app.models  # noqa: F401 — ensure all models are registered
+
+    await _reset_public_schema()
+
+    result = subprocess.run(
+        ["alembic", "upgrade", "head"],
+        cwd=BACKEND_ROOT,
+        env={**os.environ, "DATABASE_URL": settings.TEST_DATABASE_URL},
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            "alembic upgrade head failed while building the test schema.\n\n"
+            f"stdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
+        )
 
     yield
 
-    engine = create_async_engine(settings.TEST_DATABASE_URL, poolclass=NullPool)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
+    await _reset_public_schema()
 
 
 @pytest_asyncio.fixture
@@ -152,6 +192,39 @@ async def test_user(db_session: AsyncSession) -> User:
 def auth_headers(test_user: User) -> dict[str, str]:
     """Return Authorization header dict for the test user."""
     token = create_access_token({"sub": str(test_user.id)})
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest_asyncio.fixture
+async def admin_user(db_session: AsyncSession) -> User:
+    """An instance administrator, as distinct from test_user's "instructor".
+
+    Three modules already define an equivalent fixture locally
+    (test_users.py, test_collections_rbac.py, test_collection_access.py).
+    pytest resolves fixtures closest-first, so those shadow this one and are
+    unaffected by its existence.
+
+    Note for count assertions: requesting this fixture inserts a row into
+    `users`. A test asserting an empty instance must request neither this nor
+    test_user.
+    """
+    user = User(
+        id=uuid.uuid4(),
+        email="admin@example.com",
+        display_name="Admin User",
+        role="admin",
+        password_hash=None,
+        github_token="ghp_admintoken",
+    )
+    db_session.add(user)
+    await db_session.flush()
+    return user
+
+
+@pytest.fixture
+def admin_auth_headers(admin_user: User) -> dict[str, str]:
+    """Return Authorization header dict for the admin user."""
+    token = create_access_token({"sub": str(admin_user.id)})
     return {"Authorization": f"Bearer {token}"}
 
 

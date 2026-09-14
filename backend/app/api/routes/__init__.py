@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import auth, collections, repos, contributors, notes, note_comments, notifications, summaries, settings, users, collection_access, commit_quality, commit_classification, pull_requests
+from app.api.routes import auth, collections, repos, contributors, notes, note_comments, notifications, summaries, settings, users, collection_access, commit_quality, commit_classification, pull_requests, admin
 
 api_router = APIRouter()
 
@@ -18,3 +18,4 @@ api_router.include_router(collection_access.router, prefix="/collections", tags=
 api_router.include_router(commit_quality.router, tags=["commit-quality"])
 api_router.include_router(commit_classification.router, tags=["commit-classification"])
 api_router.include_router(pull_requests.router, tags=["pull-requests"])
+api_router.include_router(admin.router, prefix="/admin", tags=["admin"])

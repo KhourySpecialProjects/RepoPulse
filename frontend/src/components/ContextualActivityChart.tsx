@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
 import { Area, AreaChart, CartesianGrid, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { TrickleProgress } from '@/components/ui/trickle-progress'
 import { useContextualActivity } from '@/hooks/useContextualActivity'
 import { contextualizeActivity } from '@/lib/activityContext'
 import type { ContextActivityPoint } from '@/types'
@@ -10,6 +11,18 @@ function ActivityTooltip({ active, payload }: { active?: boolean; payload?: { pa
   const point = payload?.[0]?.payload
   if (!active || !point) return null
   return <div className="max-w-xs rounded border bg-background p-3 text-sm shadow-md"><p className="font-medium">{point.date}: {point.count} commits</p>{point.context && <p>{point.context}</p>}</div>
+}
+
+/** Occupies the same h-56 the chart will, so the card doesn't collapse and
+ *  then jump when the data lands. */
+function ChartLoading() {
+  return (
+    <div role="status" aria-label="Loading commit activity graph" className="flex h-56 flex-col items-center justify-center gap-3">
+      <div aria-hidden="true" className="h-8 w-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin motion-reduce:animate-none" />
+      <p className="text-sm text-muted-foreground">Loading student activity…</p>
+      <TrickleProgress label="Commit activity loading progress" />
+    </div>
+  )
 }
 
 export function ContextualActivityChart({ collectionId, repoId, children, actions, selectedContributorIds = [] }: { collectionId: string; repoId: string; children?: ReactNode; actions?: ReactNode; selectedContributorIds?: string[] }) {
@@ -44,16 +57,22 @@ export function ContextualActivityChart({ collectionId, repoId, children, action
         <p className="text-xs text-muted-foreground">UTC daily counts. Hover highlighted points for context. Quiet periods: 3+ days; bursts: 10+ commits and at least 3× the preceding week’s daily average. Comparisons use other readable repositories in this collection with history before the interval. Patterns suggest a check-in, not a conclusion about effort.</p>
       </CardHeader>
       <CardContent>
-        {isLoading ? <p role="status">Loading student activity…</p> : isError ? <p role="alert">Could not load activity. <button onClick={() => refetch()} className="underline">Retry</button></p> : !repo?.available ? <p>Repository history unavailable. Sync the repository and try again.</p> : !repo.activity.length ? <p>No commit history available.</p> : <>
+        {isLoading ? <ChartLoading /> : isError ? <p role="alert">Could not load activity. <button onClick={() => refetch()} className="underline">Retry</button></p> : !repo?.available ? <p>Repository history unavailable. Sync the repository and try again.</p> : !repo.activity.length ? <p>No commit history available.</p> : <>
           <p className="mb-2 text-sm font-medium">{authorLabel} — commits per day</p>
           <div className="h-56" aria-label="Commit activity graph">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={points} margin={{ top: 12, right: 16, bottom: 0, left: 0 }}>
+                <defs>
+                  <linearGradient id="contextualActivityGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0.05} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={35} />
                 <YAxis allowDecimals={false} />
                 <Tooltip content={<ActivityTooltip />} />
-                <Area dataKey="count" type="linear" stroke="#6366f1" fill="#6366f1" fillOpacity={0.15} />
+                <Area dataKey="count" type="monotone" stroke="#6366f1" strokeWidth={2} fill="url(#contextualActivityGradient)" />
                 {normalPoint && <ReferenceDot x={normalPoint.date} y={normalPoint.count} r={0} label={{ value: '✓', position: 'top', fill: '#16a34a', fontSize: 20 }} />}
                 {annotations.map(p => <ReferenceDot key={p.date} x={p.date} y={p.count} r={6} fill="#d97706" stroke="#fff" />)}
               </AreaChart>

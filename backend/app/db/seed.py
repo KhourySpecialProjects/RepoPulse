@@ -41,7 +41,10 @@ USER_ADMIN = uuid.UUID("00000000-0000-0000-0000-000000000003")
 COL_DB = uuid.UUID("00000000-0000-0000-0001-000000000001")
 COL_DS = uuid.UUID("00000000-0000-0000-0001-000000000002")
 
-SEED_REPOS_BASE = "/seed-repos"
+# Seeded repos share the one clone root. This used to be a "/seed-repos"
+# literal — a third convention matching neither the bind mount nor .env — so
+# every seeded local_path pointed at a directory that has never existed.
+SEED_REPOS_BASE = settings.REPO_ROOT_DIR
 
 
 def _days_ago(n: int) -> datetime:
@@ -209,7 +212,8 @@ async def seed() -> None:
         # explicitly rather than relying on CASCADE to reach them — a table
         # that is not FK-reachable would silently keep its rows.
         await conn.execute(text(
-            "TRUNCATE TABLE reminder_shares, notifications, note_comments, "
+            "TRUNCATE TABLE reminder_shares, notifications, "
+            "notification_settings, note_comments, "
             "pull_requests, commit_classifications, collection_access, "
             "app_settings, summaries, notes, contributor_aliases, "
             "contributors, repos, collections, users RESTART IDENTITY CASCADE"

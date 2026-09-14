@@ -52,6 +52,9 @@ def _commit(sha: str, message: str, *, day: int = 1, paths: list[str] | None = N
         "date": datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(hours=day),
         "message": message,
         "branches": ["main"],
+        # parse_commits always emits the owning branch, and GET /commits reads
+        # it unconditionally when building each CommitRead.
+        "origin_branch": "main",
         "insertions": 120,
         "deletions": 15,
         "files_changed": 4,

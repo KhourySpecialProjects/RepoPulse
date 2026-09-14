@@ -4,10 +4,9 @@ import { motion } from 'framer-motion'
 import { Pencil, Key, Trash2, Plus, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useUsers, useCreateUser, useUpdateUser, useDeleteUser, useResetUserPassword } from '@/hooks/useUsers'
-import { useSettings } from '@/hooks/useSettings'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -16,6 +15,11 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { AdminOverviewTab } from '@/components/admin/AdminOverviewTab'
+import { LlmUsageTab } from '@/components/admin/LlmUsageTab'
+import { StorageTab } from '@/components/admin/StorageTab'
+import { SystemTab } from '@/components/admin/SystemTab'
 import { toast } from 'sonner'
 import type { UserDetail, CreateUserData, UpdateUserData } from '@/types'
 import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
@@ -84,7 +88,7 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
               value={form.role}
               onValueChange={(v) => setForm((f) => ({ ...f, role: v as CreateUserData['role'] }))}
             >
-              <SelectTrigger style={{ backgroundColor: 'white' }}>
+              <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -183,7 +187,7 @@ function EditUserDialog({ user, onClose }: { user: UserDetail; onClose: () => vo
               value={form.role}
               onValueChange={(v) => setForm((f) => ({ ...f, role: v as UpdateUserData['role'] }))}
             >
-              <SelectTrigger style={{ backgroundColor: 'white' }}>
+              <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -431,10 +435,11 @@ function UsersTab() {
 }
 
 // ---- Admin Page ----
+type AdminTab = 'overview' | 'storage' | 'users' | 'llm' | 'system'
+
 export function AdminPage() {
   const { user } = useAuth()
-  const [activeTab, setActiveTab] = useState<'users' | 'llm' | 'system'>('users')
-  const { data: settings } = useSettings()
+  const [activeTab, setActiveTab] = useState<AdminTab>('overview')
 
   if (user?.role !== 'admin') {
     return <Navigate to="/collections" replace />
@@ -450,68 +455,48 @@ export function AdminPage() {
         <h1 className="text-xl font-semibold">Admin Panel</h1>
       </div>
 
-      <div className={`${PAGE_BODY_CLASS} max-w-3xl`}>
+      {/* Wider than the old max-w-3xl: the storage tables need the room. */}
+      <div className={`${PAGE_BODY_CLASS} max-w-5xl`}>
 
-      {/* Tab nav */}
-      <div className="flex gap-1 border-b border-border mb-6">
-        {(['users', 'llm', 'system'] as const).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              activeTab === tab
-                ? 'border-indigo-600 text-indigo-700'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {tab === 'users' ? 'Users' : tab === 'llm' ? 'LLM Settings' : 'System'}
-          </button>
-        ))}
-      </div>
+      {/* Radix Tabs rather than hand-rolled buttons: keyboard navigation and
+          correct tab/tabpanel ARIA come for free, and the component was
+          already in the repo unused. */}
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as AdminTab)}>
+        <TabsList className="mb-6">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="storage">Storage</TabsTrigger>
+          <TabsTrigger value="users">Users</TabsTrigger>
+          <TabsTrigger value="llm">LLM Usage</TabsTrigger>
+          <TabsTrigger value="system">System</TabsTrigger>
+        </TabsList>
 
-      {activeTab === 'users' && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">User Management</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <UsersTab />
-          </CardContent>
-        </Card>
-      )}
+        <TabsContent value="overview">
+          <AdminOverviewTab />
+        </TabsContent>
 
-      {activeTab === 'llm' && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">LLM Configuration</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              LLM provider and model are configured per-user in Settings.
-            </p>
-          </CardContent>
-        </Card>
-      )}
+        <TabsContent value="storage">
+          <StorageTab />
+        </TabsContent>
 
-      {activeTab === 'system' && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Repository Root</CardTitle>
-            <CardDescription>The directory where repository clones are stored</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Input
-              value={settings?.repo_root_directory ?? ''}
-              readOnly
-              className="bg-muted cursor-not-allowed font-mono text-sm"
-            />
-            <p className="text-xs text-muted-foreground mt-1.5">
-              Configured via the <code className="font-mono">REPO_ROOT_DIR</code> environment variable
-            </p>
-          </CardContent>
-        </Card>
-      )}
+        <TabsContent value="users">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">User Management</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <UsersTab />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="llm">
+          <LlmUsageTab />
+        </TabsContent>
+
+        <TabsContent value="system">
+          <SystemTab />
+        </TabsContent>
+      </Tabs>
       </div>
     </motion.div>
   )

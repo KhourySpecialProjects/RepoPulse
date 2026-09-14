@@ -1,13 +1,19 @@
-import { useState, useEffect } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
-import { FileText, Archive, Trash2, CheckSquare, Square, GitCommit, X, Pin } from 'lucide-react'
+import { useEffect } from 'react'
+import { FileText, Archive, Trash2, CheckSquare, Square, GitCommit } from 'lucide-react'
 import { NoteForm, type NoteFormValues } from '@/components/NoteForm'
 import { NoteComments } from '@/components/NoteComments'
 import { cn } from '@/lib/utils'
 import type { Note, UserDetail } from '@/types'
 
+/**
+ * The repo's notes, rendered inline as a permanent column.
+ *
+ * Previously a three-state drawer: an edge tab, a sliding overlay, and a
+ * pinned inline mode, with the pin persisted per repo in localStorage. Reading
+ * notes cost a click every visit, and the pin was a preference with no wrong
+ * answer that the user still had to find. The panel is simply always here now.
+ */
 interface NotesDrawerProps {
-  repoId: string
   notes: Note[] | undefined
   noteCount: number
   showArchivedNotes: boolean
@@ -18,7 +24,11 @@ interface NotesDrawerProps {
   users: UserDetail[] | undefined
   currentUser: { id: string; role: string } | null | undefined
   onScrollToCommit: (hash: string) => void
-  onPinnedChange?: (pinned: boolean) => void
+  /**
+   * A note arrived at from a notification. Marked and scrolled to, so it can
+   * be picked out of a long list.
+   */
+  highlightNoteId?: string | null
 }
 
 function formatDateTime(dateStr: string): string {
@@ -44,7 +54,6 @@ function renderNoteContent(content: string) {
 }
 
 export function NotesDrawer({
-  repoId,
   notes,
   noteCount,
   showArchivedNotes,
@@ -55,40 +64,18 @@ export function NotesDrawer({
   users,
   currentUser,
   onScrollToCommit,
-  onPinnedChange,
+  highlightNoteId,
 }: NotesDrawerProps) {
-  const [isOpen, setIsOpen] = useState(false)
-  const [isPinned, setIsPinned] = useState(() => {
-    try { return localStorage.getItem(`notes-drawer-pinned-${repoId}`) === 'true' } catch { return false }
-  })
-
-  function toggleOpen() { setIsOpen(v => !v) }
-
-  function togglePin() {
-    const next = !isPinned
-    setIsPinned(next)
-    try { localStorage.setItem(`notes-drawer-pinned-${repoId}`, String(next)) } catch {}
-    if (next) setIsOpen(true) // pinning always opens
-    onPinnedChange?.(next && isOpen)
-  }
-
   useEffect(() => {
-    onPinnedChange?.(isPinned && isOpen)
-  }, [isPinned, isOpen])
-
-  useEffect(() => {
-    if (!isOpen || isPinned) return
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setIsOpen(false)
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [isOpen, isPinned])
+    if (!highlightNoteId) return
+    document
+      .getElementById(`note-${highlightNoteId}`)
+      ?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+  }, [highlightNoteId, notes])
 
   const visibleNotes = notes?.filter(n => showArchivedNotes ? true : !n.is_archived) ?? []
   const hasArchivedNotes = notes?.some(n => n.is_archived) ?? false
 
-  // Shared notes body content (used in both overlay and inline panel)
   const notesBody = (
     <div className="flex-1 overflow-y-auto px-4 py-3">
       {/* New note form */}
@@ -122,10 +109,16 @@ export function NotesDrawer({
             {visibleNotes.map((note, index) => (
               <div
                 key={note.id}
+                id={`note-${note.id}`}
+                data-highlighted={note.id === highlightNoteId ? 'true' : undefined}
                 className={cn(
                   'py-3',
                   index < visibleNotes.length - 1 && 'border-b border-border',
-                  note.is_archived && 'opacity-50'
+                  note.is_archived && 'opacity-50',
+                  // Ring rather than a background tint: notes already use
+                  // background to mean archived, and the two would blend.
+                  note.id === highlightNoteId &&
+                    '-mx-2 rounded-md px-2 ring-2 ring-indigo-400'
                 )}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -190,6 +183,7 @@ export function NotesDrawer({
                     note={note}
                     currentUserId={currentUser.id}
                     currentUserRole={currentUser.role as 'instructor' | 'ta' | 'admin'}
+                    users={users ?? []}
                   />
                 )}
               </div>
@@ -200,10 +194,14 @@ export function NotesDrawer({
     </div>
   )
 
-  // Shared panel header content
-  const panelHeader = (
-    <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
-      <div className="flex items-center gap-2">
+  // Sticky rather than fixed: it is a column of the page now, so it scrolls
+  // with the content until it reaches the top and then holds.
+  return (
+    <div
+      data-testid="notes-panel"
+      className="w-80 flex-shrink-0 sticky top-6 self-start max-h-[calc(100vh-3rem)] flex flex-col bg-white rounded-xl border border-gray-200 overflow-hidden"
+    >
+      <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2 flex-shrink-0">
         <FileText className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-sm font-semibold">Notes</h2>
         {noteCount > 0 && (
@@ -212,80 +210,7 @@ export function NotesDrawer({
           </span>
         )}
       </div>
-      <div className="flex items-center gap-1">
-        <button
-          onClick={togglePin}
-          title={isPinned ? 'Unpin' : 'Pin open'}
-          className={cn(
-            'p-1.5 rounded transition-colors',
-            isPinned
-              ? 'text-indigo-600 hover:text-indigo-700'
-              : 'text-gray-400 hover:text-gray-600'
-          )}
-        >
-          <Pin className={cn('h-4 w-4', isPinned && 'fill-indigo-600')} />
-        </button>
-        <button
-          onClick={() => setIsOpen(false)}
-          title="Close"
-          className="p-1.5 rounded text-gray-400 hover:text-gray-600 transition-colors"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
+      {notesBody}
     </div>
-  )
-
-  // State 3: Open + pinned — render inline panel only (parent lays it out in flex row)
-  if (isPinned && isOpen) {
-    return (
-      <div className="w-80 flex-shrink-0 sticky top-6 self-start max-h-[calc(100vh-3rem)] flex flex-col bg-white rounded-xl border border-gray-200 overflow-hidden">
-        {panelHeader}
-        {notesBody}
-      </div>
-    )
-  }
-
-  // State 1 & 2: book tab always present; overlay panel shown when open
-  return (
-    <>
-      {/* Small book tab — hidden when panel is open in overlay mode to avoid redundancy */}
-      <div
-        className={cn(
-          'fixed right-0 top-48 z-40 w-8 py-5 rounded-l-xl bg-white border border-r-0 border-gray-200 shadow-md hover:bg-gray-50 cursor-pointer transition-colors flex flex-col items-center gap-2',
-          isOpen && 'invisible'
-        )}
-        onClick={toggleOpen}
-        title="Open notes"
-      >
-        {noteCount > 0 && (
-          <span className="bg-indigo-100 text-indigo-700 text-[10px] font-semibold rounded-full w-5 h-5 flex items-center justify-center leading-none flex-shrink-0">
-            {noteCount}
-          </span>
-        )}
-        <span
-          className="text-xs font-medium text-gray-500 select-none"
-          style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
-        >
-          Notes
-        </span>
-      </div>
-
-      {/* Sliding overlay panel */}
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            className="fixed right-0 top-0 h-screen w-80 z-40 flex flex-col bg-white border-l border-gray-200 shadow-xl"
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-          >
-            {panelHeader}
-            {notesBody}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </>
   )
 }

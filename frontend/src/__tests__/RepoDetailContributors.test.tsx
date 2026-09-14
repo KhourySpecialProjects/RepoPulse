@@ -64,6 +64,10 @@ const mockRepo: Repo = {
   contributor_count: 2,
   active_reminder_count: 0,
   expected_contributor_count: null,
+  sync_status: 'idle',
+  sync_started_at: null,
+  sync_started_by_name: null,
+  sync_error: null,
 }
 
 const mockContributorsEnriched: Contributor[] = [
@@ -272,6 +276,7 @@ it('filters commits by selected contributors and aliases, combines branches, and
     hash: `commit-${i}`, message: `Change number ${i}`, author_name: 'Student',
     author_email: i === 0 ? 'alice@example.com' : i === 1 ? 'alias@example.com' : 'bob@example.com',
     date: '2026-09-01T12:00:00Z', branches: [i === 1 ? 'feature' : 'main'],
+    origin_branch: i === 1 ? 'feature' : 'main',
     insertions: 1, deletions: 0, files_changed: 1,
   }))
   server.use(

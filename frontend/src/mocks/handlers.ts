@@ -14,6 +14,7 @@ import type {
   NoteComment,
   Notification,
   NotificationListResponse,
+  NotificationSettings,
   CollectionAccessEntry,
   PRStats,
   PRListResponse,
@@ -98,6 +99,10 @@ const mockRepos: Repo[] = [
     contributor_count: 3,
     active_reminder_count: 1,
     expected_contributor_count: null,
+    sync_status: 'idle',
+    sync_started_at: null,
+    sync_started_by_name: null,
+    sync_error: null,
   },
   {
     id: 'repo-2',
@@ -120,6 +125,10 @@ const mockRepos: Repo[] = [
     contributor_count: 2,
     active_reminder_count: 0,
     expected_contributor_count: null,
+    sync_status: 'idle',
+    sync_started_at: null,
+    sync_started_by_name: null,
+    sync_error: null,
   },
   {
     id: 'repo-3',
@@ -143,6 +152,10 @@ const mockRepos: Repo[] = [
     contributor_count: 1,
     active_reminder_count: 0,
     expected_contributor_count: null,
+    sync_status: 'idle',
+    sync_started_at: null,
+    sync_started_by_name: null,
+    sync_error: null,
   },
 ]
 
@@ -182,6 +195,7 @@ const mockCommits: Commit[] = [
     date: '2025-10-14T14:00:00Z',
     message: 'feat: implement user authentication flow',
     branches: ['main'],
+    origin_branch: 'main',
     insertions: 142,
     deletions: 23,
     files_changed: 6,
@@ -195,6 +209,7 @@ const mockCommits: Commit[] = [
     date: '2025-10-13T09:30:00Z',
     message: 'fix: resolve merge conflict in database module',
     branches: ['main'],
+    origin_branch: 'main',
     insertions: 18,
     deletions: 5,
     files_changed: 2,
@@ -208,6 +223,7 @@ const mockCommits: Commit[] = [
     date: '2025-10-12T16:45:00Z',
     message: 'docs: update README with setup instructions',
     branches: ['feature/docs'],
+    origin_branch: 'feature/docs',
     insertions: 54,
     deletions: 0,
     files_changed: 1,
@@ -270,6 +286,31 @@ const mockNoteComments: NoteComment[] = []
 
 const mockNotifications: Notification[] = []
 
+/** A relay that has never been configured — the default a new user sees. */
+const mockNotificationSettings: NotificationSettings = {
+  email_enabled: false,
+  transport: 'smtp',
+  from_email: null,
+  from_name: null,
+  smtp_host: null,
+  smtp_port: null,
+  smtp_username: null,
+  smtp_encryption: 'starttls',
+  smtp_password_set: false,
+  resend_api_key_set: false,
+  subscribed_events: {
+    mention: true,
+    note_comment: true,
+    reminder: true,
+    repo_added: true,
+    repo_removed: true,
+    repo_health_declined: true,
+    pr_opened: true,
+    pr_merged: true,
+  },
+  deliverable: false,
+}
+
 const mockCollectionAccess: CollectionAccessEntry[] = []
 
 const mockSummaries: Summary[] = [
@@ -294,7 +335,169 @@ const mockSettings: AppSettings = {
   anthropic_api_key_configured: false,
   ollama_base_url: null,
   health_thresholds: null,
+  commit_evaluation_criteria: '',
 }
+
+const mockAdminOverview = {
+  counts: {
+    users: 3,
+    admins: 2,
+    instructors: 1,
+    tas: 0,
+    collections: 2,
+    archived_collections: 1,
+    repos: 4,
+    contributors: 7,
+    notes: 5,
+    note_comments: 2,
+    summaries: 6,
+    commit_classifications: 120,
+    pull_requests: 9,
+    notifications: 3,
+    collection_access: 1,
+  },
+  health: { green: 2, yellow: 1, red: 1, unknown: 0 },
+  sync: {
+    total: 4,
+    never_synced: 1,
+    stale: 1,
+    fresh: 2,
+    stale_after_days: 7,
+    most_recent_sync: '2026-09-14T09:00:00Z',
+    oldest_sync: '2026-08-01T09:00:00Z',
+  },
+  generated_at: '2026-09-14T10:00:00Z',
+}
+
+const mockAdminSystem = {
+  status: 'ok',
+  server_time: '2026-09-14T10:00:00Z',
+  database: 'ok',
+  schema_revision: '0005',
+  schema_head: '0005',
+  schema_up_to_date: true,
+  auth_mode: 'prod',
+  dev_login_enabled: false,
+  admin_count: 2,
+  repo_root_dir: '/repos',
+  repo_root_exists: true,
+  repo_root_writable: true,
+  anthropic_api_key_configured: true,
+  github_token_configured: false,
+  default_llm_provider: 'anthropic',
+  default_llm_model: 'claude-sonnet-5',
+  git_version: '2.43.0',
+}
+
+const mockAdminLlmUsage = {
+  window_days: 30,
+  total_calls: 14,
+  by_model: [
+    {
+      kind: 'commit_classification',
+      model: 'claude-sonnet-5',
+      calls: 10,
+      first_at: '2026-09-01T10:00:00Z',
+      last_at: '2026-09-14T10:00:00Z',
+    },
+    {
+      kind: 'summary',
+      model: 'claude-sonnet-5',
+      calls: 3,
+      first_at: '2026-09-02T10:00:00Z',
+      last_at: '2026-09-13T10:00:00Z',
+    },
+    {
+      kind: 'summary',
+      model: 'claude-sonnet-4-20250514',
+      calls: 1,
+      first_at: '2026-09-03T10:00:00Z',
+      last_at: '2026-09-03T10:00:00Z',
+    },
+  ],
+  daily: [
+    { day: '2026-09-13', kind: 'summary', calls: 2 },
+    { day: '2026-09-14', kind: 'commit_classification', calls: 12 },
+  ],
+  by_collection_owner: [
+    { user_id: 'user-instructor-1', display_name: 'Instructor Mark', calls: 4 },
+  ],
+  unattributed_summaries: 1,
+  models_in_use: ['claude-sonnet-4-20250514', 'claude-sonnet-5'],
+  retired_models_in_use: ['claude-sonnet-4-20250514'],
+  current_default_model: 'claude-sonnet-5',
+  generated_at: '2026-09-14T10:00:00Z',
+}
+
+const mockAdminStorage = {
+  disk: {
+    root: '/repos',
+    exists: true,
+    total_bytes: 500 * 1024 * 1024 * 1024,
+    used_bytes: 200 * 1024 * 1024 * 1024,
+    free_bytes: 300 * 1024 * 1024 * 1024,
+    percent_used: 40,
+  },
+  clones: {
+    measured_repos: 2,
+    unmeasured_repos: 1,
+    total_bytes: 3 * 1024 * 1024,
+    git_bytes: 2 * 1024 * 1024,
+    oldest_measurement: '2026-09-01T10:00:00Z',
+    newest_measurement: '2026-09-14T10:00:00Z',
+  },
+  database_bytes: 12 * 1024 * 1024,
+  tables: [
+    {
+      table_name: 'commit_classifications',
+      total_bytes: 4 * 1024 * 1024,
+      table_bytes: 3 * 1024 * 1024,
+      index_bytes: 1024 * 1024,
+      row_count: 1200,
+      row_estimate: 1200,
+    },
+    {
+      table_name: 'repos',
+      total_bytes: 64 * 1024,
+      table_bytes: 32 * 1024,
+      index_bytes: 32 * 1024,
+      row_count: 3,
+      row_estimate: 0,
+    },
+  ],
+  drift: {
+    orphan_directories: [],
+    missing_clones: [],
+    orphan_bytes: null,
+  },
+  repo_root_dir: '/repos',
+  generated_at: '2026-09-14T10:00:00Z',
+}
+
+const mockAdminRepoStorage = [
+  {
+    id: 'repo-1',
+    name: 'project-alpha',
+    collection_id: 'collection-1',
+    collection_name: 'CS101',
+    local_path: '/repos/cs101/project-alpha',
+    size_bytes: 2 * 1024 * 1024,
+    git_size_bytes: 1536 * 1024,
+    worktree_bytes: 512 * 1024,
+    size_computed_at: '2026-09-14T10:00:00Z',
+  },
+  {
+    id: 'repo-2',
+    name: 'project-beta',
+    collection_id: 'collection-1',
+    collection_name: 'CS101',
+    local_path: '/repos/cs101/project-beta',
+    size_bytes: 1024 * 1024,
+    git_size_bytes: 512 * 1024,
+    worktree_bytes: 512 * 1024,
+    size_computed_at: '2026-09-14T10:00:00Z',
+  },
+]
 
 export const handlers = [
   http.get('/api/v1/collections/:id/contextual-activity', () => HttpResponse.json({ repositories: [] })),
@@ -382,6 +585,10 @@ export const handlers = [
       contributor_count: 0,
       active_reminder_count: 0,
       expected_contributor_count: null,
+      sync_status: 'idle',
+      sync_started_at: null,
+      sync_started_by_name: null,
+      sync_error: null,
     }))
     return HttpResponse.json(newRepos, { status: 201 })
   }),
@@ -516,9 +723,50 @@ export const handlers = [
     return HttpResponse.json({ ...mockSettings, ...body })
   }),
 
+  // Admin
+  http.get(`${BASE}/admin/overview`, () => {
+    return HttpResponse.json(mockAdminOverview)
+  }),
+  http.get(`${BASE}/admin/llm-usage`, () => {
+    return HttpResponse.json(mockAdminLlmUsage)
+  }),
+  http.get(`${BASE}/admin/system`, () => {
+    return HttpResponse.json(mockAdminSystem)
+  }),
+  http.get(`${BASE}/admin/storage`, () => {
+    return HttpResponse.json(mockAdminStorage)
+  }),
+  http.get(`${BASE}/admin/storage/repos`, () => {
+    return HttpResponse.json({
+      items: mockAdminRepoStorage,
+      total: mockAdminRepoStorage.length,
+      limit: 200,
+      offset: 0,
+    })
+  }),
+  http.post(`${BASE}/admin/storage/recalculate`, () => {
+    return HttpResponse.json({
+      requested: 2,
+      measured: 2,
+      skipped_missing: 0,
+      failed: 0,
+      total_bytes: 3 * 1024 * 1024,
+      duration_ms: 42,
+      computed_at: '2026-09-14T10:00:00Z',
+    })
+  }),
+
   // Users
   http.get(`${BASE}/users`, () => {
-    return HttpResponse.json(mockUserDetails)
+    // The envelope, not a bare array: api.ts getUsers unwraps `.items`, so a
+    // bare array resolved to undefined and every consumer silently rendered
+    // an empty list.
+    return HttpResponse.json({
+      items: mockUserDetails,
+      total: mockUserDetails.length,
+      limit: 50,
+      offset: 0,
+    })
   }),
   http.get(`${BASE}/users/me`, () => {
     return HttpResponse.json(mockUserDetails[0])
@@ -649,11 +897,35 @@ export const handlers = [
       created_at: new Date().toISOString(),
       note_content_preview: null,
       repo_id: null,
+      commit_hash: null,
+      subject: null,
+      body: null,
+      emailed_at: null,
     }
     return HttpResponse.json(notif)
   }),
   http.post(`${BASE}/notifications/mark-all-read`, () => {
     return HttpResponse.json({ marked_read: 0 })
+  }),
+
+  // Email relay settings
+  http.get(`${BASE}/notifications/settings`, () => {
+    return HttpResponse.json(mockNotificationSettings)
+  }),
+  http.put(`${BASE}/notifications/settings`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>
+    const { subscribed_events, ...rest } = body
+    return HttpResponse.json({
+      ...mockNotificationSettings,
+      ...rest,
+      subscribed_events: {
+        ...mockNotificationSettings.subscribed_events,
+        ...((subscribed_events as Record<string, boolean>) ?? {}),
+      },
+    })
+  }),
+  http.post(`${BASE}/notifications/settings/test-email`, () => {
+    return HttpResponse.json({ detail: 'Test email sent.', sent_to: 'test@example.com' })
   }),
 
   // Pull Requests

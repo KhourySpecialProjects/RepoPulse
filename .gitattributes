@@ -1,0 +1,15 @@
+# Normalise line endings so a Windows checkout still produces a working image.
+#
+# core.autocrlf=true rewrites files to CRLF on checkout. For shell scripts that
+# is fatal: the backend image runs entrypoint.sh with dash, which reads the
+# trailing \r as part of the argument and dies with "set: Illegal option -"
+# before the server ever starts. Anything the Linux containers execute or parse
+# is pinned to LF here regardless of the developer's platform.
+* text=auto
+
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.Dockerfile text eol=lf
+Makefile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
