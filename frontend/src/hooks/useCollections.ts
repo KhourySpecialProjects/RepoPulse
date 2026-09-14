@@ -68,6 +68,8 @@ export function useSyncCollection() {
     mutationFn: (id: string) => syncCollection(id),
     onSuccess: (_result, id) => {
       queryClient.invalidateQueries({ queryKey: collectionKeys.detail(id) })
+      // Syncing rewrites every repo's health and commit data.
+      queryClient.invalidateQueries({ queryKey: ['repos'] })
     },
   })
 }

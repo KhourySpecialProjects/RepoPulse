@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Link, useNavigate, useLocation, useParams } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
+import { cn } from '@/lib/utils'
 import {
   GitBranch,
   ChevronLeft,
@@ -87,7 +88,7 @@ function NotificationDropdown({ onClose }: { onClose: () => void }) {
       animate={{ opacity: 1, x: 0, scale: 1 }}
       exit={{ opacity: 0, x: -8, scale: 0.96 }}
       transition={{ duration: 0.15 }}
-      className="absolute left-full top-0 ml-2 w-80 z-50 bg-white border border-border rounded-xl shadow-xl overflow-hidden"
+      className="absolute left-full top-0 ml-2 w-80 z-50 frosted-menu border border-border rounded-xl shadow-xl overflow-hidden"
     >
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
         <span className="text-sm font-semibold text-foreground">
@@ -336,16 +337,17 @@ const COLLAPSE_THRESHOLD = 120
 
 // ── Main sidebar ─────────────────────────────────────────────────────────────
 export function AppSidebar() {
-  const { collapsed, setCollapsed, width, setWidth } = useSidebar()
+  const { collapsed, setCollapsed, width, setWidth, resizing, setResizing } = useSidebar()
   const isDragging = useRef(false)
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const params = useParams<{ id: string }>()
 
-  // Determine active repo id from URL
-  const isOnRepoPage = location.pathname.startsWith('/repos/')
-  const activeRepoId = isOnRepoPage ? params.id ?? null : null
+  // The sidebar renders outside <Routes>, so useParams() has no route context
+  // and would always be empty — read the id straight off the pathname.
+  const activeRepoId = location.pathname.startsWith('/repos/')
+    ? location.pathname.split('/')[2] || null
+    : null
 
   // Fetch the active repo to find its collection_id for auto-expand
   const { data: activeRepo } = useRepo(activeRepoId ?? '')
@@ -413,6 +415,7 @@ export function AppSidebar() {
   function handleDragStart(e: React.MouseEvent) {
     e.preventDefault()
     isDragging.current = true
+    setResizing?.(true)
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
 
@@ -434,6 +437,7 @@ export function AppSidebar() {
 
     function onMouseUp() {
       isDragging.current = false
+      setResizing?.(false)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
       document.removeEventListener('mousemove', onMouseMove)
@@ -454,31 +458,43 @@ export function AppSidebar() {
   // stopping short with a raw edge. The arrow keeps the same horizontal line as
   // the collapse arrow it replaces (h-14 header = 56px, so top-3 + h-8 centres
   // both at 28px).
-  if (collapsed) {
-    return (
-      <div
-        className="fixed left-0 top-0 bottom-0 z-40 bg-gray-50 border-r border-border"
-        style={{ width: COLLAPSED_GUTTER }}
-      >
-        <button
-          type="button"
-          onClick={toggleCollapsed}
-          title="Expand sidebar"
-          aria-label="Expand sidebar"
-          className="fixed left-3 top-3 z-50 flex h-8 w-8 items-center justify-center rounded-md bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 transition-colors"
-        >
-          <ChevronRight className="h-4 w-4" />
-        </button>
-      </div>
-    )
-  }
+  // One panel across both states so the browser can ease the width between
+  // them. Width stays an inline style (set instantly) and only the visual
+  // interpolation is deferred to the transition; during a drag the easing is
+  // dropped so the edge tracks the cursor exactly.
+  const panelTransition = resizing
+    ? ''
+    : 'transition-[width,background-color] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none'
 
   return (
     <TooltipProvider delayDuration={0}>
       <div
-        className="fixed left-0 top-0 bottom-0 z-40 bg-slate-900 flex flex-col overflow-hidden"
-        style={{ width }}
+        className={cn(
+          'fixed left-0 top-0 bottom-0 z-40 flex flex-col overflow-hidden',
+          collapsed ? 'bg-gray-50 border-r border-border' : 'bg-slate-900',
+          panelTransition
+        )}
+        style={{ width: collapsed ? COLLAPSED_GUTTER : width }}
       >
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            title="Expand sidebar"
+            aria-label="Expand sidebar"
+            className="fixed left-3 top-3 z-50 flex h-8 w-8 items-center justify-center rounded-md bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 hover:scale-105 active:scale-95 transition-[background-color,transform] duration-200 motion-reduce:transition-none"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        ) : (
+        <motion.div
+          key="sidebar-content"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.2, delay: 0.1 }}
+          className="flex flex-col h-full"
+          style={{ width }}
+        >
         {/* Drag handle */}
         <div
           onMouseDown={handleDragStart}
@@ -619,6 +635,8 @@ export function AppSidebar() {
             danger
           />
         </div>
+        </motion.div>
+        )}
       </div>
     </TooltipProvider>
   )

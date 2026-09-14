@@ -76,9 +76,14 @@ describe('API: user management endpoints', () => {
         const url = new URL(request.url)
         const collectionId = url.searchParams.get('collection_id')
         if (collectionId === 'col-1') {
-          return HttpResponse.json([mockUserDetail])
+          return HttpResponse.json({ items: [mockUserDetail], total: 1, limit: 50, offset: 0 })
         }
-        return HttpResponse.json([mockUserDetail, mockAdminUser])
+        return HttpResponse.json({
+          items: [mockUserDetail, mockAdminUser],
+          total: 2,
+          limit: 50,
+          offset: 0,
+        })
       })
     )
     const { getUsers } = await import('@/services/api')
@@ -166,7 +171,9 @@ describe('API: user management endpoints', () => {
 
   it('getCollectionAccess returns access entries', async () => {
     server.use(
-      http.get('/api/v1/collections/:id/access', () => HttpResponse.json([]))
+      http.get('/api/v1/collections/:id/access', () =>
+        HttpResponse.json({ items: [], total: 0, limit: 200, offset: 0 })
+      )
     )
     const { getCollectionAccess } = await import('@/services/api')
     const result = await getCollectionAccess('col-1')
@@ -354,7 +361,9 @@ describe('AdminPage', () => {
 describe('CollectionAccessPanel', () => {
   it('renders access panel with co-instructors section', async () => {
     server.use(
-      http.get('/api/v1/collections/:id/access', () => HttpResponse.json([]))
+      http.get('/api/v1/collections/:id/access', () =>
+        HttpResponse.json({ items: [], total: 0, limit: 200, offset: 0 })
+      )
     )
     const { CollectionAccessPanel } = await import('@/components/CollectionAccessPanel')
     renderWithProviders(<CollectionAccessPanel collectionId="col-1" />)

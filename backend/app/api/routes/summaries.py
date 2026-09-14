@@ -16,12 +16,29 @@ from app.services.git_service import GitService
 from app.services.health_service import HealthService
 from app.models.app_settings import AppSettings
 from app.services.llm import get_llm_service
+from app.services.permission_service import can_access_collection
 from app.services.summary_service import SummaryService
 
 router = APIRouter()
 
 _git_service = GitService()
 _health_service = HealthService()
+
+
+async def _get_repo_or_404(
+    repo_id: uuid.UUID, db: AsyncSession, user_id: uuid.UUID
+) -> Repo:
+    """Load a repo the caller is allowed to see, else 404.
+
+    Summaries expose commit content, so outsiders must never reach one.
+    """
+    repo = await db.get(Repo, repo_id)
+    if repo is None or not await can_access_collection(db, user_id, repo.collection_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Repo not found",
+        )
+    return repo
 
 
 def _summary_to_read(summary: Summary) -> SummaryRead:
@@ -77,12 +94,7 @@ async def generate_summary(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="repo_id is required for repo_overview summaries",
             )
-        repo = await db.get(Repo, body.repo_id)
-        if repo is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Repo not found",
-            )
+        repo = await _get_repo_or_404(body.repo_id, db, user_uuid)
 
         commits: list[dict] = []
         if repo.local_path:
@@ -124,7 +136,7 @@ async def generate_summary(
                 detail="Contributor not found",
             )
 
-        repo = await db.get(Repo, contributor.repo_id)
+        repo = await _get_repo_or_404(contributor.repo_id, db, user_uuid)
         commits_for_contributor: list[dict] = []
         if repo and repo.local_path:
             try:
@@ -162,12 +174,7 @@ async def generate_summary(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="repo_id is required for health_explanation summaries",
             )
-        repo = await db.get(Repo, body.repo_id)
-        if repo is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Repo not found",
-            )
+        repo = await _get_repo_or_404(body.repo_id, db, user_uuid)
         if not repo.health_score:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -206,12 +213,7 @@ async def get_repo_summaries(
     db: AsyncSession = Depends(get_db_session),
     current_user_id: str = Depends(get_current_user),
 ) -> list[SummaryRead]:
-    repo = await db.get(Repo, repo_id)
-    if repo is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Repo not found",
-        )
+    await _get_repo_or_404(repo_id, db, uuid.UUID(current_user_id))
     result = await db.execute(
         select(Summary)
         .where(Summary.repo_id == repo_id, Summary.contributor_id.is_(None))
@@ -237,6 +239,7 @@ async def get_contributor_summaries(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Contributor not found",
         )
+    await _get_repo_or_404(contributor.repo_id, db, uuid.UUID(current_user_id))
     result = await db.execute(
         select(Summary)
         .where(Summary.contributor_id == contributor_id)

@@ -1,17 +1,20 @@
 import { ContextualActivityChart } from '@/components/ContextualActivityChart'
-import { useState, useEffect, useMemo } from 'react'
+import { Fragment, useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests } from '@/hooks/useRepos'
-import { useRepoSummaries, useContributorSummaries, useGenerateSummary } from '@/hooks/useSummaries'
+import { useRepoSummaries, useContributorSummaries, useGenerateSummary, summaryKeys } from '@/hooks/useSummaries'
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '@/hooks/useNotes'
 import { useUsers, useCurrentUser } from '@/hooks/useUsers'
 import { useAuth } from '@/hooks/useAuth'
 import { HealthBadge } from '@/components/HealthBadge'
 import { CommitNotesPanel } from '@/components/CommitNotesPanel'
 import { MarkdownContent } from '@/components/MarkdownContent'
+import { TypedMarkdown } from '@/components/TypedMarkdown'
+import { ThinkingLabel } from '@/components/ThinkingLabel'
+import { SummaryLiquidBackground } from '@/components/SummaryLiquidBackground'
 import { NotesDrawer } from '@/components/NotesDrawer'
 import { Button } from '@/components/ui/button'
 import { LoadingContent } from '@/components/ui/loading-content'
@@ -49,21 +52,108 @@ function formatDateTime(dateStr: string): string {
 }
 
 
+/** Reserve label space so the typing animation never shifts the controls. */
+function GenerateSummaryButton({
+  onClick,
+  isPending,
+}: {
+  onClick: () => void
+  isPending: boolean
+}) {
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={onClick}
+      loading={isPending}
+      disabled={isPending}
+      className="group relative"
+      aria-label={isPending ? 'Generating summary' : 'Generate Summary'}
+    >
+      <motion.span
+        aria-hidden
+        className="mr-1.5 inline-flex"
+        animate={
+          isPending
+            ? { rotate: [0, 180, 360], scale: [1, 1.18, 1] }
+            : { rotate: 0, scale: 1 }
+        }
+        transition={
+          isPending
+            ? { duration: 1.4, repeat: Infinity, ease: 'easeInOut' }
+            : { type: 'spring', stiffness: 300, damping: 18 }
+        }
+        whileHover={isPending ? undefined : { rotate: -12, scale: 1.15 }}
+      >
+        <Sparkles
+          className={cn(
+            'h-4 w-4 transition-colors',
+            isPending ? 'text-violet-600' : 'group-hover:text-violet-600'
+          )}
+        />
+      </motion.span>
+
+      <span className="inline-grid text-left">
+        <span aria-hidden="true" className="invisible col-start-1 row-start-1 pr-1">Generate Summary</span>
+        <span className="col-start-1 row-start-1 inline-flex items-center">
+          {isPending ? <ThinkingLabel /> : 'Generate Summary'}
+        </span>
+      </span>
+    </Button>
+  )
+}
+
+/** Column widths for the commit table. The header and body are separate
+ *  tables, so the widths have to be declared identically in both — with
+ *  table-fixed, a <colgroup> is what keeps them aligned. */
+function CommitColumns() {
+  return (
+    <colgroup>
+      <col className="w-[55%]" />
+      <col className="w-[15%]" />
+      <col className="w-[20%]" />
+      <col className="w-[10%]" />
+    </colgroup>
+  )
+}
+
+/** `datetime-local` reads and writes local time, so a UTC ISO string shifts the
+ *  bound by the viewer's offset — rejecting valid times east of UTC and
+ *  allowing future ones west of it. */
+function localDateTimeValue(date: Date): string {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
+}
+
 function ContributorGenerateButton({ contributorId, repoId }: { contributorId: string; repoId: string }) {
   const generateMutation = useGenerateSummary()
   return (
     <button
-      onClick={() => generateMutation.mutateAsync({
-        summary_type: 'contributor_activity',
-        repo_id: repoId,
-        contributor_id: contributorId,
-      })}
+      onClick={() => generateMutation.mutate(
+        {
+          summary_type: 'contributor_activity',
+          repo_id: repoId,
+          contributor_id: contributorId,
+        },
+        { onError: () => toast.error('Could not generate that contributor summary.') }
+      )}
       disabled={generateMutation.isPending}
       aria-busy={generateMutation.isPending}
       className="ml-auto flex items-center gap-0.5 text-muted-foreground hover:text-violet-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
       title="Generate activity summary"
     >
-      <Sparkles className={cn('h-3 w-3', generateMutation.isPending && 'animate-pulse motion-reduce:animate-none')} />
+      <motion.span
+        className="inline-flex"
+        animate={generateMutation.isPending ? { rotate: [0, 180, 360], scale: [1, 1.2, 1] } : { rotate: 0, scale: 1 }}
+        transition={
+          generateMutation.isPending
+            ? { duration: 1.4, repeat: Infinity, ease: 'easeInOut' }
+            : { type: 'spring', stiffness: 300, damping: 18 }
+        }
+        whileHover={generateMutation.isPending ? undefined : { rotate: -12, scale: 1.2 }}
+      >
+        <Sparkles className="h-3 w-3" />
+      </motion.span>
     </button>
   )
 }
@@ -241,6 +331,28 @@ export function RepoDetailPage() {
   const [highlightedCommitHash, setHighlightedCommitHash] = useState<string | null>(null)
   const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
   const [selectedAuthors, setSelectedAuthors] = useState<Set<string>>(new Set())
+  const [pendingJumpHash, setPendingJumpHash] = useState<string | null>(null)
+
+  // Commit table: header and body are separate tables that must stay aligned.
+  const commitHeaderRef = useRef<HTMLDivElement>(null)
+  const commitBodyRef = useRef<HTMLDivElement>(null)
+  const [commitScrollbarWidth, setCommitScrollbarWidth] = useState(0)
+
+  function syncCommitHeaderScroll() {
+    if (commitHeaderRef.current && commitBodyRef.current) {
+      commitHeaderRef.current.scrollLeft = commitBodyRef.current.scrollLeft
+    }
+  }
+
+  useEffect(() => {
+    const body = commitBodyRef.current
+    if (!body) return
+    const measure = () => setCommitScrollbarWidth(body.offsetWidth - body.clientWidth)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(body)
+    return () => observer.disconnect()
+  }, [])
   const [showAllBranches, setShowAllBranches] = useState(false)
   const [showAllAuthors, setShowAllAuthors] = useState(false)
   const [selectedContributorIds, setSelectedContributorIds] = useState<Set<string>>(new Set())
@@ -254,6 +366,7 @@ export function RepoDetailPage() {
   const MAX_FILTER_CHIPS = 8
 
   const [summaryExpanded, setSummaryExpanded] = useState(true)
+  const [typingSummaryId, setTypingSummaryId] = useState<string | null>(null)
   const [summaryHistoryOpen, setSummaryHistoryOpen] = useState(false)
   const [showArchivedNotes, setShowArchivedNotes] = useState(false)
   const [notesPinned, setNotesPinned] = useState(false)
@@ -292,10 +405,8 @@ export function RepoDetailPage() {
   const hasToken = Boolean(me?.github_token_configured)
   const { data: summaries, isLoading: summariesLoading } = useRepoSummaries(id ?? '')
   const generateSummaryMutation = useGenerateSummary()
-  const { data: commitsData, isLoading: commitsLoading } = useRepoCommits(id ?? '', {
-    limit: COMMITS_PER_PAGE,
-    offset: commitPage * COMMITS_PER_PAGE,
-  })
+  // The table pages client-side out of this one fetch; a second paginated
+  // query only re-requested the same rows on every page change.
   const { data: allCommitsData, isLoading: allCommitsLoading } = useRepoCommits(id ?? '', { limit: 500, offset: 0 })
   const { data: contributors, isLoading: contributorsLoading } = useRepoContributors(id ?? '')
   const updateContributorMutation = useUpdateContributor(id ?? '')
@@ -315,7 +426,7 @@ export function RepoDetailPage() {
   const { data: users } = useUsers(repo?.collection_id ? { collection_id: repo.collection_id } : undefined)
 
   // Progress bar: track how many of the slow parallel queries have resolved
-  const loadingFlags = [repoLoading, healthLoading, commitsLoading, allCommitsLoading, contributorsLoading]
+  const loadingFlags = [repoLoading, healthLoading, allCommitsLoading, contributorsLoading]
   const completedCount = loadingFlags.filter((v) => !v).length
   const loadProgress = Math.round((completedCount / loadingFlags.length) * 100)
   const isPageLoading = loadingFlags.some(Boolean)
@@ -325,7 +436,7 @@ export function RepoDetailPage() {
     const map: Record<string, string> = {}
     contributors?.forEach(contributor => {
       contributor.aliases.forEach(alias => {
-        map[alias.git_email] = contributor.display_name
+        map[alias.git_email.toLowerCase()] = contributor.display_name
       })
     })
     return map
@@ -336,7 +447,7 @@ export function RepoDetailPage() {
     const map: Record<string, string> = {}
     contributors?.forEach(contributor => {
       contributor.aliases.forEach(alias => {
-        map[alias.git_email] = contributor.id
+        map[alias.git_email.toLowerCase()] = contributor.id
       })
     })
     return map
@@ -435,7 +546,13 @@ export function RepoDetailPage() {
 
   async function saveDisplayName() {
     if (!editingContributorId) return
-    await updateContributorMutation.mutateAsync({ id: editingContributorId, displayName: editingName })
+    try {
+      await updateContributorMutation.mutateAsync({ id: editingContributorId, displayName: editingName })
+    } catch {
+      // Stay in edit mode so the typed name isn't lost.
+      toast.error('Could not rename that contributor.')
+      return
+    }
     setEditingContributorId(null)
     setEditingName('')
   }
@@ -443,7 +560,12 @@ export function RepoDetailPage() {
   async function handleMerge() {
     const ids = Array.from(selectedContributorIds)
     if (ids.length < 2 || !mergeDisplayName.trim()) return
-    await mergeContributorsMutation.mutateAsync({ ids, displayName: mergeDisplayName.trim() })
+    try {
+      await mergeContributorsMutation.mutateAsync({ ids, displayName: mergeDisplayName.trim() })
+    } catch {
+      toast.error('Could not merge those contributors.')
+      return
+    }
     setSelectedContributorIds(new Set())
     setMergeDisplayName('')
   }
@@ -453,10 +575,9 @@ export function RepoDetailPage() {
     setMergeDisplayName(selected[0]?.display_name ?? '')
   }
 
-  async function handleCreateNote(values: { content: string; is_reminder: boolean; reminder_context: string }) {
+  async function handleCreateNote(values: CreateNoteData) {
     const noteData: CreateNoteData = {
-      content: values.content,
-      is_reminder: values.is_reminder,
+      ...values,
       reminder_context: values.reminder_context || null,
       repo_id: id ?? null,
     }
@@ -464,10 +585,25 @@ export function RepoDetailPage() {
   }
 
   async function handleGenerateSummary() {
-    await generateSummaryMutation.mutateAsync({
-      repo_id: id ?? null,
-      summary_type: 'repo_overview',
-    })
+    setSummaryExpanded(true)
+    setTypingSummaryId(null)
+    try {
+      await generateSummaryMutation.mutateAsync({
+        repo_id: id ?? null,
+        summary_type: 'repo_overview',
+      }, {
+        onSuccess: created => {
+          // Publish the new summary before pending ends, so the previous text
+          // cannot flash back while the history request is still refreshing.
+          queryClient.setQueryData<Summary[]>(summaryKeys.repoSummaries(id ?? ''), current =>
+            [created, ...(current ?? []).filter(summary => summary.id !== created.id)]
+          )
+          setTypingSummaryId(created.id)
+        },
+      })
+    } catch {
+      toast.error('Could not generate the summary. Please try again.')
+    }
   }
 
   function handleRemove() {
@@ -490,14 +626,27 @@ export function RepoDetailPage() {
   }
 
   function handleScrollToCommit(hash: string) {
-    const allItems = allCommitsData?.items ?? []
-    const idx = allItems.findIndex(c => c.hash === hash)
-    if (idx !== -1) {
-      const targetPage = Math.floor(idx / COMMITS_PER_PAGE)
-      setCommitPage(targetPage)
+    // Paging runs off filteredCommits, so the target page has to be derived
+    // from that same list — an index into the unfiltered list can point past
+    // the last page and leave the table blank.
+    if (!filteredCommits.some(c => c.hash === hash)) {
+      // Hidden by the active filters; clear them so the jump can land.
+      setSelectedBranches(new Set())
+      setSelectedAuthors(new Set())
     }
+    setPendingJumpHash(hash)
     setHighlightedCommitHash(hash)
   }
+
+  // Runs once the target is actually present in the filtered list, which may
+  // be a render later if the filters above had to be cleared first.
+  useEffect(() => {
+    if (!pendingJumpHash) return
+    const idx = filteredCommits.findIndex(c => c.hash === pendingJumpHash)
+    if (idx === -1) return
+    setCommitPage(Math.floor(idx / COMMITS_PER_PAGE))
+    setPendingJumpHash(null)
+  }, [pendingJumpHash, filteredCommits])
 
   useEffect(() => {
     if (!highlightedCommitHash) return
@@ -507,7 +656,10 @@ export function RepoDetailPage() {
       const timer = setTimeout(() => setHighlightedCommitHash(null), 2500)
       return () => clearTimeout(timer)
     }
-  }, [highlightedCommitHash, displayedCommits])
+    // Keyed on the page rather than displayedCommits: that array is rebuilt
+    // every render, which re-fired scrollIntoView and yanked the viewport back
+    // whenever the reader scrolled away.
+  }, [highlightedCommitHash, commitPage])
 
   // Reset to page 0 when filters change
   useEffect(() => {
@@ -787,15 +939,12 @@ export function RepoDetailPage() {
           {/* Left column — main content */}
           <div className="flex-1 min-w-0 flex flex-col gap-6">
 
-            {/* Overview section */}
+            {/* Overview section — cards are self-labelling, so no heading */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible">
-              <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                <BarChart2 className="h-4 w-4 text-muted-foreground" />
-                Overview
-              </h2>
               <div className="flex flex-col gap-5">
-                <Card>
-                  <CardHeader className="pb-2">
+                <Card className="relative overflow-hidden">
+                  <SummaryLiquidBackground generating={generateSummaryMutation.isPending} />
+                  <CardHeader className="relative z-10 pb-2">
                     <div className="flex items-center justify-between">
                       <button
                         className="flex items-center gap-1.5 text-base font-semibold hover:text-indigo-600 transition-colors"
@@ -804,25 +953,24 @@ export function RepoDetailPage() {
                         AI Summary
                         {latestSummary && (summaryExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />)}
                       </button>
-                      <Button
-                        size="sm"
-                        variant="outline"
+                      <GenerateSummaryButton
                         onClick={handleGenerateSummary}
-                        loading={generateSummaryMutation.isPending} disabled={generateSummaryMutation.isPending}
-                      >
-                        <Sparkles className={cn('h-4 w-4 mr-1.5', generateSummaryMutation.isPending && 'animate-pulse')} />
-                        {generateSummaryMutation.isPending ? 'Generating...' : 'Generate Summary'}
-                      </Button>
+                        isPending={generateSummaryMutation.isPending}
+                      />
                     </div>
                   </CardHeader>
                   {summaryExpanded && (
-                  <CardContent>
+                  <CardContent className="relative z-10">
                     {(generateSummaryMutation.isPending || summariesLoading) && (
-                      <LoadingContent label={generateSummaryMutation.isPending ? 'Generating your summary… This may take a minute.' : 'Loading summary…'} />
+                      <LoadingContent label={summariesLoading ? 'Loading summary…' : ''} />
                     )}
-                    {latestSummary ? (
+                    {!generateSummaryMutation.isPending && latestSummary ? (
                       <div>
-                        <MarkdownContent content={latestSummary.content} />
+                        <TypedMarkdown
+                          content={latestSummary.content}
+                          animate={latestSummary.id === typingSummaryId}
+                          onDone={() => setTypingSummaryId(null)}
+                        />
                         <p className="text-xs text-muted-foreground mt-3">
                           Generated {formatDateTime(latestSummary.generated_at)} · {latestSummary.model_used}
                         </p>
@@ -875,7 +1023,7 @@ export function RepoDetailPage() {
                           type="datetime-local"
                           value={pastCheckInDate}
                           onChange={(e) => setPastCheckInDate(e.target.value)}
-                          max={new Date().toISOString().slice(0, 16)}
+                          max={localDateTimeValue(new Date())}
                           className="text-xs border border-border rounded px-2 py-1 flex-1 focus:outline-none focus:border-indigo-400"
                         />
                         <button
@@ -1031,25 +1179,43 @@ export function RepoDetailPage() {
                         {renderCommitPagination()}
                       </div>
                     </div>
-                  <div key={`${commitPage}-${COMMITS_PER_PAGE}`} role="region" aria-label="Commit list" tabIndex={0} className="max-h-[560px] overflow-auto overscroll-contain rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 z-10 bg-card">
-                        <tr className="border-b text-muted-foreground text-xs">
-                          <th className="text-left pb-2 font-medium">Commit</th>
-                          <th className="text-left pb-2 font-medium">Author</th>
-                          <th className="text-left pb-2 font-medium">Branch</th>
-                          <th className="text-right pb-2 font-medium">+/-</th>
+                  {/* The header lives in its own table outside the scroller, so
+                      it is always visible and can never paint over a row the
+                      way a sticky <th> did. Both tables share COMMIT_COLUMNS,
+                      and the body's scrollbar width is mirrored as padding so
+                      the two stay aligned. */}
+                  <div
+                    ref={commitHeaderRef}
+                    className="overflow-hidden bg-card"
+                    style={{ paddingRight: commitScrollbarWidth }}
+                  >
+                    <table className="w-full min-w-[760px] table-fixed border-separate border-spacing-0 text-sm">
+                      <CommitColumns />
+                      <thead>
+                        <tr className="text-muted-foreground text-xs">
+                          <th className="border-b border-border py-2 text-left font-medium">Commit</th>
+                          <th className="border-b border-border py-2 text-left font-medium">Author</th>
+                          <th className="border-b border-border py-2 text-left font-medium">Branch</th>
+                          <th className="border-b border-border py-2 text-right font-medium">+/-</th>
                         </tr>
                       </thead>
+                    </table>
+                  </div>
+                  <div key={`${commitPage}-${COMMITS_PER_PAGE}`} ref={commitBodyRef} onScroll={syncCommitHeaderScroll} role="region" aria-label="Commit list" tabIndex={0} className="max-h-[560px] overflow-auto overscroll-contain bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <table className="w-full min-w-[760px] table-fixed border-separate border-spacing-0 text-sm">
+                      <CommitColumns />
                       <tbody>
                         {displayedCommits.map((commit) => (
-                          <>
-                          <tr id={`commit-${commit.hash}`} key={commit.hash} className={cn(
+                          // Key belongs on the fragment: with it on the inner
+                          // <tr>, React keyed these pairs by index and reused
+                          // the wrong rows when the notes panel opened.
+                          <Fragment key={commit.hash}>
+                          <tr id={`commit-${commit.hash}`} className={cn(
                             'border-b hover:bg-accent/20 transition-colors',
                             highlightedCommitHash === commit.hash && 'ring-2 ring-inset ring-indigo-400 bg-indigo-50'
                           )}>
-                            <td className="py-2.5 pr-4">
-                              <div className="flex items-center gap-2">
+                            <td className="py-2.5 pr-4 overflow-hidden">
+                              <div className="flex items-center gap-2 min-w-0">
                                 <a
                                   href={`${repo.github_url}/commit/${commit.hash}`}
                                   target="_blank"
@@ -1092,7 +1258,14 @@ export function RepoDetailPage() {
                                 )
                               })()}
                             </td>
-                            <td className="py-2.5 pr-4 text-xs whitespace-nowrap">{resolvedAuthor(commit)}</td>
+                            {/* table-fixed gives this cell a hard width, so the
+                                name has to be clipped — unclipped nowrap text
+                                spills across the neighbouring columns. */}
+                            <td className="py-2.5 pr-4 text-xs overflow-hidden">
+                              <div className="truncate" title={resolvedAuthor(commit)}>
+                                {resolvedAuthor(commit)}
+                              </div>
+                            </td>
                             <td className="py-2.5 pr-4 text-xs max-w-[10rem]">
                               {(() => {
                                 const mainNames = ['main', 'master']
@@ -1126,20 +1299,22 @@ export function RepoDetailPage() {
                                 )
                               })()}
                             </td>
-                            <td className="py-2.5 text-right text-xs whitespace-nowrap">
-                              <span className="text-health-green">+{commit.insertions}</span>
-                              {' / '}
-                              <span className="text-health-red">-{commit.deletions}</span>
+                            <td className="py-2.5 text-right text-xs overflow-hidden">
+                              <div className="truncate">
+                                <span className="text-health-green">+{commit.insertions}</span>
+                                {' / '}
+                                <span className="text-health-red">-{commit.deletions}</span>
+                              </div>
                             </td>
                           </tr>
                           {activeCommitHash === commit.hash && (
                             <tr>
-                              <td colSpan={5} className="pb-3 pt-1">
+                              <td colSpan={4} className="pb-3 pt-1">
                                 <CommitNotesPanel repoId={id ?? ''} commitHash={commit.hash} />
                               </td>
                             </tr>
                           )}
-                          </>
+                          </Fragment>
                         ))}
                       </tbody>
                     </table>
@@ -1276,11 +1451,12 @@ export function RepoDetailPage() {
                           )}
                         </p>
                         {(() => {
-                          const s = contributorStats[contributor.id]
-                          const commits = s?.commits ?? contributor.commit_count
-                          const ins = s?.insertions ?? contributor.total_insertions
-                          const del = s?.deletions ?? contributor.total_deletions
-                          const last = s?.lastCommitAt ?? contributor.last_commit_at
+                          // Backend totals span the full history; commits are only
+                          // loaded 500 at a time, so deriving these locally undercounts.
+                          const commits = contributor.commit_count
+                          const ins = contributor.total_insertions
+                          const del = contributor.total_deletions
+                          const last = contributor.last_commit_at
                           return (
                             <p className="text-xs text-muted-foreground mt-1">
                               {commits} commits

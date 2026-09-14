@@ -20,7 +20,7 @@ class AnthropicAdapter(LLMService):
         self,
         prompt: str,
         system: str | None = None,
-        max_tokens: int = 1024,
+        max_tokens: int = 2048,
     ) -> str:
         kwargs: dict = {
             "model": self._model,
@@ -31,4 +31,8 @@ class AnthropicAdapter(LLMService):
             kwargs["system"] = system
 
         message = await self._client.messages.create(**kwargs)
-        return message.content[0].text
+        # Join every text block: a reply can arrive as several blocks, and
+        # indexing the first one alone silently drops the rest.
+        return "".join(
+            block.text for block in message.content if getattr(block, "type", None) == "text"
+        )

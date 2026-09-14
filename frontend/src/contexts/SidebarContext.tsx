@@ -12,6 +12,10 @@ interface SidebarContextValue {
   setCollapsed: (v: boolean) => void
   width: number
   setWidth: (v: number) => void
+  /** True while the user drags the resize handle, so width follows the cursor
+   *  instead of easing toward it. Optional: consumers may omit it. */
+  resizing?: boolean
+  setResizing?: (v: boolean) => void
 }
 
 export const SidebarContext = createContext<SidebarContextValue>({
@@ -19,6 +23,8 @@ export const SidebarContext = createContext<SidebarContextValue>({
   setCollapsed: () => {},
   width: 220,
   setWidth: () => {},
+  resizing: false,
+  setResizing: () => {},
 })
 
 export function useSidebar(): SidebarContextValue {

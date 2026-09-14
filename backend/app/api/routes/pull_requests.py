@@ -72,9 +72,14 @@ class PRSyncResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-async def _get_repo_or_404(repo_id: uuid.UUID, db: AsyncSession) -> Repo:
+async def _get_repo_or_404(
+    repo_id: uuid.UUID, db: AsyncSession, user_id: uuid.UUID
+) -> Repo:
     repo = await db.get(Repo, repo_id)
     if repo is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repo not found")
+    # 404 rather than 403 so repo existence isn't revealed to outsiders.
+    if not await can_access_collection(db, user_id, repo.collection_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repo not found")
     return repo
 
@@ -109,7 +114,7 @@ async def sync_pull_requests(
             detail="GitHub token not configured. Add a token in your profile to enable PR sync.",
         )
 
-    repo = await _get_repo_or_404(repo_id, db)
+    repo = await _get_repo_or_404(repo_id, db, user_uuid)
 
     # Fetch PRs from GitHub
     svc = GitHubService()
@@ -173,7 +178,7 @@ async def list_pull_requests(
     current_user_id: str = Depends(get_current_user),
 ) -> PRListResponse:
     """List pull requests for a repo, optionally filtered by state."""
-    await _get_repo_or_404(repo_id, db)
+    await _get_repo_or_404(repo_id, db, uuid.UUID(current_user_id))
 
     base_where = [PullRequest.repo_id == repo_id]
     if state is not None:
@@ -221,7 +226,7 @@ async def get_pull_request_stats(
     current_user_id: str = Depends(get_current_user),
 ) -> PRStatsResponse:
     """Return aggregate PR statistics for a repo."""
-    await _get_repo_or_404(repo_id, db)
+    await _get_repo_or_404(repo_id, db, uuid.UUID(current_user_id))
 
     now = datetime.now(timezone.utc)
     thirty_days_ago = now - timedelta(days=30)

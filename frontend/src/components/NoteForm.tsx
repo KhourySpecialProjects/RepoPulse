@@ -85,7 +85,7 @@ export function NoteForm({ onSubmit, initialValues, isLoading = false, submitLab
           required
         />
         {mentionSearch !== null && filteredUsers.length > 0 && (
-          <div className="absolute z-50 bottom-full mb-1 left-0 bg-white border border-border rounded-lg shadow-lg overflow-hidden min-w-[180px]">
+          <div className="absolute z-50 bottom-full mb-1 left-0 frosted-menu border border-border rounded-lg shadow-lg overflow-hidden min-w-[180px]">
             {filteredUsers.map(user => (
               <button
                 key={user.id}

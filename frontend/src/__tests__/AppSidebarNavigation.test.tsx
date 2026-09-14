@@ -80,9 +80,20 @@ describe('AppSidebar — RepoPulse logo navigates to the home page', () => {
     await waitFor(() => expect(screen.getByText('CS 101 Fall 2025')).toBeInTheDocument())
     expect(currentPath()).toBe('/settings')
 
-    fireEvent.click(screen.getByRole('button', { name: /RepoPulse/ }))
+    fireEvent.click(screen.getByRole('link', { name: /RepoPulse/ }))
 
     expect(currentPath()).toBe('/')
+  })
+})
+
+describe('AppSidebar — the repo you are viewing is highlighted', () => {
+  it('expands the owning collection and marks the active repo', async () => {
+    // AppSidebar renders outside <Routes>, so the active id has to come from
+    // the pathname — useParams() has no route context here.
+    renderSidebar('/repos/repo-1')
+
+    const repoButtons = await screen.findAllByRole('button', { name: /cs101-project/ })
+    expect(repoButtons.some(b => /bg-indigo-600\/20/.test(b.className))).toBe(true)
   })
 })
 

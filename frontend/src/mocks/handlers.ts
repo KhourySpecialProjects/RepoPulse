@@ -510,7 +510,12 @@ export const handlers = [
 
   // Users
   http.get(`${BASE}/users`, () => {
-    return HttpResponse.json(mockUserDetails)
+    return HttpResponse.json({
+      items: mockUserDetails,
+      total: mockUserDetails.length,
+      limit: 50,
+      offset: 0,
+    })
   }),
   http.get(`${BASE}/users/me`, () => {
     return HttpResponse.json(mockUserDetails[0])
@@ -550,7 +555,12 @@ export const handlers = [
 
   // Collection access
   http.get(`${BASE}/collections/:id/access`, () => {
-    return HttpResponse.json(mockCollectionAccess)
+    return HttpResponse.json({
+      items: mockCollectionAccess,
+      total: mockCollectionAccess.length,
+      limit: 200,
+      offset: 0,
+    })
   }),
   http.post(`${BASE}/collections/:id/access`, async ({ params, request }) => {
     const body = (await request.json()) as { user_id: string; access_role: 'co_instructor' | 'ta' }

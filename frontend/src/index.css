@@ -2,6 +2,101 @@
 @tailwind components;
 @tailwind utilities;
 
+.summary-thinking-cursor {
+  animation: summary-cursor-blink 0.9s step-end infinite;
+}
+
+@keyframes summary-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .summary-thinking-cursor { animation: none; }
+}
+
+/* Defined liquid surfaces stay in a shallow band at the base of the summary.
+   Animate transforms only: the text and white reading surface stay still. */
+.summary-liquid {
+  position: absolute;
+  inset: auto 0 0;
+  height: 56px;
+  max-height: 100%;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+  opacity: 0.5;
+  transition: opacity 1.8s ease;
+  contain: paint;
+}
+
+.summary-liquid[data-generating='true'] {
+  opacity: 0.65;
+}
+
+.summary-liquid-wave {
+  position: absolute;
+  bottom: -8px;
+  left: 0;
+  width: 200%;
+  height: 100%;
+  animation: summary-liquid-flow 12s linear infinite;
+}
+
+.summary-liquid-wave--back {
+  animation-duration: 18s;
+  animation-delay: -6s;
+}
+
+.summary-liquid-wave--middle {
+  height: 82%;
+  animation-duration: 14s;
+  animation-delay: -4s;
+  animation-direction: reverse;
+}
+
+.summary-liquid-wave--front {
+  height: 65%;
+  animation-delay: -9s;
+}
+
+.summary-liquid[data-visible='false'] .summary-liquid-wave {
+  animation-play-state: paused;
+}
+
+@keyframes summary-liquid-flow {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .summary-liquid { transition: none; }
+  .summary-liquid-wave { animation: none; }
+  .summary-liquid-wave--middle { transform: translateX(-18%); }
+  .summary-liquid-wave--front { transform: translateX(-35%); }
+}
+
+/* Readable fallback when backdrop filtering is unavailable. */
+.frosted-menu {
+  background-color: rgba(255, 255, 255, 0.97);
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+@supports ((backdrop-filter: blur(16px)) or (-webkit-backdrop-filter: blur(16px))) {
+  .frosted-menu {
+    background-color: rgba(235, 239, 255, 0.22);
+    background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.32), rgba(224, 231, 255, 0.1));
+    -webkit-backdrop-filter: blur(10px) saturate(180%);
+    backdrop-filter: blur(10px) saturate(180%);
+    border-color: rgba(255, 255, 255, 0.8);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      0 0 0 1px rgba(148, 163, 184, 0.2),
+      0 8px 24px rgba(15, 23, 42, 0.14);
+  }
+}
+
 @layer base {
   :root {
     --background: 0 0% 98%;
