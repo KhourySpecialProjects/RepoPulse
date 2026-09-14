@@ -174,7 +174,9 @@ describe('RepoDetailPage - multi-branch commit schema (branches: string[])', () 
     renderPage()
     await waitFor(() => expect(screen.getByText('feat: main branch commit')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByRole('button', { name: 'feature/auth' }))
+    // Both the filter chip row and commitFeature's own badge are buttons named
+    // "feature/auth"; the chip row comes first in the DOM.
+    fireEvent.click(screen.getAllByRole('button', { name: 'feature/auth' })[0])
 
     expect(screen.getByText('feat: feature branch commit')).toBeInTheDocument()
     expect(screen.queryByText('feat: main branch commit')).not.toBeInTheDocument()

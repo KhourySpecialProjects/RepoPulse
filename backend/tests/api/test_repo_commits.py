@@ -390,9 +390,11 @@ async def test_repo_commits_filters_by_branch(
         )
 
     body = resp.json()
-    # A commit is on a branch if the name appears anywhere in its list.
-    assert body["total"] == 2
-    assert {c["hash"] for c in body["items"]} == {SHA_DOCS, SHA_FEATURE}
+    # A commit belongs to the branch that owns it, not every branch containing
+    # it: SHA_DOCS sits in feature/auth's history but was made on main, so it
+    # stays out. Filtering on containment used to drag along nearly the repo.
+    assert body["total"] == 1
+    assert {c["hash"] for c in body["items"]} == {SHA_FEATURE}
 
 
 @pytest.mark.asyncio
@@ -676,15 +678,17 @@ async def test_repo_commits_type_filter_composes_with_branch(
 ) -> None:
     col = await _make_collection(db_session, test_user.id)
     repo = await _make_repo(db_session, col.id)
-    # SHA_DOCS and SHA_FEATURE are both on feature/auth; only one is logistical.
+    # Each filter has to exclude something the other would keep: SHA_MERGE is
+    # owned by main but substantive, SHA_FEATURE is logistical but owned by
+    # feature/auth. Only SHA_DOCS — main-owned and logistical — survives both.
     await _classify(db_session, repo.id, SHA_DOCS, commit_type="logistical")
-    await _classify(db_session, repo.id, SHA_FEATURE, commit_type="substantive")
-    await _classify(db_session, repo.id, SHA_MERGE, commit_type="logistical")
+    await _classify(db_session, repo.id, SHA_FEATURE, commit_type="logistical")
+    await _classify(db_session, repo.id, SHA_MERGE, commit_type="substantive")
 
     with _patch_parse(FAKE_COMMITS):
         resp = await test_client.get(
             f"/api/v1/repos/{repo.id}/commits"
-            "?branch=feature/auth&commit_type=logistical",
+            "?branch=main&commit_type=logistical",
             headers=auth_headers,
         )
 
