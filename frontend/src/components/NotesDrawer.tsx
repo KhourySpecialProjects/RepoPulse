@@ -190,6 +190,7 @@ export function NotesDrawer({
                     note={note}
                     currentUserId={currentUser.id}
                     currentUserRole={currentUser.role as 'instructor' | 'ta' | 'admin'}
+                    users={users ?? []}
                   />
                 )}
               </div>

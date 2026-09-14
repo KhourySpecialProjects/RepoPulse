@@ -1,10 +1,10 @@
 import { ContextualActivityChart } from '@/components/ContextualActivityChart'
 import { useState, useEffect, useMemo, Fragment } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, useUnmergeContributor, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests, useClassifyCommits } from '@/hooks/useRepos'
+import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, useUnmergeContributor, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests, useClassifyCommits, ALL_COMMITS_PARAMS } from '@/hooks/useRepos'
 import { useRepoSummaries, useContributorSummaries, useGenerateSummary } from '@/hooks/useSummaries'
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '@/hooks/useNotes'
 import { useUsers, useCurrentUser } from '@/hooks/useUsers'
@@ -260,17 +260,22 @@ function readPullRequestsExpanded(repoId: string | undefined): boolean {
 export function RepoDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  // Held separately from `searchParams` so the banner survives the param being
+  // cleared, and so it can be shown during the initial load when there are no
+  // commits to scroll to yet.
+  const [pendingCommitJump, setPendingCommitJump] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get('commit')
+  )
   const [commitPage, setCommitPage] = useState(0)
   const [activeCommitHash, setActiveCommitHash] = useState<string | null>(null)
   const [highlightedCommitHash, setHighlightedCommitHash] = useState<string | null>(null)
   const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
-  const [selectedAuthors, setSelectedAuthors] = useState<Set<string>>(new Set())
   const [selectedTypes, setSelectedTypes] = useState<Set<CommitTypeFilter>>(new Set())
   // Set when the backend answers `status: 'preview'` — holds the counts the
   // confirmation dialog quotes back to the user.
   const [classifyPreview, setClassifyPreview] = useState<ClassifyCommitsResponse | null>(null)
   const [showAllBranches, setShowAllBranches] = useState(false)
-  const [showAllAuthors, setShowAllAuthors] = useState(false)
   const [selectedContributorIds, setSelectedContributorIds] = useState<Set<string>>(new Set())
   const [editingContributorId, setEditingContributorId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
@@ -295,7 +300,8 @@ export function RepoDetailPage() {
   const [COMMITS_PER_PAGE, setCommitsPerPage] = useState(10)
   const [commitPageSizeOption, setCommitPageSizeOption] = useState('10')
   const [customCommitPageSize, setCustomCommitPageSize] = useState('20')
-  const MAX_FILTER_CHIPS = 8
+  // Branch chips collapse behind a "+N more" toggle past this many.
+  const MAX_BRANCH_CHIPS = 5
 
   const [summaryExpanded, setSummaryExpanded] = useState(true)
   const [summaryHistoryOpen, setSummaryHistoryOpen] = useState(false)
@@ -340,7 +346,9 @@ export function RepoDetailPage() {
     limit: COMMITS_PER_PAGE,
     offset: commitPage * COMMITS_PER_PAGE,
   })
-  const { data: allCommitsData, isLoading: allCommitsLoading } = useRepoCommits(id ?? '', { limit: 500, offset: 0 })
+  // Same params object as usePrefetchRepo warms, so a hovered reminder's
+  // prefetch is a cache hit here rather than a second identical request.
+  const { data: allCommitsData, isLoading: allCommitsLoading } = useRepoCommits(id ?? '', ALL_COMMITS_PARAMS)
   const { data: contributors, isLoading: contributorsLoading } = useRepoContributors(id ?? '')
   const updateContributorMutation = useUpdateContributor(id ?? '')
   const mergeContributorsMutation = useMergeContributors(id ?? '')
@@ -463,32 +471,20 @@ export function RepoDetailPage() {
   const resolvedAuthor = (commit: { author_name: string; author_email: string }) =>
     emailToDisplayName[commit.author_email.toLowerCase()] ?? commit.author_name
 
+  // Owning branches only. Building this from `branches` listed every branch
+  // that merely contains a commit, so branches with no work of their own still
+  // got a chip that then matched most of the repo.
   const allBranches = useMemo(() => {
     const names = new Set<string>()
-    allCommitsData?.items.forEach(c => c.branches.forEach(b => names.add(b)))
+    allCommitsData?.items.forEach(c => { if (c.origin_branch) names.add(c.origin_branch) })
     return Array.from(names).sort()
   }, [allCommitsData])
-
-  const allAuthors = useMemo(() => {
-    const names = new Set<string>()
-    allCommitsData?.items.forEach(c => names.add(resolvedAuthor(c)))
-    return Array.from(names).sort()
-  }, [allCommitsData, emailToDisplayName])
 
   function toggleBranch(branch: string) {
     setSelectedBranches(prev => {
       const next = new Set(prev)
       if (next.has(branch)) next.delete(branch)
       else next.add(branch)
-      return next
-    })
-  }
-
-  function toggleAuthor(author: string) {
-    setSelectedAuthors(prev => {
-      const next = new Set(prev)
-      if (next.has(author)) next.delete(author)
-      else next.add(author)
       return next
     })
   }
@@ -506,20 +502,20 @@ export function RepoDetailPage() {
     const allContributorsSelected = selectedContributorIds.size === 0 ||
       (contributors != null && contributors.length > 0 && contributors.every(contributor => selectedContributorIds.has(contributor.id)))
     return (allCommitsData?.items ?? []).filter(c => {
-      const branchMatch = selectedBranches.size === 0 || c.branches.some(b => selectedBranches.has(b))
-      // Contributor checkboxes (left menu) and the Author chip row are
-      // independent filters: the first resolves aliases to a contributor, the
-      // second matches the commit's resolved display name.
+      // Match the owning branch exactly. `c.branches.some(...)` matched any
+      // branch *containing* the commit, so selecting `dev` returned all of
+      // trunk's history too.
+      const branchMatch = selectedBranches.size === 0 || selectedBranches.has(c.origin_branch)
+      // The contributor checkboxes (left menu) resolve aliases to a contributor.
       const contributorId = emailToContributorId[c.author_email.toLowerCase()]
       const contributorMatch = allContributorsSelected || selectedContributorIds.has(contributorId)
-      const authorMatch = selectedAuthors.size === 0 || selectedAuthors.has(resolvedAuthor(c))
       // A null commit_type is its own bucket rather than a missing value, so
       // "show me what still needs classifying" is expressible.
       const typeMatch =
         selectedTypes.size === 0 || selectedTypes.has(c.commit_type ?? 'unclassified')
-      return branchMatch && contributorMatch && authorMatch && typeMatch
+      return branchMatch && contributorMatch && typeMatch
     })
-  }, [allCommitsData, selectedBranches, selectedContributorIds, contributors, emailToContributorId, selectedAuthors, selectedTypes, emailToDisplayName])
+  }, [allCommitsData, selectedBranches, selectedContributorIds, contributors, emailToContributorId, selectedTypes])
 
   const displayedCommits = filteredCommits.slice(
     commitPage * COMMITS_PER_PAGE,
@@ -630,10 +626,33 @@ export function RepoDetailPage() {
     }
   }, [highlightedCommitHash, displayedCommits])
 
+  // Deep link from a reminder: `/repos/:id?commit=<hash>`. The jump has to wait
+  // for the full commit list, since a commit's page number is only derivable
+  // from its index in that list — hovering the reminder prefetches it, so this
+  // usually fires on the first render after mount.
+  //
+  // The param is cleared once consumed so that a later manual jump, or a
+  // reload, does not silently drag the user back to this commit.
+  useEffect(() => {
+    const targetHash = searchParams.get('commit')
+    if (!targetHash || allCommitsLoading) return
+
+    handleScrollToCommit(targetHash)
+    setPendingCommitJump(null)
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current)
+        next.delete('commit')
+        return next
+      },
+      { replace: true }
+    )
+  }, [searchParams, allCommitsLoading])
+
   // Reset to page 0 when filters change
   useEffect(() => {
     setCommitPage(0)
-  }, [selectedBranches, selectedContributorIds, selectedAuthors, selectedTypes])
+  }, [selectedBranches, selectedContributorIds, selectedTypes])
 
   useEffect(() => {
     if (repo?.expected_contributor_count != null) {
@@ -712,6 +731,22 @@ export function RepoDetailPage() {
   if (repoLoading) {
     return (
       <div className="px-6 py-8">
+        {/* Arriving from a reminder, say where we are going. An unexplained
+            skeleton reads as a stall; naming the destination makes the same
+            wait legible. */}
+        {pendingCommitJump && (
+          <p
+            data-testid="commit-jump-pending"
+            className="mb-4 flex items-center gap-2 text-sm text-muted-foreground"
+          >
+            <GitCommit className="h-4 w-4 flex-shrink-0 text-indigo-500" />
+            Opening commit{' '}
+            <span className="font-mono text-foreground">
+              {pendingCommitJump.slice(0, 7)}
+            </span>
+            …
+          </p>
+        )}
         <div className="h-8 w-64 bg-muted rounded animate-pulse mb-4" />
         <div className="h-4 w-40 bg-muted rounded animate-pulse mb-8" />
         <div className="h-64 bg-muted rounded-lg animate-pulse" />
@@ -736,6 +771,18 @@ export function RepoDetailPage() {
             className="h-full bg-indigo-500 transition-[width] duration-300 ease-out"
             style={{ width: `${loadProgress}%` }}
           />
+        </div>
+      )}
+      {/* The repo header has rendered but the commit list has not, so the jump
+          cannot happen yet. Keep the destination on screen until it does. */}
+      {pendingCommitJump && (
+        <div
+          data-testid="commit-jump-pending"
+          className="flex items-center gap-2 border-b border-indigo-100 bg-indigo-50 px-6 py-2 text-sm text-indigo-800"
+        >
+          <GitCommit className="h-4 w-4 flex-shrink-0" />
+          Opening commit{' '}
+          <span className="font-mono">{pendingCommitJump.slice(0, 7)}</span>…
         </div>
       )}
       {/* Clean white page header */}
@@ -908,56 +955,62 @@ export function RepoDetailPage() {
                 Overview
               </h2>
 
-        <div className="flex gap-8 items-start">
+        {/* AI Summary — spans the full width above the two columns */}
+        <motion.div variants={sectionVariants} initial="hidden" animate="visible">
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <button
+                  className="flex items-center gap-1.5 text-base font-semibold hover:text-indigo-600 transition-colors"
+                  onClick={() => latestSummary && setSummaryExpanded(v => !v)}
+                >
+                  AI Summary
+                  {latestSummary && (summaryExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />)}
+                </button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleGenerateSummary}
+                  loading={generateSummaryMutation.isPending} disabled={generateSummaryMutation.isPending}
+                >
+                  <Sparkles className={cn('h-4 w-4 mr-1.5', generateSummaryMutation.isPending && 'animate-pulse')} />
+                  {generateSummaryMutation.isPending ? 'Generating...' : 'Generate Summary'}
+                </Button>
+              </div>
+            </CardHeader>
+            {summaryExpanded && (
+            <CardContent>
+              {(generateSummaryMutation.isPending || summariesLoading) && (
+                <LoadingContent label={generateSummaryMutation.isPending ? 'Generating your summary… This may take a minute.' : 'Loading summary…'} />
+              )}
+              {latestSummary ? (
+                <div>
+                  <MarkdownContent content={latestSummary.content} />
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Generated {formatDateTime(latestSummary.generated_at)} · {latestSummary.model_used}
+                  </p>
+                </div>
+              ) : !generateSummaryMutation.isPending && !summariesLoading ? (
+                <p className="text-sm text-muted-foreground">
+                  No summary generated yet. Click "Generate Summary" to create one.
+                </p>
+              ) : null}
+            </CardContent>
+            )}
+          </Card>
+        </motion.div>
 
-          {/* Left column — main content */}
-          <div className="flex-1 min-w-0 flex flex-col gap-6">
+        {/* Two columns: sidebar (PRs + contributors) renders to the left of the
+            main content via grid placement, so the DOM keeps main content first
+            for screen readers and tab order. */}
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[20rem_minmax(0,1fr)] xl:grid-cols-[24rem_minmax(0,1fr)]">
 
-            {/* Overview section */}
+          {/* Main content column — commit activity + commits */}
+          <div className="min-w-0 flex flex-col gap-6 lg:col-start-2 lg:row-start-1">
+
+            {/* Commit activity section */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible">
               <div className="flex flex-col gap-5">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <button
-                        className="flex items-center gap-1.5 text-base font-semibold hover:text-indigo-600 transition-colors"
-                        onClick={() => latestSummary && setSummaryExpanded(v => !v)}
-                      >
-                        AI Summary
-                        {latestSummary && (summaryExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />)}
-                      </button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleGenerateSummary}
-                        loading={generateSummaryMutation.isPending} disabled={generateSummaryMutation.isPending}
-                      >
-                        <Sparkles className={cn('h-4 w-4 mr-1.5', generateSummaryMutation.isPending && 'animate-pulse')} />
-                        {generateSummaryMutation.isPending ? 'Generating...' : 'Generate Summary'}
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  {summaryExpanded && (
-                  <CardContent>
-                    {(generateSummaryMutation.isPending || summariesLoading) && (
-                      <LoadingContent label={generateSummaryMutation.isPending ? 'Generating your summary… This may take a minute.' : 'Loading summary…'} />
-                    )}
-                    {latestSummary ? (
-                      <div>
-                        <MarkdownContent content={latestSummary.content} />
-                        <p className="text-xs text-muted-foreground mt-3">
-                          Generated {formatDateTime(latestSummary.generated_at)} · {latestSummary.model_used}
-                        </p>
-                      </div>
-                    ) : !generateSummaryMutation.isPending && !summariesLoading ? (
-                      <p className="text-sm text-muted-foreground">
-                        No summary generated yet. Click "Generate Summary" to create one.
-                      </p>
-                    ) : null}
-                  </CardContent>
-                  )}
-                </Card>
-
                 <ContextualActivityChart key={id} collectionId={repo.collection_id} repoId={repo.id}
                   selectedContributorIds={Array.from(selectedContributorIds)}
                   actions={<>
@@ -1059,7 +1112,7 @@ export function RepoDetailPage() {
                         >
                           All
                         </button>
-                        {(showAllBranches ? allBranches : allBranches.slice(0, MAX_FILTER_CHIPS)).map(b => (
+                        {(showAllBranches ? allBranches : allBranches.slice(0, MAX_BRANCH_CHIPS)).map(b => (
                           <button
                             key={b}
                             onClick={() => toggleBranch(b)}
@@ -1073,57 +1126,19 @@ export function RepoDetailPage() {
                             {b}
                           </button>
                         ))}
-                        {allBranches.length > MAX_FILTER_CHIPS && (
+                        {allBranches.length > MAX_BRANCH_CHIPS && (
                           <button
                             onClick={() => setShowAllBranches(v => !v)}
                             className="text-xs px-1.5 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
                           >
-                            {showAllBranches ? 'Show less' : `+${allBranches.length - MAX_FILTER_CHIPS} more`}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {allAuthors.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground mr-1">Author:</span>
-                        <button
-                          onClick={() => setSelectedAuthors(new Set())}
-                          className={cn(
-                            'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                            selectedAuthors.size === 0
-                              ? 'bg-violet-600 text-white border-violet-600'
-                              : 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
-                          )}
-                        >
-                          All
-                        </button>
-                        {(showAllAuthors ? allAuthors : allAuthors.slice(0, MAX_FILTER_CHIPS)).map(a => (
-                          <button
-                            key={a}
-                            onClick={() => toggleAuthor(a)}
-                            className={cn(
-                              'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                              selectedAuthors.has(a)
-                                ? 'bg-violet-600 text-white border-violet-600'
-                                : 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
-                            )}
-                          >
-                            {a}
-                          </button>
-                        ))}
-                        {allAuthors.length > MAX_FILTER_CHIPS && (
-                          <button
-                            onClick={() => setShowAllAuthors(v => !v)}
-                            className="text-xs px-1.5 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
-                          >
-                            {showAllAuthors ? 'Show less' : `+${allAuthors.length - MAX_FILTER_CHIPS} more`}
+                            {showAllBranches ? 'Show less' : `+${allBranches.length - MAX_BRANCH_CHIPS} more`}
                           </button>
                         )}
                       </div>
                     )}
                     {/* role/aria-label so tests and screen readers can tell this
-                        row apart — "All" appears in the Branch and Author rows
-                        and the chart range selector too. */}
+                        row apart — "All" appears in the Branch row and the
+                        chart range selector too. */}
                     <div
                       role="group"
                       aria-label="Filter by commit type"
@@ -1287,7 +1302,9 @@ export function RepoDetailPage() {
                               {(() => {
                                 const mainNames = ['main', 'master']
                                 const onMain = commit.branches.some(b => mainNames.includes(b))
-                                const originBranch = commit.branches.find(b => !mainNames.includes(b)) ?? commit.branches[0]
+                                // The backend decides which branch owns a commit, so the
+                                // chip shown here is exactly what the filter matches on.
+                                const originBranch = commit.origin_branch
                                 const displayBranch = originBranch && originBranch.length > 22
                                   ? originBranch.slice(0, 20) + '…'
                                   : originBranch
@@ -1358,8 +1375,10 @@ export function RepoDetailPage() {
 
           </div>
 
-          {/* Right column — Pull Requests + Contributors */}
-          <div className="w-80 xl:w-96 flex-shrink-0 self-stretch flex flex-col gap-6">
+          {/* Sidebar column — Pull Requests + Contributors. self-stretch keeps
+              this column as tall as the main content so the sticky Contributors
+              panel has room to travel as you scroll. */}
+          <div className="min-w-0 self-stretch flex flex-col gap-6 lg:col-start-1 lg:row-start-1">
 
             {/* Pull Requests panel */}
             <div className="shrink-0 bg-gray-50 rounded-xl border border-border p-4">
@@ -1637,9 +1656,9 @@ export function RepoDetailPage() {
               )}
             </div>
 
-          </div>{/* end right column */}
+          </div>{/* end sidebar column */}
 
-        </div>{/* end inner two-column flex */}
+        </div>{/* end inner two-column grid */}
         </div>{/* end main sections column */}
 
         <NotesDrawer

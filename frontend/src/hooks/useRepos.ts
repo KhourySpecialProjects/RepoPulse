@@ -48,6 +48,37 @@ export function useRepo(id: string) {
   })
 }
 
+/** The full commit list RepoDetailPage loads to locate a commit's page. */
+export const ALL_COMMITS_PARAMS: GetCommitsParams = { limit: 500, offset: 0 }
+
+/**
+ * Warm the queries RepoDetailPage blocks on, before the user navigates.
+ *
+ * Jumping to a reminder's commit needs the whole commit list, because the page
+ * number a commit falls on can only be derived from its index. Fetched cold on
+ * arrival that is the slowest thing on the page, and the jump cannot happen
+ * until it lands. Calling this on hover or focus of a link means the cache is
+ * usually already warm by the time the click registers.
+ *
+ * `prefetchQuery` is a no-op when the data is present and unstale, so calling
+ * it on every pointer event is cheap.
+ */
+export function usePrefetchRepo() {
+  const queryClient = useQueryClient()
+
+  return (id: string) => {
+    if (!id) return
+    void queryClient.prefetchQuery({
+      queryKey: repoKeys.detail(id),
+      queryFn: () => getRepo(id),
+    })
+    void queryClient.prefetchQuery({
+      queryKey: repoKeys.commits(id, ALL_COMMITS_PARAMS),
+      queryFn: () => getRepoCommits(id, ALL_COMMITS_PARAMS),
+    })
+  }
+}
+
 export function useAddRepos() {
   const queryClient = useQueryClient()
   return useMutation({

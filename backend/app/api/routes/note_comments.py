@@ -14,7 +14,11 @@ from app.models.repo import Repo
 from app.models.user import User
 from app.schemas.errors import ErrorResponse
 from app.schemas.notes import NoteCommentCreate, NoteCommentRead
-from app.services.notification_service import create_mention_notifications
+from app.services.notification_service import (
+    create_mention_notifications,
+    deliver_emails,
+    notify,
+)
 from app.services.permission_service import can_access_collection
 
 router = APIRouter()
@@ -101,22 +105,30 @@ async def create_comment(
     await db.commit()
     await db.refresh(comment)
 
+    raised: list[Notification] = []
+
     # Notify the note author if the commenter is someone else
     if note.author_id != user_uuid:
-        notif = Notification(
-            recipient_id=note.author_id,
-            type=NotificationType.note_comment,
-            note_id=note_id,
-            comment_id=comment.id,
-            is_read=False,
+        raised.append(
+            await notify(
+                db,
+                recipient_id=note.author_id,
+                type=NotificationType.note_comment,
+                note_id=note_id,
+                comment_id=comment.id,
+                subject=f"{author_name} commented on your note",
+                body=body.content,
+            )
         )
-        db.add(notif)
 
     # Notify anyone @mentioned in the comment body
-    await create_mention_notifications(
+    raised += await create_mention_notifications(
         db, body.content, note_id, comment_id=comment.id
     )
     await db.commit()
+
+    # After the commit, so a rolled-back comment is never emailed about.
+    await deliver_emails(db, raised)
 
     return _comment_to_read(comment, author_name)
 

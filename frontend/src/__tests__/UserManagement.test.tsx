@@ -55,6 +55,9 @@ const mockNotification: Notification = {
   created_at: '2025-01-01T00:00:00Z',
   note_content_preview: 'Good progress...',
   repo_id: 'repo-1',
+  subject: null,
+  body: null,
+  emailed_at: null,
 }
 
 // Tests for API functions

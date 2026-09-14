@@ -18,6 +18,12 @@ class NotificationRead(BaseModel):
     created_at: datetime
     note_content_preview: Optional[str] = None
     repo_id: Optional[uuid.UUID] = None
+    # Set on repo-scoped events, which carry their own text instead of reading
+    # it from a note. NULL for mention/note_comment/reminder.
+    subject: Optional[str] = None
+    body: Optional[str] = None
+    # When the email relay delivered this, or NULL if it never did.
+    emailed_at: Optional[datetime] = None
 
 
 class NotificationListResponse(BaseModel):

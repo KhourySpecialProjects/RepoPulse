@@ -16,7 +16,10 @@ from app.models.repo import Repo
 from app.models.user import User
 from app.schemas.errors import ErrorResponse
 from app.schemas.notes import NoteCommentRead, NoteCreate, NoteRead, NoteUpdate, PaginatedNotes
-from app.services.notification_service import create_mention_notifications
+from app.services.notification_service import (
+    create_mention_notifications,
+    deliver_emails,
+)
 from app.services.permission_service import can_access_collection
 
 router = APIRouter()
@@ -185,8 +188,11 @@ async def create_note(
         db.add(ReminderShare(note_id=note.id, user_id=user_id))
 
     # Create mention notifications
-    await create_mention_notifications(db, body.content, note.id)
+    mentions = await create_mention_notifications(db, body.content, note.id)
     await db.commit()
+
+    # After the commit, so a rolled-back note is never emailed about.
+    await deliver_emails(db, mentions)
 
     return _note_to_read(note, author_name)
 
@@ -261,10 +267,11 @@ async def update_note(
     new_content = update_data.get("content")
     if new_content and new_content != old_content:
         # Find mentions in old content to avoid re-notifying
-        await create_mention_notifications(
+        mentions = await create_mention_notifications(
             db, new_content, note.id, previous_content=old_content
         )
         await db.commit()
+        await deliver_emails(db, mentions)
 
     return await _build_note_read(note, db)
 

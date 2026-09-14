@@ -55,6 +55,7 @@ from sqlalchemy import text
 
 from app.api.routes import api_router
 from app.db.database import engine
+from app.core.errors import AppError
 from app.services.contributor_service import ContributorOperationError
 from app.schemas.errors import ErrorResponse
 from app.schemas.meta import HealthzResponse
@@ -83,6 +84,14 @@ app.add_middleware(
 
 @app.exception_handler(ContributorOperationError)
 async def contributor_operation_error_handler(request: Request, exc: ContributorOperationError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=ErrorResponse(detail=exc.detail, error_code=exc.error_code).model_dump(),
+    )
+
+
+@app.exception_handler(AppError)
+async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content=ErrorResponse(detail=exc.detail, error_code=exc.error_code).model_dump(),

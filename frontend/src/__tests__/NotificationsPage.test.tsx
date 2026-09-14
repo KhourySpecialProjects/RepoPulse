@@ -34,6 +34,9 @@ const mention: Notification = {
   created_at: '2026-09-10T11:00:00Z',
   note_content_preview: 'Hey @Mark take a look',
   repo_id: 'repo-1',
+  subject: null,
+  body: null,
+  emailed_at: null,
 }
 
 const reminderNotif: Notification = {
@@ -45,6 +48,9 @@ const reminderNotif: Notification = {
   created_at: '2026-09-10T11:30:00Z',
   note_content_preview: 'Office hours',
   repo_id: null,
+  subject: null,
+  body: null,
+  emailed_at: null,
 }
 
 const commentNotif: Notification = {
@@ -56,6 +62,9 @@ const commentNotif: Notification = {
   created_at: '2026-09-10T10:00:00Z',
   note_content_preview: 'Replied to you',
   repo_id: 'repo-2',
+  subject: null,
+  body: null,
+  emailed_at: null,
 }
 
 const activeReminder: Reminder = {
@@ -225,6 +234,22 @@ describe('NotificationsPage — notification list', () => {
     renderPage()
 
     expect(await screen.findByText('No notifications')).toBeInTheDocument()
+  })
+
+  it('flies a nyan cat across the empty state', async () => {
+    setup({ items: [] })
+    renderPage()
+
+    expect(await screen.findByTestId('nyan-cat')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /nyan cat/i })).toBeInTheDocument()
+  })
+
+  it('hides the nyan cat once notifications arrive', async () => {
+    setup({ items: [mention] })
+    renderPage()
+
+    await screen.findByText('You were mentioned')
+    expect(screen.queryByTestId('nyan-cat')).not.toBeInTheDocument()
   })
 
   it('marks a notification read and navigates to its repo', async () => {

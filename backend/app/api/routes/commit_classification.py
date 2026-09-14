@@ -25,7 +25,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -121,7 +121,18 @@ def _commit_input(commit: dict, *, needs_score: bool) -> CommitInput:
     )
 
 
-def _row(repo_id: uuid.UUID, commit_hash: str, commit_type, score, model: str) -> dict:
+def _row(
+    repo_id: uuid.UUID,
+    commit_hash: str,
+    commit_type,
+    score,
+    model: str,
+    criteria_hash: str | None = None,
+) -> dict:
+    # criteria_hash is tied to the score, not the row: this endpoint also writes
+    # rule-derived types with no score, and stamping a rubric on one of those
+    # would tell the commit-quality route a score had been graded under a
+    # rubric it never saw.
     return {
         "id": uuid.uuid4(),
         "repo_id": repo_id,
@@ -129,6 +140,7 @@ def _row(repo_id: uuid.UUID, commit_hash: str, commit_type, score, model: str) -
         "commit_type": commit_type,
         "score": score,
         "model_used": model,
+        "criteria_hash": criteria_hash if score is not None else None,
     }
 
 
@@ -162,6 +174,15 @@ async def _persist(db: AsyncSession, rows: list[dict]) -> bool:
             ),
             "score": func.coalesce(
                 stmt.excluded.score, CommitClassification.score
+            ),
+            # A case, not a coalesce. When this statement supplies a score,
+            # its hash replaces the old one *even when NULL* — otherwise the
+            # row keeps claiming a rubric that did not produce the score now
+            # sitting beside it. When it supplies no score (a rule-derived
+            # type), the existing hash is left alone.
+            "criteria_hash": case(
+                (stmt.excluded.score.isnot(None), stmt.excluded.criteria_hash),
+                else_=CommitClassification.criteria_hash,
             ),
         },
     )
@@ -351,7 +372,11 @@ async def classify_repo_commits(
             # Built once: the adapter caches its HTTP client, and rebuilding it
             # per wave would re-handshake every 240 commits.
             classifier = build_classifier(
-                llm_cfg.provider, llm_cfg.model, llm_cfg.api_key, llm_cfg.ollama_url
+                llm_cfg.provider,
+                llm_cfg.model,
+                llm_cfg.api_key,
+                llm_cfg.ollama_url,
+                instructor_criteria=llm_cfg.commit_evaluation_criteria,
             )
 
             for start in range(0, len(to_process), WAVE_SIZE):
@@ -378,6 +403,7 @@ async def classify_repo_commits(
                             result.commit_type,
                             result.score,
                             llm_cfg.label,
+                            llm_cfg.criteria_hash,
                         )
                     )
                     if result.commit_type is not None:

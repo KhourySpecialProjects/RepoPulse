@@ -3,7 +3,9 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.services.llm.criteria import MAX_CRITERIA_CHARS
 
 
 class AppSettingsRead(BaseModel):
@@ -17,6 +19,7 @@ class AppSettingsRead(BaseModel):
     health_thresholds: Optional[dict] = None
     anthropic_api_key_configured: bool = False
     ollama_base_url: Optional[str] = None
+    commit_evaluation_criteria: str = ""
 
 
 class AppSettingsUpdate(BaseModel):
@@ -26,3 +29,17 @@ class AppSettingsUpdate(BaseModel):
     health_thresholds: Optional[dict] = None
     anthropic_api_key: Optional[str] = None
     ollama_base_url: Optional[str] = None
+    commit_evaluation_criteria: Optional[str] = Field(
+        default=None, max_length=MAX_CRITERIA_CHARS
+    )
+
+    @field_validator("commit_evaluation_criteria")
+    @classmethod
+    def _null_clears_the_rubric(cls, value: str | None) -> str:
+        """An explicit null means "no rubric", not NULL into a NOT NULL column.
+
+        exclude_unset already drops the key when the client omits it, so this
+        only ever fires on a deliberate null — and a 500 there would be a much
+        worse answer than the obvious one.
+        """
+        return value or ""

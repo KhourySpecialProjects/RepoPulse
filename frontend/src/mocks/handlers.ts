@@ -14,6 +14,7 @@ import type {
   NoteComment,
   Notification,
   NotificationListResponse,
+  NotificationSettings,
   CollectionAccessEntry,
   PRStats,
   PRListResponse,
@@ -182,6 +183,7 @@ const mockCommits: Commit[] = [
     date: '2025-10-14T14:00:00Z',
     message: 'feat: implement user authentication flow',
     branches: ['main'],
+    origin_branch: 'main',
     insertions: 142,
     deletions: 23,
     files_changed: 6,
@@ -195,6 +197,7 @@ const mockCommits: Commit[] = [
     date: '2025-10-13T09:30:00Z',
     message: 'fix: resolve merge conflict in database module',
     branches: ['main'],
+    origin_branch: 'main',
     insertions: 18,
     deletions: 5,
     files_changed: 2,
@@ -208,6 +211,7 @@ const mockCommits: Commit[] = [
     date: '2025-10-12T16:45:00Z',
     message: 'docs: update README with setup instructions',
     branches: ['feature/docs'],
+    origin_branch: 'feature/docs',
     insertions: 54,
     deletions: 0,
     files_changed: 1,
@@ -270,6 +274,31 @@ const mockNoteComments: NoteComment[] = []
 
 const mockNotifications: Notification[] = []
 
+/** A relay that has never been configured — the default a new user sees. */
+const mockNotificationSettings: NotificationSettings = {
+  email_enabled: false,
+  transport: 'smtp',
+  from_email: null,
+  from_name: null,
+  smtp_host: null,
+  smtp_port: null,
+  smtp_username: null,
+  smtp_encryption: 'starttls',
+  smtp_password_set: false,
+  resend_api_key_set: false,
+  subscribed_events: {
+    mention: true,
+    note_comment: true,
+    reminder: true,
+    repo_added: true,
+    repo_removed: true,
+    repo_health_declined: true,
+    pr_opened: true,
+    pr_merged: true,
+  },
+  deliverable: false,
+}
+
 const mockCollectionAccess: CollectionAccessEntry[] = []
 
 const mockSummaries: Summary[] = [
@@ -294,6 +323,7 @@ const mockSettings: AppSettings = {
   anthropic_api_key_configured: false,
   ollama_base_url: null,
   health_thresholds: null,
+  commit_evaluation_criteria: '',
 }
 
 export const handlers = [
@@ -649,11 +679,34 @@ export const handlers = [
       created_at: new Date().toISOString(),
       note_content_preview: null,
       repo_id: null,
+      subject: null,
+      body: null,
+      emailed_at: null,
     }
     return HttpResponse.json(notif)
   }),
   http.post(`${BASE}/notifications/mark-all-read`, () => {
     return HttpResponse.json({ marked_read: 0 })
+  }),
+
+  // Email relay settings
+  http.get(`${BASE}/notifications/settings`, () => {
+    return HttpResponse.json(mockNotificationSettings)
+  }),
+  http.put(`${BASE}/notifications/settings`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>
+    const { subscribed_events, ...rest } = body
+    return HttpResponse.json({
+      ...mockNotificationSettings,
+      ...rest,
+      subscribed_events: {
+        ...mockNotificationSettings.subscribed_events,
+        ...((subscribed_events as Record<string, boolean>) ?? {}),
+      },
+    })
+  }),
+  http.post(`${BASE}/notifications/settings/test-email`, () => {
+    return HttpResponse.json({ detail: 'Test email sent.', sent_to: 'test@example.com' })
   }),
 
   // Pull Requests

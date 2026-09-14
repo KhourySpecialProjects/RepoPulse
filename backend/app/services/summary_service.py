@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.llm.base import LLMService
+from app.services.llm.criteria import fence
+
+_INSTRUCTOR_TAG = "instructor_instructions"
 
 _SYSTEM_PROMPT = (
     "You are an expert software engineering teaching assistant. "
@@ -15,8 +18,18 @@ class SummaryService:
     def __init__(self, llm: LLMService) -> None:
         self._llm = llm
 
-    async def generate_repo_overview(self, repo_data: dict[str, Any]) -> str:
-        """Generate a high-level overview of a repository."""
+    async def generate_repo_overview(
+        self,
+        repo_data: dict[str, Any],
+        instructor_instructions: str | None = None,
+    ) -> str:
+        """Generate a high-level overview of a repository.
+
+        `instructor_instructions` is the rubric the instructor maintains in
+        Settings. It is optional so existing callers and tests keep working,
+        and it is injected ahead of the repository evidence so the closing
+        format instruction remains the last thing the model reads.
+        """
         name = repo_data.get("name", "Unknown")
         github_url = repo_data.get("github_url", "")
         health_status = repo_data.get("health_status", "unknown")
@@ -69,8 +82,22 @@ class SummaryService:
             if c.get("date")
         )
 
-        prompt = f"""Provide a concise overview of the following student GitHub repository for an instructor.
+        instructions = fence(instructor_instructions, _INSTRUCTOR_TAG)
+        instructor_block = (
+            f"""
+Additional instructor instructions for this summary:
+<instructor_instructions>
+{instructions}
+</instructor_instructions>
 
+Follow these while preserving the repository evidence and the requested format below.
+"""
+            if instructions
+            else ""
+        )
+
+        prompt = f"""Provide a concise overview of the following student GitHub repository for an instructor.
+{instructor_block}
 Repository: {name}
 URL: {github_url}
 Health Status: {health_status}
