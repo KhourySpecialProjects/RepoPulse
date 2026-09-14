@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -43,29 +43,12 @@ _git_service = GitService()
 _health_service = HealthService()
 
 
-def _as_utc(value: Optional[datetime]) -> Optional[datetime]:
-    """Treat a naive query-param datetime as UTC.
-
-    Commit dates are always tz-aware, so comparing them against a bare
-    ?date_from=2026-01-01 (which parses naive) raises TypeError.
-    """
-    if value is not None and value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value
-
-
 def _derive_repo_name(github_url: str) -> str:
-    """Derive a repo name from a GitHub URL.
-
-    The result becomes the last segment of the clone path, so a URL ending in
-    "/.." must not be able to walk out of the collection folder.
-    """
+    """Derive a repo name from a GitHub URL."""
     name = github_url.rstrip("/").split("/")[-1]
     if name.endswith(".git"):
         name = name[:-4]
-    if not name or name.strip(".") == "":
-        return "unknown"
-    return name
+    return name or "unknown"
 
 
 def _repo_to_read(repo: Repo, contributor_count: int | None = None, active_reminder_count: int = 0) -> RepoRead:
@@ -634,18 +617,16 @@ async def get_repo_commits(
     if contributor_id is not None:
         contributor = await db.get(Contributor, contributor_id)
         if contributor and contributor.aliases:
-            # Compared against a lower-cased author email below; git emails are
-            # stored with their original casing.
-            contributor_emails = {a.git_email.lower() for a in contributor.aliases}
-
-    date_from = _as_utc(date_from)
-    date_to = _as_utc(date_to)
+            contributor_emails = {a.git_email for a in contributor.aliases}
 
     filtered = []
     for c in all_commits:
         if contributor_emails and c["author_email"].lower() not in contributor_emails:
             continue
-        if branch and branch not in c["branches"]:
+        # Match the owning branch, not containment: `dev` contains all of
+        # trunk's history, so `branch in c["branches"]` matched nearly
+        # everything.
+        if branch and branch != c["origin_branch"]:
             continue
         if date_from and c["date"] < date_from:
             continue
@@ -673,6 +654,7 @@ async def get_repo_commits(
             date=c["date"],
             message=c["message"],
             branches=c["branches"],
+            origin_branch=c["origin_branch"],
             insertions=c["insertions"],
             deletions=c["deletions"],
             files_changed=c["files_changed"],

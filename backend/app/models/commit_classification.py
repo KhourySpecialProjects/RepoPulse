@@ -51,6 +51,12 @@ class CommitClassification(Base):
     score: Mapped[str | None] = mapped_column(String(10), nullable=True)          # 'good' | 'ok' | 'bad'
     commit_type: Mapped[str | None] = mapped_column(String(20), nullable=True)    # 'substantive' | 'logistical'
     model_used: Mapped[str] = mapped_column(String(100), nullable=False)
+    # sha256 of the instructor rubric this score was graded under, or NULL when
+    # there was no rubric — which is exactly what every row written before this
+    # column existed was graded under, so they need no special case. Only ever
+    # set alongside a score: the rubric governs score, not type, and a rubric
+    # edit must not invalidate a commit's type.
+    criteria_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     scored_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
     )

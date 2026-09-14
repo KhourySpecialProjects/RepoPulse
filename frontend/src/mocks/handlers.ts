@@ -182,6 +182,7 @@ const mockCommits: Commit[] = [
     date: '2025-10-14T14:00:00Z',
     message: 'feat: implement user authentication flow',
     branches: ['main'],
+    origin_branch: 'main',
     insertions: 142,
     deletions: 23,
     files_changed: 6,
@@ -195,6 +196,7 @@ const mockCommits: Commit[] = [
     date: '2025-10-13T09:30:00Z',
     message: 'fix: resolve merge conflict in database module',
     branches: ['main'],
+    origin_branch: 'main',
     insertions: 18,
     deletions: 5,
     files_changed: 2,
@@ -208,6 +210,7 @@ const mockCommits: Commit[] = [
     date: '2025-10-12T16:45:00Z',
     message: 'docs: update README with setup instructions',
     branches: ['feature/docs'],
+    origin_branch: 'feature/docs',
     insertions: 54,
     deletions: 0,
     files_changed: 1,
@@ -294,6 +297,7 @@ const mockSettings: AppSettings = {
   anthropic_api_key_configured: false,
   ollama_base_url: null,
   health_thresholds: null,
+  commit_evaluation_criteria: '',
 }
 
 export const handlers = [
@@ -518,12 +522,7 @@ export const handlers = [
 
   // Users
   http.get(`${BASE}/users`, () => {
-    return HttpResponse.json({
-      items: mockUserDetails,
-      total: mockUserDetails.length,
-      limit: 50,
-      offset: 0,
-    })
+    return HttpResponse.json(mockUserDetails)
   }),
   http.get(`${BASE}/users/me`, () => {
     return HttpResponse.json(mockUserDetails[0])
@@ -563,12 +562,7 @@ export const handlers = [
 
   // Collection access
   http.get(`${BASE}/collections/:id/access`, () => {
-    return HttpResponse.json({
-      items: mockCollectionAccess,
-      total: mockCollectionAccess.length,
-      limit: 200,
-      offset: 0,
-    })
+    return HttpResponse.json(mockCollectionAccess)
   }),
   http.post(`${BASE}/collections/:id/access`, async ({ params, request }) => {
     const body = (await request.json()) as { user_id: string; access_role: 'co_instructor' | 'ta' }

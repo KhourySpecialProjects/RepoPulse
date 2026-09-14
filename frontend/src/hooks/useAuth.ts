@@ -34,7 +34,6 @@ function parseStoredUser(): AuthUser | null {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const queryClient = useQueryClient()
 
   useEffect(() => {
     const storedUser = parseStoredUser()

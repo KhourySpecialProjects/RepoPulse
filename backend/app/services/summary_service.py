@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.llm.base import LLMService
+from app.services.llm.criteria import fence
+
+_INSTRUCTOR_TAG = "instructor_instructions"
 
 _SYSTEM_PROMPT = (
     "You are an expert software engineering teaching assistant. "
@@ -15,8 +18,18 @@ class SummaryService:
     def __init__(self, llm: LLMService) -> None:
         self._llm = llm
 
-    async def generate_repo_overview(self, repo_data: dict[str, Any]) -> str:
-        """Generate a high-level overview of a repository."""
+    async def generate_repo_overview(
+        self,
+        repo_data: dict[str, Any],
+        instructor_instructions: str | None = None,
+    ) -> str:
+        """Generate a high-level overview of a repository.
+
+        `instructor_instructions` is the rubric the instructor maintains in
+        Settings. It is optional so existing callers and tests keep working,
+        and it is injected ahead of the repository evidence so the closing
+        format instruction remains the last thing the model reads.
+        """
         name = repo_data.get("name", "Unknown")
         github_url = repo_data.get("github_url", "")
         health_status = repo_data.get("health_status", "unknown")
@@ -69,8 +82,22 @@ class SummaryService:
             if c.get("date")
         )
 
-        prompt = f"""Provide a concise overview of the following student GitHub repository for an instructor.
+        instructions = fence(instructor_instructions, _INSTRUCTOR_TAG)
+        instructor_block = (
+            f"""
+Additional instructor instructions for this summary:
+<instructor_instructions>
+{instructions}
+</instructor_instructions>
 
+Follow these while preserving the repository evidence and the requested format below.
+"""
+            if instructions
+            else ""
+        )
+
+        prompt = f"""Provide a concise overview of the following student GitHub repository for an instructor.
+{instructor_block}
 Repository: {name}
 URL: {github_url}
 Health Status: {health_status}
@@ -91,10 +118,7 @@ Write 2-4 paragraphs covering: overall activity level and timeline, collaboratio
 code quality signals from commit messages, code churn and its implications, \
 and any concerns the instructor should be aware of."""
 
-        # Ceiling, not a target — billing follows actual output. Sized well
-        # above the 2-4 paragraphs asked for so replies end on their own
-        # instead of being cut mid-sentence.
-        return await self._llm.generate(prompt, system=_SYSTEM_PROMPT, max_tokens=2000)
+        return await self._llm.generate(prompt, system=_SYSTEM_PROMPT, max_tokens=600)
 
     async def generate_contributor_activity(
         self, contributor_data: dict[str, Any]
@@ -164,7 +188,7 @@ Recent commit messages (with churn):
 Write 1-3 paragraphs covering: contribution frequency and consistency, \
 quality of commit messages, areas of the codebase worked on, and overall engagement level."""
 
-        return await self._llm.generate(prompt, system=_SYSTEM_PROMPT, max_tokens=1500)
+        return await self._llm.generate(prompt, system=_SYSTEM_PROMPT, max_tokens=450)
 
     async def generate_health_explanation(self, health_data: dict[str, Any]) -> str:
         """Explain health scores in plain English for an instructor."""
@@ -203,4 +227,4 @@ Signal Breakdown:
 Write 1-2 paragraphs explaining what these scores mean in practical terms, \
 what the students are doing well, and what they should improve."""
 
-        return await self._llm.generate(prompt, system=_SYSTEM_PROMPT, max_tokens=1200)
+        return await self._llm.generate(prompt, system=_SYSTEM_PROMPT, max_tokens=350)

@@ -100,7 +100,10 @@ export interface Commit {
   author_email: string
   date: string
   message: string
+  // Every branch containing the commit — drives the "merged to main" badge.
   branches: string[]
+  // The single branch the work was done on; what the branch filter matches.
+  origin_branch: string
   insertions: number
   deletions: number
   files_changed: number
@@ -157,6 +160,8 @@ export interface AppSettings {
   anthropic_api_key_configured: boolean
   ollama_base_url: string | null
   health_thresholds: Record<string, unknown> | null
+  /** Instructor rubric added to the built-in criteria. '' means no addendum. */
+  commit_evaluation_criteria: string
 }
 
 export interface PaginatedResponse<T> {
@@ -312,6 +317,7 @@ export interface UpdateSettingsData {
   anthropic_api_key?: string
   ollama_base_url?: string | null
   health_thresholds?: Record<string, unknown> | null
+  commit_evaluation_criteria?: string
 }
 
 export interface GetCommitsParams {

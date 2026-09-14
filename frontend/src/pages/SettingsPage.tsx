@@ -6,11 +6,17 @@ import { useCurrentUser, useUpdateCurrentUser, useChangePassword } from '@/hooks
 import { getOllamaModels } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
+
+// Mirrors MAX_CRITERIA_CHARS in backend/app/services/llm/criteria.py, where the
+// same cap is enforced with a 422 — the rubric is re-sent with every batch of
+// commits, so its length is a per-request cost multiplier.
+const MAX_CRITERIA_CHARS = 8000
 
 const ANTHROPIC_MODELS = [
   { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (recommended)' },
@@ -64,9 +70,7 @@ export function SettingsPage() {
   async function handleSaveGithubToken(e: React.FormEvent) {
     e.preventDefault()
     try {
-      // Send '' rather than undefined: the backend only clears the stored token
-      // when the key is present, and omits the field entirely when undefined.
-      await updateCurrentUser.mutateAsync({ github_token: githubToken })
+      await updateCurrentUser.mutateAsync({ github_token: githubToken || undefined })
       setGithubToken('')
       toast.success(githubToken ? 'GitHub token updated' : 'GitHub token cleared')
     } catch {
@@ -108,6 +112,7 @@ export function SettingsPage() {
   const [ollamaModel, setOllamaModel] = useState('')
   const [ollamaModels, setOllamaModels] = useState<string[]>([])
   const [ollamaStatus, setOllamaStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle')
+  const [commitEvaluationCriteria, setCommitEvaluationCriteria] = useState('')
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
@@ -116,6 +121,7 @@ export function SettingsPage() {
       setProvider(p)
       setLlmModel(settings.llm_model)
       setOllamaUrl(settings.ollama_base_url || 'http://localhost:11434')
+      setCommitEvaluationCriteria(settings.commit_evaluation_criteria || '')
       if (p === 'ollama') {
         setOllamaModel(settings.llm_model)
       }
@@ -143,6 +149,7 @@ export function SettingsPage() {
       llm_provider: provider,
       llm_model: model,
       ollama_base_url: provider === 'ollama' ? ollamaUrl : null,
+      commit_evaluation_criteria: commitEvaluationCriteria,
     }
     if (anthropicKey.trim()) {
       updateData.anthropic_api_key = anthropicKey.trim()
@@ -547,6 +554,39 @@ export function SettingsPage() {
                 </div>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* AI commit evaluation criteria */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">AI Summary &amp; Commit Evaluation Instructions</CardTitle>
+            <CardDescription>
+              Optional. Anything you write here is added to RepoPulse&apos;s built-in grading
+              criteria when scoring commit messages and writing repository summaries — it
+              refines how good, ok and bad are chosen, rather than replacing the built-in
+              rules. Leave it empty to use the built-in criteria alone. Describe evaluation
+              guidance, not an output format.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="commit-evaluation-criteria" className="text-sm font-medium">
+                Criteria
+              </label>
+              <Textarea
+                id="commit-evaluation-criteria"
+                value={commitEvaluationCriteria}
+                onChange={(e) => setCommitEvaluationCriteria(e.target.value)}
+                placeholder="e.g. Commits should describe why the change was made, not just what changed. Treat a message that only names a file as bad."
+                rows={12}
+                maxLength={MAX_CRITERIA_CHARS}
+                className="min-h-[240px] resize-y font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Editing this re-grades commits that were already scored.
+              </p>
+            </div>
           </CardContent>
         </Card>
 

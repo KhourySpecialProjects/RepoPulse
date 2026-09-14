@@ -600,3 +600,278 @@ async def test_commit_quality_partial_cache(
     assert commits[1]["full_hash"] == new_full_hash
     assert commits[1]["score"] == "good"
     assert commits[1]["from_cache"] is False
+
+
+# ---------------------------------------------------------------------------
+# Instructor rubric and cache invalidation
+#
+# criteria_hash is compared by plain equality, NULL included. A NULL means the
+# score was graded with no instructor rubric, which is true both of rows
+# written before the column existed and of an instructor who never set one.
+# ---------------------------------------------------------------------------
+
+
+async def _set_criteria(client: AsyncClient, headers: dict, criteria: str) -> None:
+    resp = await client.patch(
+        "/api/v1/settings",
+        headers=headers,
+        json={"commit_evaluation_criteria": criteria},
+    )
+    assert resp.status_code == 200
+
+
+def _one_commit(full_hash: str) -> list[dict]:
+    return [{
+        "hash": full_hash[:7],
+        "full_hash": full_hash,
+        "message": "Add caching",
+        "author": "Dev",
+        "date": "2026-01-01T12:00:00",
+    }]
+
+
+def _llm_returning(score: str) -> AsyncMock:
+    llm = AsyncMock()
+    llm.generate = AsyncMock(return_value=json.dumps([{"i": 0, "s": score}]))
+    return llm
+
+
+@pytest.mark.asyncio
+async def test_rubric_reaches_the_scoring_prompt(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+    test_user,
+    auth_headers: dict,
+) -> None:
+    col = await _make_collection(db_session, test_user.id)
+    repo = await _make_repo(db_session, col.id, "r", "/fake/path")
+    await _set_criteria(test_client, auth_headers, "Mark terse messages as bad.")
+
+    with (
+        patch(
+            "app.api.routes.commit_quality._git_service.get_recent_commits",
+            new_callable=AsyncMock,
+            return_value=_one_commit("d" * 40),
+        ),
+        patch("app.services.commit_classifier_service.get_llm_service") as mock_get_llm,
+    ):
+        llm = _llm_returning("good")
+        mock_get_llm.return_value = llm
+        resp = await test_client.get(
+            f"/api/v1/collections/{col.id}/commit-quality", headers=auth_headers
+        )
+
+    assert resp.status_code == 200
+    assert "Mark terse messages as bad." in llm.generate.call_args.args[0]
+
+    rows = await _classification_rows(db_session, repo.id)
+    assert rows[0].criteria_hash is not None
+
+
+@pytest.mark.asyncio
+async def test_no_rubric_records_a_null_criteria_hash(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+    test_user,
+    auth_headers: dict,
+) -> None:
+    col = await _make_collection(db_session, test_user.id)
+    repo = await _make_repo(db_session, col.id, "r", "/fake/path")
+
+    with (
+        patch(
+            "app.api.routes.commit_quality._git_service.get_recent_commits",
+            new_callable=AsyncMock,
+            return_value=_one_commit("e" * 40),
+        ),
+        patch("app.services.commit_classifier_service.get_llm_service") as mock_get_llm,
+    ):
+        mock_get_llm.return_value = _llm_returning("good")
+        await test_client.get(
+            f"/api/v1/collections/{col.id}/commit-quality", headers=auth_headers
+        )
+
+    rows = await _classification_rows(db_session, repo.id)
+    assert rows[0].score == "good"
+    assert rows[0].criteria_hash is None
+
+
+@pytest.mark.asyncio
+async def test_editing_the_rubric_invalidates_cached_scores(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+    test_user,
+    auth_headers: dict,
+) -> None:
+    col = await _make_collection(db_session, test_user.id)
+    repo = await _make_repo(db_session, col.id, "r", "/fake/path")
+    full_hash = "f" * 40
+
+    await _set_criteria(test_client, auth_headers, "Rubric A")
+    with (
+        patch(
+            "app.api.routes.commit_quality._git_service.get_recent_commits",
+            new_callable=AsyncMock,
+            return_value=_one_commit(full_hash),
+        ),
+        patch("app.services.commit_classifier_service.get_llm_service") as mock_get_llm,
+    ):
+        mock_get_llm.return_value = _llm_returning("good")
+        await test_client.get(
+            f"/api/v1/collections/{col.id}/commit-quality", headers=auth_headers
+        )
+
+    rows = await _classification_rows(db_session, repo.id)
+    hash_under_a = rows[0].criteria_hash
+    assert hash_under_a is not None
+
+    await _set_criteria(test_client, auth_headers, "Rubric B - much stricter")
+    with (
+        patch(
+            "app.api.routes.commit_quality._git_service.get_recent_commits",
+            new_callable=AsyncMock,
+            return_value=_one_commit(full_hash),
+        ),
+        patch("app.services.commit_classifier_service.get_llm_service") as mock_get_llm,
+    ):
+        mock_get_llm.return_value = _llm_returning("bad")
+        resp = await test_client.get(
+            f"/api/v1/collections/{col.id}/commit-quality", headers=auth_headers
+        )
+        mock_get_llm.assert_called_once()
+
+    assert resp.json()["total_newly_scored"] == 1
+    rows = await _classification_rows(db_session, repo.id)
+    await db_session.refresh(rows[0])
+    assert rows[0].score == "bad"
+    assert rows[0].criteria_hash != hash_under_a
+
+
+@pytest.mark.asyncio
+async def test_same_rubric_still_serves_from_cache(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+    test_user,
+    auth_headers: dict,
+) -> None:
+    col = await _make_collection(db_session, test_user.id)
+    repo = await _make_repo(db_session, col.id, "r", "/fake/path")
+    full_hash = "1" * 40
+
+    await _set_criteria(test_client, auth_headers, "Rubric A")
+    with (
+        patch(
+            "app.api.routes.commit_quality._git_service.get_recent_commits",
+            new_callable=AsyncMock,
+            return_value=_one_commit(full_hash),
+        ),
+        patch("app.services.commit_classifier_service.get_llm_service") as mock_get_llm,
+    ):
+        mock_get_llm.return_value = _llm_returning("good")
+        await test_client.get(
+            f"/api/v1/collections/{col.id}/commit-quality", headers=auth_headers
+        )
+
+    with (
+        patch(
+            "app.api.routes.commit_quality._git_service.get_recent_commits",
+            new_callable=AsyncMock,
+            return_value=_one_commit(full_hash),
+        ),
+        patch("app.services.commit_classifier_service.get_llm_service") as mock_get_llm,
+    ):
+        resp = await test_client.get(
+            f"/api/v1/collections/{col.id}/commit-quality", headers=auth_headers
+        )
+        mock_get_llm.assert_not_called()
+
+    assert resp.json()["total_cache_hits"] == 1
+
+
+@pytest.mark.asyncio
+async def test_regrading_under_a_new_rubric_preserves_commit_type(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+    test_user,
+    auth_headers: dict,
+) -> None:
+    """A rubric governs score. It must never cost a commit its type."""
+    col = await _make_collection(db_session, test_user.id)
+    repo = await _make_repo(db_session, col.id, "r", "/fake/path")
+    full_hash = "2" * 40
+
+    db_session.add(CommitClassification(
+        id=uuid.uuid4(),
+        repo_id=repo.id,
+        commit_hash=full_hash,
+        score="good",
+        commit_type="substantive",
+        model_used="claude-sonnet-5",
+        criteria_hash=None,
+    ))
+    await db_session.flush()
+
+    await _set_criteria(test_client, auth_headers, "A brand new rubric")
+    with (
+        patch(
+            "app.api.routes.commit_quality._git_service.get_recent_commits",
+            new_callable=AsyncMock,
+            return_value=_one_commit(full_hash),
+        ),
+        patch("app.services.commit_classifier_service.get_llm_service") as mock_get_llm,
+    ):
+        mock_get_llm.return_value = _llm_returning("bad")
+        await test_client.get(
+            f"/api/v1/collections/{col.id}/commit-quality", headers=auth_headers
+        )
+
+    rows = await _classification_rows(db_session, repo.id)
+    await db_session.refresh(rows[0])
+    assert rows[0].score == "bad"
+    assert rows[0].commit_type == "substantive"
+
+
+@pytest.mark.asyncio
+async def test_clearing_the_rubric_resets_the_hash_to_null(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+    test_user,
+    auth_headers: dict,
+) -> None:
+    """The anti-coalesce test: a cleared rubric must not leave a stale hash."""
+    col = await _make_collection(db_session, test_user.id)
+    repo = await _make_repo(db_session, col.id, "r", "/fake/path")
+    full_hash = "3" * 40
+
+    await _set_criteria(test_client, auth_headers, "Rubric A")
+    with (
+        patch(
+            "app.api.routes.commit_quality._git_service.get_recent_commits",
+            new_callable=AsyncMock,
+            return_value=_one_commit(full_hash),
+        ),
+        patch("app.services.commit_classifier_service.get_llm_service") as mock_get_llm,
+    ):
+        mock_get_llm.return_value = _llm_returning("good")
+        await test_client.get(
+            f"/api/v1/collections/{col.id}/commit-quality", headers=auth_headers
+        )
+
+    await _set_criteria(test_client, auth_headers, "")
+    with (
+        patch(
+            "app.api.routes.commit_quality._git_service.get_recent_commits",
+            new_callable=AsyncMock,
+            return_value=_one_commit(full_hash),
+        ),
+        patch("app.services.commit_classifier_service.get_llm_service") as mock_get_llm,
+    ):
+        mock_get_llm.return_value = _llm_returning("ok")
+        await test_client.get(
+            f"/api/v1/collections/{col.id}/commit-quality", headers=auth_headers
+        )
+
+    rows = await _classification_rows(db_session, repo.id)
+    await db_session.refresh(rows[0])
+    assert rows[0].score == "ok"
+    assert rows[0].criteria_hash is None

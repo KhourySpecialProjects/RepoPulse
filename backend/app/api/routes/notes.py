@@ -150,15 +150,6 @@ async def create_note(
     current_user_id: str = Depends(get_current_user),
 ) -> NoteRead:
     author_uuid = uuid.UUID(current_user_id)
-    if body.repo_id is not None:
-        repo = await db.get(Repo, body.repo_id)
-        if repo is None or not await can_access_collection(
-            db, author_uuid, repo.collection_id
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Repo not found",
-            )
     author = await db.get(User, author_uuid)
     author_name = author.display_name if author else "Unknown"
     note = Note(
