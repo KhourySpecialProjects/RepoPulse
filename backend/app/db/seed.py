@@ -16,8 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy import text
 
 from app.core.config import settings
-from app.db.database import Base
-import app.models  # noqa: F401 — register all models with Base.metadata
+import app.models  # noqa: F401 — register all models before the ORM is used
 from app.models.app_settings import AppSettings
 from app.models.collection import Collection
 from app.models.collection_access import CollectionAccess, CollectionRole
@@ -194,10 +193,24 @@ async def seed() -> None:
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        # Wipe existing data so the seed is idempotent
+        # No create_all here. Seeding populates data; Alembic owns the schema.
+        # Creating tables from this script would build them without writing an
+        # alembic_version stamp, so a later `alembic upgrade head` would fail
+        # against tables that already exist.
+        if (
+            await conn.execute(text("SELECT to_regclass('public.users')"))
+        ).scalar() is None:
+            raise RuntimeError(
+                "No schema found. Run `alembic upgrade head` before seeding "
+                "(the backend container does this on boot)."
+            )
+
+        # Wipe existing data so the seed is idempotent. Every table is named
+        # explicitly rather than relying on CASCADE to reach them — a table
+        # that is not FK-reachable would silently keep its rows.
         await conn.execute(text(
-            "TRUNCATE TABLE notifications, note_comments, collection_access, "
+            "TRUNCATE TABLE reminder_shares, notifications, note_comments, "
+            "pull_requests, commit_classifications, collection_access, "
             "app_settings, summaries, notes, contributor_aliases, "
             "contributors, repos, collections, users RESTART IDENTITY CASCADE"
         ))
@@ -396,7 +409,7 @@ async def seed() -> None:
                     "The branch strategy follows feature branching best practices. "
                     "The codebase appears healthy with balanced contributions from both team members."
                 ),
-                model_used="claude-sonnet-4-20250514",
+                model_used=settings.DEFAULT_LLM_MODEL,
                 generated_at=datetime.now(timezone.utc),
             )
             db.add(summary1)
@@ -411,7 +424,7 @@ async def seed() -> None:
                     "share the work evenly (low Gini coefficient). Multiple active branches indicate "
                     "parallel feature development. Commit messages are descriptive and informative."
                 ),
-                model_used="claude-sonnet-4-20250514",
+                model_used=settings.DEFAULT_LLM_MODEL,
                 generated_at=datetime.now(timezone.utc),
             )
             db.add(health_summary)
@@ -424,7 +437,7 @@ async def seed() -> None:
                 user_id=user_id,
                 repo_root_directory=SEED_REPOS_BASE,
                 llm_provider="anthropic",
-                llm_model="claude-sonnet-4-20250514",
+                llm_model=settings.DEFAULT_LLM_MODEL,
             )
             db.add(app_settings)
 

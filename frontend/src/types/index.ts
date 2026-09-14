@@ -2,6 +2,13 @@ export type UserRole = 'instructor' | 'ta' | 'admin'
 export type HealthStatus = 'green' | 'yellow' | 'red' | 'unknown'
 export type SummaryType = 'repo_overview' | 'contributor_activity' | 'health_explanation'
 
+/** Does this commit advance the project, or keep it tidy? */
+export type CommitType = 'substantive' | 'logistical'
+/** LLM-rated quality of the commit *message*, independent of CommitType. */
+export type CommitQualityScore = 'good' | 'ok' | 'bad'
+/** `unclassified` is a filter value only — it never appears on a commit. */
+export type CommitTypeFilter = CommitType | 'unclassified'
+
 export interface CommitActivityPoint {
   date: string // YYYY-MM-DD
   count: number
@@ -70,7 +77,12 @@ export interface ContributorAlias {
   git_name: string
 }
 
+export interface UnmergeContributorsResponse {
+  contributors: Contributor[]
+}
+
 export interface Contributor {
+  can_unmerge?: boolean
   id: string
   display_name: string
   repo_id: string
@@ -92,6 +104,10 @@ export interface Commit {
   insertions: number
   deletions: number
   files_changed: number
+  /** null until the repo is classified — render as a dash, never a default. */
+  commit_type: CommitType | null
+  /** Populated by classification, or by the collection-level quality pass. */
+  quality_score: CommitQualityScore | null
 }
 
 export interface NoteComment {
@@ -114,6 +130,7 @@ export interface Note {
   content: string
   is_reminder: boolean
   reminder_context: string | null
+  remind_at: string | null
   is_checked: boolean
   is_archived: boolean
   created_at: string
@@ -175,6 +192,9 @@ export interface CreateNoteData {
   content: string
   is_reminder: boolean
   reminder_context?: string | null
+  remind_at?: string | null
+  /** User ids to share a reminder with. Reminders only. */
+  shared_with?: string[]
   repo_id?: string | null
   contributor_id?: string | null
   commit_hash?: string | null
@@ -184,6 +204,7 @@ export interface UpdateNoteData {
   content?: string
   is_reminder?: boolean
   reminder_context?: string | null
+  remind_at?: string | null
   is_checked?: boolean
   is_archived?: boolean
 }
@@ -242,7 +263,7 @@ export interface CollectionAccessEntry {
 
 export interface Notification {
   id: string
-  type: 'mention' | 'note_comment'
+  type: 'mention' | 'note_comment' | 'reminder'
   note_id: string | null
   comment_id: string | null
   is_read: boolean
@@ -255,6 +276,27 @@ export interface NotificationListResponse {
   items: Notification[]
   total: number
   unread_count: number
+}
+
+/** An outstanding reminder, as shown in the notifications panel. */
+export interface Reminder {
+  id: string
+  content: string
+  /** Optional: a reminder with no due date never fires, but is still a to-do. */
+  remind_at: string | null
+  reminder_context: string | null
+  repo_id: string | null
+  commit_hash: string | null
+  created_at: string
+  owner_display_name: string
+  /** Display names of the other people this reminder is shared with. */
+  shared_with: string[]
+  is_owner: boolean
+}
+
+export interface ReminderListResponse {
+  items: Reminder[]
+  total: number
 }
 
 export interface GenerateSummaryData {
@@ -277,6 +319,29 @@ export interface GetCommitsParams {
   offset?: number
   branch?: string
   author_email?: string
+  commit_type?: CommitTypeFilter
+}
+
+/** Response from POST /repos/{id}/commits/classify.
+ *
+ * `status: 'preview'` means nothing was written and the caller should confirm.
+ * `skipped` is retryable failure; `remaining` is deferred work — keeping them
+ * apart is what lets the UI say whether clicking again will help.
+ */
+export interface ClassifyCommitsResponse {
+  status: 'preview' | 'completed'
+  total_commits: number
+  already_classified: number
+  pending: number
+  resolvable_by_rules: number
+  needs_llm: number
+  classified_by_rules: number
+  classified_by_llm: number
+  classified: number
+  skipped: number
+  remaining: number
+  threshold: number
+  model_used: string
 }
 
 export interface GetNotesParams {
@@ -291,7 +356,8 @@ export interface ScoredCommit {
   message: string
   author: string
   date: string
-  score: 'good' | 'ok' | 'bad'
+  /** null when the LLM call failed or its answer could not be read. */
+  score: CommitQualityScore | null
   from_cache: boolean
 }
 
@@ -367,4 +433,18 @@ export interface RepositoryActivity {
 }
 export interface ContextualActivity {
   repositories: RepositoryActivity[]
+}
+
+/** A soft-deleted notification or reminder, restorable until purged. */
+export interface RecentlyDeletedItem {
+  id: string
+  kind: 'notification' | 'reminder'
+  label: string
+  detail: string | null
+  deleted_at: string
+}
+
+export interface RecentlyDeletedListResponse {
+  items: RecentlyDeletedItem[]
+  total: number
 }

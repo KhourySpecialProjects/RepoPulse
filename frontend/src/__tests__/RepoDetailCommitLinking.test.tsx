@@ -48,6 +48,7 @@ const mockRepo: Repo = {
   local_path: '/repos/student-project',
   health_status: 'green',
   health_score: null,
+  last_commit_at: null,
   last_synced_at: '2025-10-15T10:00:00Z',
   created_at: '2025-09-01T00:00:00Z',
   updated_at: '2025-10-15T10:00:00Z',
@@ -66,6 +67,8 @@ const mockCommit: Commit = {
   insertions: 142,
   deletions: 23,
   files_changed: 6,
+  commit_type: null,
+  quality_score: null,
 }
 
 const commitResponse: PaginatedResponse<Commit> = {
@@ -85,6 +88,7 @@ const noteWithCommitHash: Note = {
   content: 'Note linked to a commit',
   is_reminder: false,
   reminder_context: null,
+  remind_at: null,
   is_checked: false,
   is_archived: false,
   created_at: '2025-10-11T10:00:00Z',
@@ -102,6 +106,7 @@ const noteWithoutCommitHash: Note = {
   content: 'Regular repo note',
   is_reminder: false,
   reminder_context: null,
+  remind_at: null,
   is_checked: false,
   is_archived: false,
   created_at: '2025-10-10T10:00:00Z',
@@ -130,6 +135,7 @@ function setupHandlers(notes: Note[] = []) {
           content: body.content ?? '',
           is_reminder: false,
           reminder_context: null,
+          remind_at: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },

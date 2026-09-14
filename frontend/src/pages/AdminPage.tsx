@@ -18,6 +18,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
 import type { UserDetail, CreateUserData, UpdateUserData } from '@/types'
+import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
 
 const ROLE_BADGE: Record<UserDetail['role'], string> = {
   instructor: 'bg-indigo-100 text-indigo-700',
@@ -441,12 +442,15 @@ export function AdminPage() {
 
   return (
     <motion.div
-      className="px-6 py-6 max-w-3xl"
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
     >
-      <h1 className="text-xl font-semibold mb-6">Admin Panel</h1>
+      <div data-testid="page-header" className={PAGE_HEADER_CLASS}>
+        <h1 className="text-xl font-semibold">Admin Panel</h1>
+      </div>
+
+      <div className={`${PAGE_BODY_CLASS} max-w-3xl`}>
 
       {/* Tab nav */}
       <div className="flex gap-1 border-b border-border mb-6">
@@ -508,6 +512,7 @@ export function AdminPage() {
           </CardContent>
         </Card>
       )}
+      </div>
     </motion.div>
   )
 }

@@ -10,10 +10,12 @@ import {
   getRepoContributors,
   updateContributor,
   mergeContributors,
+  unmergeContributor,
   patchRepo,
   getPullRequests,
   getPRStats,
   syncPullRequests,
+  classifyRepoCommits,
 } from '@/services/api'
 import type { GetCommitsParams } from '@/types'
 import { toast } from 'sonner'
@@ -118,6 +120,24 @@ export function useUpdateContributor(repoId: string) {
   })
 }
 
+export function useUnmergeContributor(repoId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: unmergeContributor,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: repoKeys.contributors(repoId) }),
+        queryClient.invalidateQueries({ queryKey: ['repos', 'contextual-activity'] }),
+        queryClient.invalidateQueries({ queryKey: repoKeys.detail(repoId) }),
+        queryClient.invalidateQueries({ queryKey: ['notes'] }),
+        queryClient.invalidateQueries({ queryKey: ['summaries'] }),
+      ])
+      toast.success('Last merge undone')
+    },
+    onError: () => toast.error('Could not undo this merge. Refresh and try again.'),
+  })
+}
+
 export function useMergeContributors(repoId: string) {
   const queryClient = useQueryClient()
   return useMutation({
@@ -157,6 +177,26 @@ export function usePullRequests(repoId: string, state?: string, limit = 10, offs
     queryFn: () => getPullRequests(repoId, state, limit, offset),
     enabled: Boolean(repoId),
     staleTime: 60_000,
+  })
+}
+
+/** Classify a repo's commits.
+ *
+ * The mutation variable is `confirm`. A first call sends `false`; if the
+ * backend answers `status: 'preview'` nothing was written and the caller is
+ * expected to confirm, so that case must NOT invalidate — refetching there
+ * would imply work happened. Toasts live at the call site because the flow is
+ * two-phase and the copy depends on the returned counters.
+ */
+export function useClassifyCommits(repoId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (confirm: boolean) => classifyRepoCommits(repoId, confirm),
+    onSuccess: (result) => {
+      if (result.status === 'completed' && result.classified > 0) {
+        queryClient.invalidateQueries({ queryKey: repoKeys.commits(repoId) })
+      }
+    },
   })
 }
 

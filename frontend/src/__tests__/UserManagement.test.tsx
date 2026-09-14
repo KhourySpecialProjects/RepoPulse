@@ -75,10 +75,11 @@ describe('API: user management endpoints', () => {
       http.get('/api/v1/users', ({ request }) => {
         const url = new URL(request.url)
         const collectionId = url.searchParams.get('collection_id')
-        if (collectionId === 'col-1') {
-          return HttpResponse.json([mockUserDetail])
-        }
-        return HttpResponse.json([mockUserDetail, mockAdminUser])
+        // getUsers unwraps the paginated envelope, so the mock must send one.
+        const items = collectionId === 'col-1'
+          ? [mockUserDetail]
+          : [mockUserDetail, mockAdminUser]
+        return HttpResponse.json({ items, total: items.length, limit: 50, offset: 0 })
       })
     )
     const { getUsers } = await import('@/services/api')
@@ -155,9 +156,13 @@ describe('API: user management endpoints', () => {
     expect(result.items).toHaveLength(1)
   })
 
-  it('markAllNotificationsRead posts to /notifications/read-all', async () => {
+  // The backend route is POST /notifications/mark-all-read; the client used to
+  // call /read-all, which 404s, so nothing was ever marked read.
+  it('markAllNotificationsRead posts to /notifications/mark-all-read', async () => {
     server.use(
-      http.post('/api/v1/notifications/read-all', () => HttpResponse.json({ marked_read: 3 }))
+      http.post('/api/v1/notifications/mark-all-read', () =>
+        HttpResponse.json({ marked_read: 3 })
+      )
     )
     const { markAllNotificationsRead } = await import('@/services/api')
     const result = await markAllNotificationsRead()
@@ -166,7 +171,10 @@ describe('API: user management endpoints', () => {
 
   it('getCollectionAccess returns access entries', async () => {
     server.use(
-      http.get('/api/v1/collections/:id/access', () => HttpResponse.json([]))
+      // getCollectionAccess unwraps .items — a bare array yields undefined.
+      http.get('/api/v1/collections/:id/access', () =>
+        HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 })
+      )
     )
     const { getCollectionAccess } = await import('@/services/api')
     const result = await getCollectionAccess('col-1')
@@ -240,7 +248,7 @@ describe('NoteComments component', () => {
     )
     const { NoteComments } = await import('@/components/NoteComments')
     renderWithProviders(
-      <NoteComments note={{ id: 'note-1', author_id: 'user-1', author_display_name: 'Mark', repo_id: 'repo-1', contributor_id: null, commit_hash: null, content: 'Test note', is_reminder: false, reminder_context: null, is_checked: false, is_archived: false, created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', comments: [] }} currentUserId="user-1" />
+      <NoteComments note={{ id: 'note-1', author_id: 'user-1', author_display_name: 'Mark', repo_id: 'repo-1', contributor_id: null, commit_hash: null, content: 'Test note', is_reminder: false, reminder_context: null, remind_at: null, is_checked: false, is_archived: false, created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', comments: [] }} currentUserId="user-1" />
     )
     await waitFor(() => {
       expect(screen.getByText(/comment/i)).toBeInTheDocument()
@@ -253,7 +261,7 @@ describe('NoteComments component', () => {
     )
     const { NoteComments } = await import('@/components/NoteComments')
     renderWithProviders(
-      <NoteComments note={{ id: 'note-1', author_id: 'user-1', author_display_name: 'Mark', repo_id: 'repo-1', contributor_id: null, commit_hash: null, content: 'Test note', is_reminder: false, reminder_context: null, is_checked: false, is_archived: false, created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', comments: [] }} currentUserId="user-1" />
+      <NoteComments note={{ id: 'note-1', author_id: 'user-1', author_display_name: 'Mark', repo_id: 'repo-1', contributor_id: null, commit_hash: null, content: 'Test note', is_reminder: false, reminder_context: null, remind_at: null, is_checked: false, is_archived: false, created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', comments: [] }} currentUserId="user-1" />
     )
     // Initially shows Reply button
     await waitFor(() => {
@@ -354,7 +362,10 @@ describe('AdminPage', () => {
 describe('CollectionAccessPanel', () => {
   it('renders access panel with co-instructors section', async () => {
     server.use(
-      http.get('/api/v1/collections/:id/access', () => HttpResponse.json([]))
+      // getCollectionAccess unwraps .items — a bare array yields undefined.
+      http.get('/api/v1/collections/:id/access', () =>
+        HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 })
+      )
     )
     const { CollectionAccessPanel } = await import('@/components/CollectionAccessPanel')
     renderWithProviders(<CollectionAccessPanel collectionId="col-1" />)
