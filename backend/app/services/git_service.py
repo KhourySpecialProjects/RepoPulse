@@ -124,6 +124,22 @@ class GitService:
             return []
         return sorted(found)
 
+    async def git_version(self) -> str | None:
+        """The git binary's version, for the admin system diagnostics.
+
+        Here rather than in the caller because GitService is the single point
+        of contact for git. None when git is unavailable — a diagnostics
+        endpoint must never be the thing that 500s.
+        """
+        return await asyncio.to_thread(self._git_version_sync)
+
+    @staticmethod
+    def _git_version_sync() -> str | None:
+        try:
+            return ".".join(str(part) for part in git.cmd.Git().version_info)
+        except Exception:  # noqa: BLE001 — diagnostics degrade, never fail
+            return None
+
     # ------------------------------------------------------------------
     # Size on disk
     # ------------------------------------------------------------------

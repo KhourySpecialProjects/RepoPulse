@@ -19,11 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import get_db_session, require_admin
 from app.schemas.admin import (
     AdminOverview,
+    LlmUsage,
     RecalculateRequest,
     RecalculateResult,
     RepoSizeSort,
     RepoStorageListResponse,
     StorageSummary,
+    SystemStatus,
 )
 from app.schemas.errors import ErrorResponse
 from app.services.admin_stats_service import AdminStatsService
@@ -93,6 +95,35 @@ async def list_repo_storage(
     return RepoStorageListResponse(
         items=items, total=total, limit=limit, offset=offset
     )
+
+
+@router.get("/llm-usage", response_model=LlmUsage, responses=_GATED)
+async def get_admin_llm_usage(
+    days: int = Query(30, ge=1, le=365),
+    db: AsyncSession = Depends(get_db_session),
+    service: AdminStatsService = Depends(get_admin_stats_service),
+) -> LlmUsage:
+    """LLM call volume by model, day and collection owner.
+
+    Carries no cost estimate and no failure count: no token counts are
+    persisted, and failed calls write no row. Phoenix has the real numbers.
+    """
+    return await service.llm_usage(db, days=days)
+
+
+@router.get("/system", response_model=SystemStatus, responses=_GATED)
+async def get_admin_system(
+    db: AsyncSession = Depends(get_db_session),
+    service: AdminStatsService = Depends(get_admin_stats_service),
+) -> SystemStatus:
+    """Environment and configuration. Secrets reported as booleans only.
+
+    Always 200, even when degraded: authenticating the caller already
+    required a successful database read, so this handler cannot be reached
+    with a truly unreachable database, and a 503 would make the UI render a
+    generic error page in place of the diagnostic.
+    """
+    return await service.system_status(db)
 
 
 @router.post(

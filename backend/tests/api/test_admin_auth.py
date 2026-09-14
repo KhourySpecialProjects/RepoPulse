@@ -27,6 +27,8 @@ ADMIN_ENDPOINTS: list[tuple[str, str]] = [
     ("GET", "/api/v1/admin/overview"),
     ("GET", "/api/v1/admin/storage"),
     ("GET", "/api/v1/admin/storage/repos"),
+    ("GET", "/api/v1/admin/system"),
+    ("GET", "/api/v1/admin/llm-usage"),
     ("POST", "/api/v1/admin/storage/recalculate"),
 ]
 

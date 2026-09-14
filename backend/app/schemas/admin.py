@@ -8,7 +8,7 @@ formatting belongs to the client, so no pre-formatted strings appear here.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel
@@ -187,6 +187,108 @@ class RepoStorageListResponse(BaseModel):
 class RecalculateRequest(BaseModel):
     repo_ids: list[uuid.UUID] | None = None
     collection_id: uuid.UUID | None = None
+
+
+class LlmModelUsage(BaseModel):
+    kind: Literal["summary", "commit_classification"]
+    model: str
+    calls: int
+    first_at: datetime | None = None
+    last_at: datetime | None = None
+
+
+class LlmDailyUsage(BaseModel):
+    day: date
+    kind: str
+    calls: int
+
+
+class LlmOwnerUsage(BaseModel):
+    """Attribution by collection owner, which is not the same as by user.
+
+    Neither `summaries` nor `commit_classifications` records who triggered
+    the call. The closest reachable attribution is repo -> collection ->
+    owner_id, which credits the collection owner rather than whoever clicked
+    the button. Named for what it actually measures.
+    """
+
+    user_id: uuid.UUID
+    display_name: str
+    calls: int
+
+
+class LlmUsage(BaseModel):
+    """LLM call volume over a window.
+
+    Deliberately carries no cost estimate and no failure count.
+
+    No token counts are persisted on either table, so any spend figure would
+    be `rows x assumed-tokens x assumed-price` — invented inputs producing a
+    number that reads as measured and is wrong by a multiple, not a
+    percentage. Arize Phoenix is already in the stack and records real token
+    usage per span; the honest answer is call counts plus a link to it.
+
+    Failures are equally unavailable: a failed LLM call writes no row, so
+    these tables contain only successes. A "0 failures" tile would be a lie
+    by construction.
+
+    `retired_models_in_use` is the actionable signal instead — models present
+    in history that are not the current default. Migration 0002 exists
+    because a retired model id started returning 404s.
+    """
+
+    window_days: int
+    total_calls: int
+    by_model: list[LlmModelUsage]
+    daily: list[LlmDailyUsage]
+    by_collection_owner: list[LlmOwnerUsage]
+    # Summaries with no repo_id, which the owner join silently drops.
+    unattributed_summaries: int
+    models_in_use: list[str]
+    retired_models_in_use: list[str]
+    current_default_model: str
+    generated_at: datetime
+
+
+class SystemStatus(BaseModel):
+    """Configuration and environment, for diagnosing a misbehaving instance.
+
+    Secrets are reported as booleans only — never the value, never a prefix,
+    never a length. A four-character prefix of an API key is still a key
+    fragment once it reaches a log aggregator.
+
+    Returns 200 even when degraded: authenticating the admin already required
+    a successful database read, so a truly unreachable database cannot reach
+    this handler, and a 503 would make the UI render a generic error page
+    instead of the diagnostic it exists to show.
+    """
+
+    status: Literal["ok", "degraded"]
+    server_time: datetime
+
+    database: Literal["ok", "unreachable"]
+    schema_revision: str | None = None
+    schema_head: str | None = None
+    # None when the revision cannot be read — the test database is built by
+    # create_all and has no alembic_version, so this is null under test.
+    schema_up_to_date: bool | None = None
+
+    auth_mode: str
+    # AUTH_MODE=dev serves POST /auth/dev-login, which mints a full token
+    # from a bare user id with no password. Surfaced, never blocked —
+    # refusing it would break local development.
+    dev_login_enabled: bool
+    admin_count: int
+
+    repo_root_dir: str
+    repo_root_exists: bool
+    repo_root_writable: bool
+
+    anthropic_api_key_configured: bool
+    github_token_configured: bool
+    default_llm_provider: str
+    default_llm_model: str
+    git_version: str | None = None
 
 
 class RecalculateResult(BaseModel):

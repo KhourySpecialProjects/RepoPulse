@@ -39,15 +39,21 @@ from app.schemas.admin import (
     DriftItem,
     EntityCounts,
     HealthDistribution,
+    LlmDailyUsage,
+    LlmModelUsage,
+    LlmOwnerUsage,
+    LlmUsage,
     RecalculateResult,
     RepoSizeSort,
     RepoStorageItem,
     StorageDrift,
     StorageSummary,
     SyncFreshness,
+    SystemStatus,
     TableStat,
 )
 from app.services.git_service import GitService
+from app.services.system_status_service import head_revision, probe_schema
 
 _HEALTH_STATUSES = ("green", "yellow", "red", "unknown")
 
@@ -133,6 +139,71 @@ _REPO_SORTS: dict[str, str] = {
 # off-thread; four in flight saturates a disk without thrashing it.
 _RECALC_CONCURRENCY = 4
 
+# CommitClassification.scored_at is a NAIVE DateTime while every other
+# timestamp in the schema is timezone-aware. Comparing it to now() would make
+# Postgres interpret it using the session TimeZone — UTC in this container by
+# luck, wrong anywhere else. `AT TIME ZONE 'UTC'` reifies it as timestamptz so
+# both event sources are on the same clock.
+_LLM_EVENTS_CTE = """
+    WITH events AS (
+        SELECT 'summary'::text AS kind, s.model_used AS model, s.generated_at AS at
+        FROM summaries s
+        WHERE s.generated_at >= now() - make_interval(days => :days)
+        UNION ALL
+        SELECT 'commit_classification'::text,
+               cc.model_used,
+               (cc.scored_at AT TIME ZONE 'UTC')
+        FROM commit_classifications cc
+        WHERE (cc.scored_at AT TIME ZONE 'UTC')
+              >= now() - make_interval(days => :days)
+    )
+"""
+
+_LLM_BY_MODEL_SQL = text(
+    _LLM_EVENTS_CTE
+    + """
+    SELECT kind, model, count(*) AS calls, min(at) AS first_at, max(at) AS last_at
+    FROM events
+    GROUP BY kind, model
+    ORDER BY calls DESC, model ASC
+    """
+)
+
+_LLM_DAILY_SQL = text(
+    _LLM_EVENTS_CTE
+    + """
+    SELECT CAST(at AT TIME ZONE 'UTC' AS date) AS day, kind, count(*) AS calls
+    FROM events
+    GROUP BY 1, 2
+    ORDER BY 1, 2
+    """
+)
+
+# summaries.repo_id is nullable (contributor-scoped summaries), so this inner
+# join silently drops rows — the dropped count is reported separately rather
+# than lost.
+_LLM_BY_OWNER_SQL = text(
+    """
+    SELECT u.id AS user_id, u.display_name, count(*) AS calls
+    FROM summaries s
+    JOIN repos r       ON r.id = s.repo_id
+    JOIN collections c ON c.id = r.collection_id
+    JOIN users u       ON u.id = c.owner_id
+    WHERE s.generated_at >= now() - make_interval(days => :days)
+    GROUP BY u.id, u.display_name
+    ORDER BY calls DESC, u.display_name ASC
+    """
+)
+
+_LLM_UNATTRIBUTED_SQL = text(
+    """
+    SELECT count(*)
+    FROM summaries s
+    WHERE s.repo_id IS NULL
+      AND s.generated_at >= now() - make_interval(days => :days)
+    """
+)
+
 
 class AdminStatsService:
     """SQL aggregates for the admin dashboard.
@@ -157,10 +228,13 @@ class AdminStatsService:
         ).all()
         # Zero-fill first so an absent status serialises as 0 rather than
         # vanishing from the response and breaking the chart.
-        counts = {status: 0 for status in _HEALTH_STATUSES}
-        for status, count in rows:
-            if status in counts:
-                counts[status] = count
+        # Named health_status, not status: `status` is fastapi's status module
+        # at this scope, and shadowing it here would be a trap for whoever
+        # next needs a status code in this method.
+        counts = {name: 0 for name in _HEALTH_STATUSES}
+        for health_status, count in rows:
+            if health_status in counts:
+                counts[health_status] = count
         return HealthDistribution(**counts)
 
     async def sync_freshness(
@@ -343,6 +417,97 @@ class AdminStatsService:
             # consulted when building clone paths.
             repo_root_dir=settings.REPO_ROOT_DIR,
             generated_at=datetime.now(timezone.utc),
+        )
+
+    async def llm_usage(self, db: AsyncSession, *, days: int = 30) -> LlmUsage:
+        """LLM call volume over a window.
+
+        Reports no cost and no failure count, and that is deliberate — see
+        the LlmUsage docstring. Neither is derivable from what is persisted,
+        and a fabricated figure is worse than an absent one.
+        """
+        params = {"days": days}
+        by_model_rows = (await db.execute(_LLM_BY_MODEL_SQL, params)).mappings().all()
+        daily_rows = (await db.execute(_LLM_DAILY_SQL, params)).mappings().all()
+        owner_rows = (await db.execute(_LLM_BY_OWNER_SQL, params)).mappings().all()
+        unattributed = int(
+            (await db.execute(_LLM_UNATTRIBUTED_SQL, params)).scalar_one()
+        )
+
+        by_model = [LlmModelUsage(**row) for row in by_model_rows]
+        models_in_use = sorted({row.model for row in by_model})
+        current_default = settings.DEFAULT_LLM_MODEL
+
+        return LlmUsage(
+            window_days=days,
+            total_calls=sum(row.calls for row in by_model),
+            by_model=by_model,
+            daily=[LlmDailyUsage(**row) for row in daily_rows],
+            by_collection_owner=[LlmOwnerUsage(**row) for row in owner_rows],
+            unattributed_summaries=unattributed,
+            models_in_use=models_in_use,
+            # Actionable in a way a cost estimate is not: migration 0002
+            # exists because a retired model id began returning 404s.
+            retired_models_in_use=[
+                model for model in models_in_use if model != current_default
+            ],
+            current_default_model=current_default,
+            generated_at=datetime.now(timezone.utc),
+        )
+
+    async def system_status(self, db: AsyncSession) -> SystemStatus:
+        """Environment and configuration, for diagnosing a misbehaving instance.
+
+        Extends the /healthz probe rather than reimplementing it: the same
+        probe_schema runs here against the request-scoped session, so the two
+        endpoints cannot disagree about whether the schema is migrated.
+        """
+        probe = await probe_schema(db)
+        head = head_revision()
+        admin_count = int(
+            (
+                await db.execute(
+                    text("SELECT count(*) FROM users WHERE role = 'admin'")
+                )
+            ).scalar_one()
+        )
+
+        root = settings.REPO_ROOT_DIR
+        root_exists = os.path.isdir(root)
+        # W_OK on the directory, not a write probe: creating a file to test
+        # would litter the clone root.
+        root_writable = root_exists and os.access(root, os.W_OK)
+
+        up_to_date: bool | None = None
+        if probe.revision is not None and head is not None:
+            up_to_date = probe.revision == head
+
+        degraded = (
+            not probe.reachable
+            or not root_exists
+            or not root_writable
+            or up_to_date is False
+        )
+
+        return SystemStatus(
+            status="degraded" if degraded else "ok",
+            server_time=datetime.now(timezone.utc),
+            database="ok" if probe.reachable else "unreachable",
+            schema_revision=probe.revision,
+            schema_head=head,
+            schema_up_to_date=up_to_date,
+            auth_mode=settings.AUTH_MODE,
+            dev_login_enabled=settings.AUTH_MODE == "dev",
+            admin_count=admin_count,
+            repo_root_dir=root,
+            repo_root_exists=root_exists,
+            repo_root_writable=root_writable,
+            # Booleans only. Never the value, never a prefix.
+            anthropic_api_key_configured=bool(settings.ANTHROPIC_API_KEY),
+            github_token_configured=bool(settings.GITHUB_TOKEN),
+            default_llm_provider=settings.DEFAULT_LLM_PROVIDER,
+            default_llm_model=settings.DEFAULT_LLM_MODEL,
+            git_version=await self._git.git_version(),
         )
 
     async def repo_sizes(
