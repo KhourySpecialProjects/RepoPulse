@@ -17,8 +17,8 @@ Three related changes:
 Postgres has allowed since 12 (the server is 16). The new values are not
 *used* by this migration, which is the part that would still be rejected.
 
-Revision ID: 0003
-Revises: 0002
+Revision ID: 0004
+Revises: 0003
 Create Date: 2026-09-14
 """
 from __future__ import annotations
@@ -27,8 +27,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0003"
-down_revision = "0002"
+revision = "0004"
+down_revision = "0003"
 branch_labels = None
 depends_on = None
 
