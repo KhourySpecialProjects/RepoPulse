@@ -41,7 +41,10 @@ USER_ADMIN = uuid.UUID("00000000-0000-0000-0000-000000000003")
 COL_DB = uuid.UUID("00000000-0000-0000-0001-000000000001")
 COL_DS = uuid.UUID("00000000-0000-0000-0001-000000000002")
 
-SEED_REPOS_BASE = "/seed-repos"
+# Seeded repos share the one clone root. This used to be a "/seed-repos"
+# literal — a third convention matching neither the bind mount nor .env — so
+# every seeded local_path pointed at a directory that has never existed.
+SEED_REPOS_BASE = settings.REPO_ROOT_DIR
 
 
 def _days_ago(n: int) -> datetime:

@@ -58,7 +58,17 @@ export interface Repo {
   contributor_count: number
   active_reminder_count: number
   expected_contributor_count: number | null
+  /**
+   * Sync state is shared, not per-session: a sync started by a TA reads as
+   * `syncing` for everyone with access to the collection until it finishes.
+   */
+  sync_status: SyncStatus
+  sync_started_at: string | null
+  sync_started_by_name: string | null
+  sync_error: string | null
 }
+
+export type SyncStatus = 'idle' | 'syncing' | 'failed'
 
 export interface HealthScore {
   commit_frequency: number

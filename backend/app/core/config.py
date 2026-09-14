@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +11,10 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     AUTH_MODE: str = "dev"  # "dev" | "prod"
+
+    # Must match the container side of the repos bind mount in
+    # docker-compose.yml (./seed-repos:/repos). That mount is the only place a
+    # clone outlives a rebuild.
     REPO_ROOT_DIR: str = "/repos"
     ANTHROPIC_API_KEY: str = ""
     GITHUB_TOKEN: str = ""
@@ -27,6 +32,26 @@ class Settings(BaseSettings):
     DEFAULT_LLM_MODEL: str = "claude-sonnet-5"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @field_validator("REPO_ROOT_DIR")
+    @classmethod
+    def _clone_root_must_be_absolute(cls, value: str) -> str:
+        """Fail at startup rather than silently cloning into the container.
+
+        A relative root resolves against the process working directory (/app),
+        which is the container's writable layer — clones written there are
+        discarded on the next rebuild and every repo needs a re-sync to be
+        readable again. The failure is invisible until that rebuild, so it has
+        to be caught here.
+        """
+        if not value.startswith("/"):
+            raise ValueError(
+                f"REPO_ROOT_DIR must be an absolute path, got {value!r}. "
+                "Use the container side of the repos bind mount (/repos); a "
+                "relative path resolves outside the mount and clones are lost "
+                "on rebuild."
+            )
+        return value.rstrip("/") or "/"
 
 
 settings = Settings()

@@ -24,6 +24,7 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from '@/components/ui/tooltip'
+import { UnreadBadge } from '@/components/UnreadBadge'
 import { useSidebar, COLLAPSED_GUTTER } from '@/contexts/SidebarContext'
 import type { HealthStatus } from '@/types'
 
@@ -251,7 +252,6 @@ export function AppSidebar() {
   // excluded server-side, so Recently deleted never counts.
   const pendingCount =
     (unreadData?.unread_count ?? 0) + (remindersData?.total ?? 0)
-  const badgeText = pendingCount > 99 ? '99+' : String(pendingCount)
   const unreadLabel =
     pendingCount > 0 ? `Notifications, ${pendingCount} pending` : 'Notifications'
 
@@ -407,14 +407,7 @@ export function AppSidebar() {
                   className={`relative w-full flex items-center justify-center py-2 rounded-md transition-colors ${NAV_DEFAULT}`}
                 >
                   <Bell className="h-4 w-4" />
-                  {pendingCount > 0 && (
-                    <span
-                      data-testid="unread-badge"
-                      className="absolute right-2 top-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none tabular-nums text-white"
-                    >
-                      {badgeText}
-                    </span>
-                  )}
+                  <UnreadBadge count={pendingCount} size="sm" className="absolute right-2 top-1" />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">Notifications</TooltipContent>
@@ -430,14 +423,7 @@ export function AppSidebar() {
             >
               <Bell className="h-4 w-4 flex-shrink-0" />
               <span className="truncate">Notifications</span>
-              {pendingCount > 0 && (
-                <span
-                  data-testid="unread-badge"
-                  className="ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold leading-none tabular-nums text-white"
-                >
-                  {badgeText}
-                </span>
-              )}
+              <UnreadBadge count={pendingCount} className="ml-auto" />
             </button>
           )}
 

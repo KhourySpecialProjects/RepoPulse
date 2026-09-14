@@ -99,6 +99,10 @@ const mockRepos: Repo[] = [
     contributor_count: 3,
     active_reminder_count: 1,
     expected_contributor_count: null,
+    sync_status: 'idle',
+    sync_started_at: null,
+    sync_started_by_name: null,
+    sync_error: null,
   },
   {
     id: 'repo-2',
@@ -121,6 +125,10 @@ const mockRepos: Repo[] = [
     contributor_count: 2,
     active_reminder_count: 0,
     expected_contributor_count: null,
+    sync_status: 'idle',
+    sync_started_at: null,
+    sync_started_by_name: null,
+    sync_error: null,
   },
   {
     id: 'repo-3',
@@ -144,6 +152,10 @@ const mockRepos: Repo[] = [
     contributor_count: 1,
     active_reminder_count: 0,
     expected_contributor_count: null,
+    sync_status: 'idle',
+    sync_started_at: null,
+    sync_started_by_name: null,
+    sync_error: null,
   },
 ]
 
@@ -412,6 +424,10 @@ export const handlers = [
       contributor_count: 0,
       active_reminder_count: 0,
       expected_contributor_count: null,
+      sync_status: 'idle',
+      sync_started_at: null,
+      sync_started_by_name: null,
+      sync_error: null,
     }))
     return HttpResponse.json(newRepos, { status: 201 })
   }),

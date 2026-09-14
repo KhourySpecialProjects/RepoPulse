@@ -6,6 +6,7 @@ import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { HealthBadge } from '@/components/HealthBadge'
+import { SyncIndicator } from '@/components/SyncIndicator'
 import { useSyncRepo, useDeleteRepo } from '@/hooks/useRepos'
 import { useCurrentUser } from '@/hooks/useUsers'
 import type { Repo, HealthStatus } from '@/types'
@@ -117,6 +118,8 @@ export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
               </span>
             </div>
           </div>
+
+          <SyncIndicator repo={repo} className="mt-2" />
 
           {sparklineData.length > 0 && (
             <div className="h-12">
