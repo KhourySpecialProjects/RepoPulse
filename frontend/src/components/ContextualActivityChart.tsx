@@ -32,13 +32,20 @@ export function ContextualActivityChart({ collectionId, repoId, children, action
   const normalPoint = annotations.length === 0 ? points[points.length - 1] : undefined
   return <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Commit Activity</CardTitle>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {actions}
-          <select aria-label="Activity range" value={range} onChange={e => setRange(e.target.value)} className="rounded border bg-background p-2 text-sm">
-            <option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="all">All history</option>
-          </select>
+      {/* pt trimmed off CardHeader's p-6: the title row is short, so the
+          default 24px read as dead space above it. */}
+      <CardHeader className="pt-4">
+        {/* Title and controls share one row: on their own line the controls
+            left a band of empty card beside the title and pushed the graph
+            down. flex-wrap so they stack only when the card is too narrow. */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="text-base">Commit Activity</CardTitle>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {actions}
+            <select aria-label="Activity range" value={range} onChange={e => setRange(e.target.value)} className="rounded border bg-background p-2 text-sm">
+              <option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="all">All history</option>
+            </select>
+          </div>
         </div>
         {children}
         <p className="text-xs text-muted-foreground">UTC daily counts. Hover highlighted points for context. Quiet periods: 3+ days; bursts: 10+ commits and at least 3× the preceding week’s daily average. Comparisons use other readable repositories in this collection with history before the interval. Patterns suggest a check-in, not a conclusion about effort.</p>

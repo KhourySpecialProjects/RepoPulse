@@ -5,11 +5,12 @@ import { motion } from 'framer-motion'
 import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, useUnmergeContributor, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests, useClassifyCommits } from '@/hooks/useRepos'
-import { useRepoSummaries, useContributorSummaries, useGenerateSummary } from '@/hooks/useSummaries'
+import { useRepoSummaries, useContributorSummaries, useGenerateSummary, summaryKeys } from '@/hooks/useSummaries'
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '@/hooks/useNotes'
 import { useUsers, useCurrentUser } from '@/hooks/useUsers'
 import { useAuth } from '@/hooks/useAuth'
 import { HealthBadge } from '@/components/HealthBadge'
+import { HealthSignalPills } from '@/components/HealthSignalPills'
 import { CommitScorePill } from '@/components/CommitScorePill'
 import { CommitNotesPanel } from '@/components/CommitNotesPanel'
 import { MarkdownContent } from '@/components/MarkdownContent'
@@ -125,9 +126,10 @@ function GenerateSummaryButton({
 function CommitColumns() {
   return (
     <colgroup>
-      <col className="w-[55%]" />
-      <col className="w-[15%]" />
-      <col className="w-[20%]" />
+      <col className="w-[50%]" />
+      <col className="w-[14%]" />
+      <col className="w-[16%]" />
+      <col className="w-[10%]" />
       <col className="w-[10%]" />
     </colgroup>
   )
@@ -354,7 +356,10 @@ export function RepoDetailPage() {
   const [activeCommitHash, setActiveCommitHash] = useState<string | null>(null)
   const [highlightedCommitHash, setHighlightedCommitHash] = useState<string | null>(null)
   const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
-  const [selectedAuthors, setSelectedAuthors] = useState<Set<string>>(new Set())
+  const [selectedTypes, setSelectedTypes] = useState<Set<CommitTypeFilter>>(new Set())
+  // Set when the backend answers `status: 'preview'` — holds the counts the
+  // confirmation dialog quotes back to the user.
+  const [classifyPreview, setClassifyPreview] = useState<ClassifyCommitsResponse | null>(null)
   const [pendingJumpHash, setPendingJumpHash] = useState<string | null>(null)
 
   // Commit table: header and body are separate tables that must stay aligned.
@@ -445,10 +450,8 @@ export function RepoDetailPage() {
   const hasToken = Boolean(me?.github_token_configured)
   const { data: summaries, isLoading: summariesLoading } = useRepoSummaries(id ?? '')
   const generateSummaryMutation = useGenerateSummary()
-  const { isLoading: commitsLoading } = useRepoCommits(id ?? '', {
-    limit: COMMITS_PER_PAGE,
-    offset: commitPage * COMMITS_PER_PAGE,
-  })
+  // The table pages client-side out of this one fetch; a second paginated
+  // query only re-requested the same rows on every page change.
   const { data: allCommitsData, isLoading: allCommitsLoading } = useRepoCommits(id ?? '', { limit: 500, offset: 0 })
   const { data: contributors, isLoading: contributorsLoading } = useRepoContributors(id ?? '')
   const updateContributorMutation = useUpdateContributor(id ?? '')
@@ -731,9 +734,11 @@ export function RepoDetailPage() {
     // from that same list — an index into the unfiltered list can point past
     // the last page and leave the table blank.
     if (!filteredCommits.some(c => c.hash === hash)) {
-      // Hidden by the active filters; clear them so the jump can land.
+      // Hidden by the active filters; clear every filter filteredCommits
+      // actually reads, or the jump resolves to nothing and looks broken.
       setSelectedBranches(new Set())
-      setSelectedAuthors(new Set())
+      setSelectedContributorIds(new Set())
+      setSelectedTypes(new Set())
     }
     setPendingJumpHash(hash)
     setHighlightedCommitHash(hash)
@@ -889,76 +894,16 @@ export function RepoDetailPage() {
                   </a>
                 </h1>
 
-              {healthScore && (() => {
-                const signals = [
-                  {
-                    label: 'Frequency',
-                    value: healthScore.commit_frequency,
-                    tip: 'Avg commits/week over the last 4 weeks. Green ≥10/wk, yellow 4–9/wk, red ≤3/wk.',
-                  },
-                  {
-                    label: 'Recency',
-                    value: healthScore.recency,
-                    tip: 'Days since the most recent commit. Green <3 days, yellow 3–7 days, red >7 days.',
-                  },
-                  {
-                    label: 'Distribution',
-                    value: healthScore.distribution,
-                    tip: 'How evenly commits are spread across contributors (Gini coefficient). Green = well distributed, red = one person dominates.',
-                  },
-                  {
-                    label: 'Branches',
-                    value: healthScore.branch_activity,
-                    tip: 'Active branch count. Green ≥2 branches, yellow = 1 branch with recent activity, red = stale or no branches.',
-                  },
-                  {
-                    label: 'Msg Quality',
-                    value: healthScore.commit_message_quality,
-                    tip: 'Percentage of commits with descriptive messages (≥10 chars, multi-word). Green <10% low-quality, red >30%.',
-                  },
-                  {
-                    label: 'Participation',
-                    value: healthScore.participation ?? 0,
-                    tip: 'Actual vs expected unique contributors. Green = at or above expected, yellow ≥60%, red <60%.',
-                  },
-                ]
-                return (
-                  <details className="group relative shrink-0 text-xs text-muted-foreground">
-                    <summary className={cn('flex cursor-pointer list-none items-center gap-1.5 rounded-full border px-3 py-1 font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden', healthScore.composite >= 0.75 ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : healthScore.composite >= 0.375 ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100')}>
-                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                      Health details
-                      <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
-                    </summary>
-                    <div className="absolute left-0 top-full z-30 mt-2 grid w-72 grid-cols-2 gap-3 rounded-lg border border-border bg-white p-4 shadow-lg">
-                    <div className="col-span-2 flex items-center justify-between border-b border-border pb-3">
-                      <HealthBadge status={healthScore.status ?? repo.health_status} />
-                      <span className="font-semibold text-foreground">{Math.round(healthScore.composite * 100)}/100</span>
-                    </div>
-                    {signals.map((signal) => {
-                      const norm = signal.value / 2
-                      const dotClass = norm >= 0.7
-                        ? 'bg-emerald-500'
-                        : norm >= 0.4
-                        ? 'bg-amber-500'
-                        : 'bg-red-500'
-                      return (
-                        <div
-                          key={signal.label}
-                          title={signal.tip}
-                          className={cn(
-                            'flex items-center gap-1.5 text-xs font-medium text-foreground cursor-default'
-                          )}
-                        >
-                          <span className={cn('h-2 w-2 rounded-full flex-shrink-0', dotClass)} />
-                          <span>{signal.label}</span>
-                          <span className="sr-only">{norm >= 0.7 ? 'Healthy' : norm >= 0.4 ? 'Needs attention' : 'At risk'}</span>
-                        </div>
-                      )
-                    })}
-                    </div>
-                  </details>
-                )
-              })()}
+              {/* The per-signal breakdown now lives on the Commit Activity
+                  card; the header keeps only the composite it rolls up to. */}
+              {healthScore && (
+                <div className="flex shrink-0 items-center gap-2">
+                  <HealthBadge status={healthScore.status ?? repo.health_status} />
+                  <span className="text-xs font-semibold text-muted-foreground">
+                    {Math.round(healthScore.composite * 100)}/100
+                  </span>
+                </div>
+              )}
             </div>
           </div>
           <span className="flex items-center justify-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
@@ -1045,7 +990,7 @@ export function RepoDetailPage() {
               <div className="flex flex-col gap-5">
                 <Card className="relative overflow-hidden">
                   <SummaryLiquidBackground generating={generateSummaryMutation.isPending} />
-                  <CardHeader className="relative z-10 pb-2">
+                  <CardHeader className="relative z-10 pt-4 pb-2">
                     <div className="flex items-center justify-between">
                       <button
                         className="flex items-center gap-1.5 text-base font-semibold hover:text-indigo-600 transition-colors"
@@ -1085,40 +1030,41 @@ export function RepoDetailPage() {
                   )}
                 </Card>
 
-                <ContextualActivityChart key={id} collectionId={repo.collection_id} repoId={repo.id}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        {checkIns.length > 0 && (
-                          <span className="text-xs text-muted-foreground">
-                            Last checked: {formatRelativeDays(checkIns[checkIns.length - 1])}
-                          </span>
+                <ContextualActivityChart
+                  key={id}
+                  collectionId={repo.collection_id}
+                  repoId={repo.id}
+                  actions={
+                    <>
+                      <button
+                        onClick={handleCheckIn}
+                        title="Record a check-in now"
+                        className="flex items-center gap-1 text-xs px-2 py-1 rounded border text-indigo-600 border-indigo-200 bg-indigo-50 hover:bg-indigo-100 transition-colors"
+                      >
+                        <ClipboardCheck className="h-3.5 w-3.5" />
+                        <span>Check In</span>
+                      </button>
+                      <button
+                        onClick={() => { setShowPastCheckIn(v => !v); setPastCheckInDate('') }}
+                        title="Add a past check-in"
+                        className={cn(
+                          'flex items-center gap-1 text-xs px-2 py-1 rounded border transition-colors mr-1',
+                          showPastCheckIn
+                            ? 'bg-indigo-100 text-indigo-700 border-indigo-300'
+                            : 'text-muted-foreground border-border hover:border-indigo-300'
                         )}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={handleCheckIn}
-                          title="Record a check-in now"
-                          className="flex items-center gap-1 text-xs px-2 py-1 rounded border text-indigo-600 border-indigo-200 bg-indigo-50 hover:bg-indigo-100 transition-colors"
-                        >
-                          <ClipboardCheck className="h-3.5 w-3.5" />
-                          <span>Check In</span>
-                        </button>
-                        <button
-                          onClick={() => { setShowPastCheckIn(v => !v); setPastCheckInDate('') }}
-                          title="Add a past check-in"
-                          className={cn(
-                            'flex items-center gap-1 text-xs px-2 py-1 rounded border transition-colors mr-1',
-                            showPastCheckIn
-                              ? 'bg-indigo-100 text-indigo-700 border-indigo-300'
-                              : 'text-muted-foreground border-border hover:border-indigo-300'
-                          )}
-                        >
-                          <CalendarPlus className="h-3.5 w-3.5" />
-                        </button>
-
-                  </>}
+                      >
+                        <CalendarPlus className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  }
                 >
-                  {checkIns.length > 0 && <p className="text-xs text-muted-foreground">Last checked: {formatRelativeDays(checkIns[checkIns.length - 1])}</p>}
+                  <HealthSignalPills health={healthScore} className="py-1" />
+                  {checkIns.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Last checked: {formatRelativeDays(checkIns[checkIns.length - 1])}
+                    </p>
+                  )}
                     {showPastCheckIn && (
                       <div className="flex items-center gap-2 mt-2 pt-2 border-t">
                         <input
@@ -1151,7 +1097,7 @@ export function RepoDetailPage() {
             {/* Commits section */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible" transition={{ delay: 0.1 }}>
               <Card>
-                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+                <CardHeader className="pt-4 pb-2 flex flex-row items-center justify-between space-y-0">
                   <CardTitle className="text-base">Commits</CardTitle>
                   <Button
                     size="sm"
@@ -1319,6 +1265,7 @@ export function RepoDetailPage() {
                           <th className="border-b border-border py-2 text-left font-medium">Commit</th>
                           <th className="border-b border-border py-2 text-left font-medium">Author</th>
                           <th className="border-b border-border py-2 text-left font-medium">Branch</th>
+                          <th className="border-b border-border py-2 text-left font-medium">Score</th>
                           <th className="border-b border-border py-2 text-right font-medium">+/-</th>
                         </tr>
                       </thead>
@@ -1333,10 +1280,20 @@ export function RepoDetailPage() {
                           // <tr>, React keyed these pairs by index and reused
                           // the wrong rows when the notes panel opened.
                           <Fragment key={commit.hash}>
-                          <tr id={`commit-${commit.hash}`} className={cn(
-                            'border-b hover:bg-accent/20 transition-colors',
-                            highlightedCommitHash === commit.hash && 'ring-2 ring-inset ring-indigo-400 bg-indigo-50'
-                          )}>
+                          <tr
+                            id={`commit-${commit.hash}`}
+                            // Type is encoded as a row tint, so the colour needs a
+                            // text equivalent — the title is it. Order matters:
+                            // twMerge keeps the last background, so the tint
+                            // overrides the default hover and the link highlight
+                            // overrides the tint.
+                            title={commitRowTitle(commit.commit_type)}
+                            className={cn(
+                              'border-b hover:bg-accent/20 transition-colors',
+                              commitRowClass(commit.commit_type),
+                              highlightedCommitHash === commit.hash && 'ring-2 ring-inset ring-indigo-400 bg-indigo-50'
+                            )}
+                          >
                             <td className="py-2.5 pr-4 overflow-hidden">
                               <div className="flex items-center gap-2 min-w-0">
                                 <a
@@ -1422,6 +1379,9 @@ export function RepoDetailPage() {
                                 )
                               })()}
                             </td>
+                            <td className="py-2.5 pr-4 overflow-hidden">
+                              <CommitScorePill score={commit.quality_score} />
+                            </td>
                             <td className="py-2.5 text-right text-xs overflow-hidden">
                               <div className="truncate">
                                 <span className="text-health-green">+{commit.insertions}</span>
@@ -1432,7 +1392,7 @@ export function RepoDetailPage() {
                           </tr>
                           {activeCommitHash === commit.hash && (
                             <tr>
-                              <td colSpan={4} className="pb-3 pt-1">
+                              <td colSpan={5} className="pb-3 pt-1">
                                 <CommitNotesPanel repoId={id ?? ''} commitHash={commit.hash} />
                               </td>
                             </tr>

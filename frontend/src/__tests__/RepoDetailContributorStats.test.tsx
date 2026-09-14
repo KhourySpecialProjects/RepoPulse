@@ -85,6 +85,8 @@ const commitsFromMixedCaseEmail: Commit[] = [
     insertions: 40,
     deletions: 6,
     files_changed: 3,
+    commit_type: null,
+    quality_score: null,
   },
   {
     hash: 'bbb2222222222',
@@ -96,6 +98,8 @@ const commitsFromMixedCaseEmail: Commit[] = [
     insertions: 20,
     deletions: 4,
     files_changed: 1,
+    commit_type: null,
+    quality_score: null,
   },
 ]
 
@@ -157,6 +161,8 @@ describe('RepoDetailPage — contributor totals come from the backend aggregate'
         insertions: 10,
         deletions: 2,
         files_changed: 1,
+        commit_type: null,
+        quality_score: null,
       },
     ]
 
