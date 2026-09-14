@@ -294,6 +294,7 @@ const mockSettings: AppSettings = {
   anthropic_api_key_configured: false,
   ollama_base_url: null,
   health_thresholds: null,
+  commit_evaluation_criteria: '',
 }
 
 export const handlers = [

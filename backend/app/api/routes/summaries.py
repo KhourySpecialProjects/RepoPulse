@@ -89,7 +89,10 @@ async def generate_summary(
                 {"display_name": c.display_name} for c in repo.contributors
             ],
         }
-        content = await summary_svc.generate_repo_overview(repo_data)
+        content = await summary_svc.generate_repo_overview(
+            repo_data,
+            instructor_instructions=llm_cfg.commit_evaluation_criteria or None,
+        )
 
         summary = Summary(
             repo_id=body.repo_id,
