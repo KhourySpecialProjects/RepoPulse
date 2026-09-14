@@ -623,7 +623,10 @@ async def get_repo_commits(
     for c in all_commits:
         if contributor_emails and c["author_email"].lower() not in contributor_emails:
             continue
-        if branch and branch not in c["branches"]:
+        # Match the owning branch, not containment: `dev` contains all of
+        # trunk's history, so `branch in c["branches"]` matched nearly
+        # everything.
+        if branch and branch != c["origin_branch"]:
             continue
         if date_from and c["date"] < date_from:
             continue
@@ -651,6 +654,7 @@ async def get_repo_commits(
             date=c["date"],
             message=c["message"],
             branches=c["branches"],
+            origin_branch=c["origin_branch"],
             insertions=c["insertions"],
             deletions=c["deletions"],
             files_changed=c["files_changed"],
