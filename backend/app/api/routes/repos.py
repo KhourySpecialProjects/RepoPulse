@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.deps import get_current_user, get_db_session
 from app.models.collection import Collection
 from app.models.commit_classification import CommitClassification
@@ -323,9 +322,7 @@ async def add_repos(
     raised: list[Notification] = []
     for url in body.urls:
         name = _derive_repo_name(url)
-        local_path = (
-            f"{settings.REPO_ROOT_DIR}/{collection.local_folder_name}/{name}"
-        )
+        local_path = _git_service.clone_path(collection.local_folder_name, name)
         repo = Repo(
             collection_id=collection_id,
             github_url=url,

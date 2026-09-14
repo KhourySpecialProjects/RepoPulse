@@ -19,12 +19,16 @@ import inspect
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.database import Base
 from app.models.collection import Collection
 from app.models.repo import Repo
 from app.models.user import User
 from app.services.admin_stats_service import AdminStatsService
+from tests.factories.git import FakeGitService
 
 service = AdminStatsService()
 
@@ -248,6 +252,43 @@ async def test_overview_composes_counts_health_and_sync(
 # ---------------------------------------------------------------------------
 # Structural guarantee
 # ---------------------------------------------------------------------------
+
+
+async def test_recalculate_refuses_more_repos_than_the_cap(
+    db_session: AsyncSession,
+) -> None:
+    """Bounded work in a request handler, and the admin is told how to scope it.
+
+    Driven at the service rather than through the route because the cap is a
+    service concern; the HTTPException propagates through FastAPI unchanged.
+    """
+    owner = await _user(db_session)
+    collection = await _collection(db_session, owner)
+    for _ in range(3):
+        await _repo(db_session, collection)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await AdminStatsService(git_service=FakeGitService()).recalculate_repo_sizes(
+            db_session, max_repos=2
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "scope the request" in exc_info.value.detail
+
+
+async def test_database_size_is_a_positive_integer(db_session: AsyncSession) -> None:
+    assert await service.database_size(db_session) > 0
+
+
+async def test_table_stats_cover_every_model_table(db_session: AsyncSession) -> None:
+    stats = await service.table_stats(db_session)
+    reported = {stat.table_name for stat in stats}
+    expected = {table.name for table in Base.metadata.sorted_tables}
+
+    assert expected <= reported
+    assert all(stat.total_bytes > 0 for stat in stats)
+    # n_live_tup is an autovacuum estimate; only ever assert it is sane.
+    assert all(stat.row_estimate >= 0 for stat in stats)
 
 
 def test_no_aggregate_method_accepts_a_user_id() -> None:

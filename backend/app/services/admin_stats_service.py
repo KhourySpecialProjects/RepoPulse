@@ -18,17 +18,34 @@ equivalent worth the loss of clarity.
 
 from __future__ import annotations
 
+import asyncio
+import os
+import shutil
+import time
+import uuid
 from datetime import datetime, timezone
 
+from fastapi import HTTPException, status
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.db.database import Base
 from app.models.repo import Repo
 from app.schemas.admin import (
     AdminOverview,
+    CloneStorage,
+    DiskUsage,
+    DriftItem,
     EntityCounts,
     HealthDistribution,
+    RecalculateResult,
+    RepoSizeSort,
+    RepoStorageItem,
+    StorageDrift,
+    StorageSummary,
     SyncFreshness,
+    TableStat,
 )
 from app.services.git_service import GitService
 
@@ -71,6 +88,50 @@ _SYNC_FRESHNESS_SQL = text(
     FROM repos
     """
 )
+
+_TABLE_BYTES_SQL = text(
+    """
+    SELECT
+        c.relname                     AS table_name,
+        pg_total_relation_size(c.oid) AS total_bytes,
+        pg_table_size(c.oid)          AS table_bytes,
+        pg_indexes_size(c.oid)        AS index_bytes,
+        COALESCE(s.n_live_tup, 0)     AS row_estimate
+    FROM pg_class c
+    JOIN pg_namespace n             ON n.oid   = c.relnamespace
+    LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
+    WHERE n.nspname = 'public' AND c.relkind = 'r'
+    ORDER BY pg_total_relation_size(c.oid) DESC
+    """
+)
+
+_CLONE_TOTALS_SQL = text(
+    """
+    SELECT
+      count(*) FILTER (WHERE size_bytes IS NOT NULL)     AS measured_repos,
+      count(*) FILTER (WHERE size_bytes IS NULL)         AS unmeasured_repos,
+      COALESCE(sum(size_bytes), 0)                       AS total_bytes,
+      COALESCE(sum(git_size_bytes), 0)                   AS git_bytes,
+      min(size_computed_at)                              AS oldest_measurement,
+      max(size_computed_at)                              AS newest_measurement
+    FROM repos
+    """
+)
+
+# Fixed fragments selected by a Literal, never interpolated from input.
+# NULLS LAST keeps never-measured repos at the bottom of a size view; the
+# name tiebreak is not cosmetic — without it LIMIT/OFFSET over equal sizes
+# can repeat or skip rows across pages.
+_REPO_SORTS: dict[str, str] = {
+    "size_desc": "r.size_bytes DESC NULLS LAST, r.name ASC",
+    "size_asc": "r.size_bytes ASC NULLS LAST, r.name ASC",
+    "name_asc": "r.name ASC",
+    "measured_asc": "r.size_computed_at ASC NULLS FIRST, r.name ASC",
+}
+
+# How many clones to walk at once during a recalculate. Each walk is already
+# off-thread; four in flight saturates a disk without thrashing it.
+_RECALC_CONCURRENCY = 4
 
 
 class AdminStatsService:
@@ -120,4 +181,309 @@ class AdminStatsService:
             health=await self.health_distribution(db),
             sync=await self.sync_freshness(db, stale_after_days=stale_after_days),
             generated_at=datetime.now(timezone.utc),
+        )
+
+    # ------------------------------------------------------------------
+    # Storage
+    # ------------------------------------------------------------------
+
+    async def database_size(self, db: AsyncSession) -> int:
+        return int(
+            (await db.execute(text("SELECT pg_database_size(current_database())")))
+            .scalar_one()
+        )
+
+    async def _exact_row_counts(self, db: AsyncSession) -> dict[str, int]:
+        """count(*) per table.
+
+        Interpolating the table names is safe here and nowhere else: they come
+        from Base.metadata, a closed set defined in code, never from a request.
+        Needed because pg_stat_user_tables.n_live_tup is an autovacuum estimate
+        that reads 0 right after inserts — wrong on a freshly seeded instance,
+        which is exactly when an admin first looks.
+        """
+        names = [table.name for table in Base.metadata.sorted_tables]
+        if not names:
+            return {}
+        union = " UNION ALL ".join(
+            f"SELECT '{name}' AS table_name, count(*) AS row_count FROM {name}"
+            for name in names
+        )
+        rows = (await db.execute(text(union))).mappings().all()
+        return {row["table_name"]: int(row["row_count"]) for row in rows}
+
+    async def table_stats(
+        self, db: AsyncSession, *, exact_counts: bool = True
+    ) -> list[TableStat]:
+        rows = (await db.execute(_TABLE_BYTES_SQL)).mappings().all()
+        exact = await self._exact_row_counts(db) if exact_counts else {}
+        return [
+            TableStat(
+                table_name=row["table_name"],
+                total_bytes=row["total_bytes"],
+                table_bytes=row["table_bytes"],
+                index_bytes=row["index_bytes"],
+                row_estimate=row["row_estimate"],
+                # Tables outside Base.metadata (alembic_version) have no exact
+                # count; fall back rather than omitting the row.
+                row_count=exact.get(row["table_name"], row["row_estimate"]),
+            )
+            for row in rows
+        ]
+
+    async def disk_usage(self, root: str | None = None) -> DiskUsage:
+        """Free space on the volume holding the clones.
+
+        A single statvfs call, not a walk, so it does not go through
+        GitService and does not need a thread.
+        """
+        target = root or settings.REPO_ROOT_DIR
+        try:
+            usage = shutil.disk_usage(target)
+        except (FileNotFoundError, NotADirectoryError, PermissionError):
+            # An unmounted repo root reports as absent rather than as zero
+            # bytes used, which would read as a healthy empty disk.
+            return DiskUsage(
+                root=target,
+                exists=False,
+                total_bytes=0,
+                used_bytes=0,
+                free_bytes=0,
+                percent_used=0.0,
+            )
+        return DiskUsage(
+            root=target,
+            exists=True,
+            total_bytes=usage.total,
+            used_bytes=usage.used,
+            free_bytes=usage.free,
+            percent_used=(usage.used / usage.total * 100) if usage.total else 0.0,
+        )
+
+    async def clone_storage(self, db: AsyncSession) -> CloneStorage:
+        row = (await db.execute(_CLONE_TOTALS_SQL)).mappings().one()
+        return CloneStorage(**row)
+
+    async def detect_drift(
+        self, db: AsyncSession, *, include_orphan_size: bool = False
+    ) -> StorageDrift:
+        """Reconcile clone directories against Repo rows, both directions.
+
+        One filesystem snapshot, then set difference — so a clone created
+        mid-scan cannot be reported as both orphaned and missing, which two
+        independent passes would allow.
+
+        A Repo whose local_path is not at depth 2 under REPO_ROOT_DIR reads as
+        missing even if it exists. Acceptable because clone_path is now the
+        only writer of that column.
+        """
+        on_disk = set(await self._git.list_clone_directories())
+        rows = (
+            (
+                await db.execute(
+                    text(
+                        """
+                        SELECT r.id, r.name, r.local_path, c.name AS collection_name
+                        FROM repos r
+                        JOIN collections c ON c.id = r.collection_id
+                        ORDER BY c.name, r.name
+                        """
+                    )
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+        known = {
+            os.path.normpath(row["local_path"])
+            for row in rows
+            if row["local_path"]
+        }
+        orphan_paths = sorted(on_disk - known)
+        missing = [
+            DriftItem(
+                path=row["local_path"],
+                repo_id=row["id"],
+                repo_name=row["name"],
+                collection_name=row["collection_name"],
+            )
+            for row in rows
+            if not row["local_path"]
+            or os.path.normpath(row["local_path"]) not in on_disk
+        ]
+
+        orphan_bytes: int | None = None
+        if include_orphan_size:
+            orphan_bytes = 0
+            for path in orphan_paths:
+                size = await self._git.get_repo_size(path)
+                if size:
+                    orphan_bytes += size["total"]
+
+        return StorageDrift(
+            orphan_directories=[DriftItem(path=path) for path in orphan_paths],
+            missing_clones=missing,
+            orphan_bytes=orphan_bytes,
+        )
+
+    async def storage_summary(
+        self, db: AsyncSession, *, include_orphan_size: bool = False
+    ) -> StorageSummary:
+        return StorageSummary(
+            disk=await self.disk_usage(),
+            clones=await self.clone_storage(db),
+            database_bytes=await self.database_size(db),
+            tables=await self.table_stats(db),
+            drift=await self.detect_drift(
+                db, include_orphan_size=include_orphan_size
+            ),
+            # The REAL clone root from config — never AppSettings.
+            # repo_root_directory, which is per-user, display-only, and never
+            # consulted when building clone paths.
+            repo_root_dir=settings.REPO_ROOT_DIR,
+            generated_at=datetime.now(timezone.utc),
+        )
+
+    async def repo_sizes(
+        self,
+        db: AsyncSession,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        sort: RepoSizeSort = "size_desc",
+        collection_id: uuid.UUID | None = None,
+    ) -> tuple[list[RepoStorageItem], int]:
+        order_by = _REPO_SORTS[sort]
+        # CAST(...) rather than `:collection_id::uuid`: SQLAlchemy's bind
+        # regex has a negative lookahead for ':', so the '::' cast suffix
+        # stops the parameter binding at all.
+        where = (
+            "WHERE (CAST(:collection_id AS uuid) IS NULL "
+            "OR r.collection_id = CAST(:collection_id AS uuid))"
+        )
+        params = {
+            "collection_id": collection_id,
+            "limit": limit,
+            "offset": offset,
+        }
+
+        rows = (
+            (
+                await db.execute(
+                    text(
+                        f"""
+                        SELECT r.id, r.name, r.collection_id, c.name AS collection_name,
+                               r.local_path, r.size_bytes, r.git_size_bytes,
+                               r.size_computed_at
+                        FROM repos r
+                        JOIN collections c ON c.id = r.collection_id
+                        {where}
+                        ORDER BY {order_by}
+                        LIMIT :limit OFFSET :offset
+                        """
+                    ),
+                    params,
+                )
+            )
+            .mappings()
+            .all()
+        )
+        total = int(
+            (
+                await db.execute(
+                    text(f"SELECT count(*) FROM repos r {where}"),
+                    {"collection_id": collection_id},
+                )
+            ).scalar_one()
+        )
+
+        items = [
+            RepoStorageItem(
+                **row,
+                worktree_bytes=(
+                    row["size_bytes"] - (row["git_size_bytes"] or 0)
+                    if row["size_bytes"] is not None
+                    else None
+                ),
+            )
+            for row in rows
+        ]
+        return items, total
+
+    async def recalculate_repo_sizes(
+        self,
+        db: AsyncSession,
+        *,
+        repo_ids: list[uuid.UUID] | None = None,
+        collection_id: uuid.UUID | None = None,
+        max_repos: int = 100,
+    ) -> RecalculateResult:
+        """Walk clones and persist their sizes. Synchronous by design.
+
+        Not a background task: one could not use the request-scoped session,
+        there is no job table to poll, and a new background function would
+        escape the `no_background_indexing` fixture and open a session against
+        DATABASE_URL — writing to the developer's real database from the test
+        suite.
+        """
+        started = time.perf_counter()
+        query = select(Repo)
+        if repo_ids:
+            query = query.where(Repo.id.in_(repo_ids))
+        if collection_id:
+            query = query.where(Repo.collection_id == collection_id)
+        targets = list((await db.execute(query)).scalars().all())
+
+        if len(targets) > max_repos:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"{len(targets)} repos exceeds the {max_repos} measured per "
+                    "request; scope the request to a collection."
+                ),
+            )
+
+        semaphore = asyncio.Semaphore(_RECALC_CONCURRENCY)
+        now = datetime.now(timezone.utc)
+
+        async def measure(repo: Repo) -> tuple[Repo, dict[str, int] | None, bool]:
+            if not repo.local_path:
+                return repo, None, False
+            async with semaphore:
+                try:
+                    return repo, await self._git.get_repo_size(repo.local_path), False
+                except OSError:
+                    return repo, None, True
+
+        results = await asyncio.gather(*(measure(repo) for repo in targets))
+
+        measured = skipped_missing = failed = 0
+        total_bytes = 0
+        for repo, size, errored in results:
+            if errored:
+                failed += 1
+                continue
+            if size is None:
+                # Leave the previous measurement alone. A vanished clone is
+                # more often an unmounted volume than a deletion, and nulling
+                # would destroy the whole fleet's history on one bad mount.
+                skipped_missing += 1
+                continue
+            repo.size_bytes = size["total"]
+            repo.git_size_bytes = size["git"]
+            repo.size_computed_at = now
+            measured += 1
+            total_bytes += size["total"]
+
+        await db.commit()
+
+        return RecalculateResult(
+            requested=len(targets),
+            measured=measured,
+            skipped_missing=skipped_missing,
+            failed=failed,
+            total_bytes=total_bytes,
+            duration_ms=int((time.perf_counter() - started) * 1000),
+            computed_at=now,
         )

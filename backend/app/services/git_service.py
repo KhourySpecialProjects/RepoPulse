@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import git
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +76,121 @@ class GitService:
         if not url.startswith("https://github.com/"):
             return url
         return url.replace("https://", f"https://x-access-token:{token}@", 1)
+
+    # ------------------------------------------------------------------
+    # Clone layout
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def clone_path(collection_folder_name: str, repo_name: str) -> str:
+        """Where a clone lives on disk. The one place this layout is spelled.
+
+        Storage accounting and repo creation must not be able to disagree
+        about where clones are; before this existed the layout was an inline
+        f-string in the repos route. Path joining also collapses a trailing
+        slash on REPO_ROOT_DIR, which the f-string turned into '/repos//x'.
+        """
+        return str(Path(settings.REPO_ROOT_DIR) / collection_folder_name / repo_name)
+
+    async def list_clone_directories(self, root: str | None = None) -> list[str]:
+        """Every {root}/{collection}/{repo} directory — exactly depth 2.
+
+        Depth 2 is what clone_path writes, so anything shallower or deeper is
+        not a clone. Used to reconcile disk against the database.
+        """
+        return await asyncio.to_thread(
+            self._list_clone_directories_sync, root or settings.REPO_ROOT_DIR
+        )
+
+    def _list_clone_directories_sync(self, root: str) -> list[str]:
+        found: list[str] = []
+        try:
+            with os.scandir(root) as collections:
+                for collection in collections:
+                    if not collection.is_dir(follow_symlinks=False):
+                        continue
+                    try:
+                        with os.scandir(collection.path) as repos:
+                            found.extend(
+                                os.path.normpath(repo.path)
+                                for repo in repos
+                                if repo.is_dir(follow_symlinks=False)
+                            )
+                    except OSError:
+                        continue
+        except (FileNotFoundError, NotADirectoryError, PermissionError):
+            # An unmounted or not-yet-created repo root is a deployment
+            # state, not an error worth failing a dashboard over.
+            return []
+        return sorted(found)
+
+    # ------------------------------------------------------------------
+    # Size on disk
+    # ------------------------------------------------------------------
+
+    async def get_repo_size(self, local_path: str) -> dict[str, int] | None:
+        """Bytes on disk for one clone: {'total', 'git', 'worktree'}.
+
+        Returns None — not zero — when the path is absent or is not a
+        directory. Zero must keep meaning "an empty clone", so that a repo
+        that was never measured stays distinguishable from one measuring 0.
+
+        Reports apparent size (st_size), not allocated blocks, so it reads
+        lower than `du` on a small-file-heavy tree like .git/objects. It is
+        the number a backup or a transfer would move.
+        """
+        return await asyncio.to_thread(self._get_repo_size_sync, local_path)
+
+    def _get_repo_size_sync(self, local_path: str) -> dict[str, int] | None:
+        root = Path(local_path)
+        if not root.is_dir():
+            return None
+        total = self._dir_size_sync(root)
+        # 0 when .git is absent, which is a directory that is not a clone.
+        git_bytes = self._dir_size_sync(root / ".git")
+        return {
+            "total": total,
+            "git": git_bytes,
+            "worktree": max(total - git_bytes, 0),
+        }
+
+    @staticmethod
+    def _dir_size_sync(path: Path) -> int:
+        """Sum apparent file sizes under a directory.
+
+        Iterative rather than recursive: .git/objects fans out into 256
+        directories and packed trees nest arbitrarily, so an explicit stack
+        avoids both the recursion limit and per-frame cost.
+
+        Symlinks are skipped entirely — not followed (which would escape the
+        tree, double-count, and can cycle) and not counted at link size. A
+        clone containing a link to a 4 GB dataset must not report 4 GB.
+        """
+        total = 0
+        stack = [str(path)]
+        while stack:
+            current = stack.pop()
+            try:
+                with os.scandir(current) as entries:
+                    for entry in entries:
+                        try:
+                            if entry.is_symlink():
+                                continue
+                            if entry.is_dir(follow_symlinks=False):
+                                stack.append(entry.path)
+                            elif entry.is_file(follow_symlinks=False):
+                                total += entry.stat(follow_symlinks=False).st_size
+                        except OSError:
+                            # A file vanishing mid-walk, or one entry we may
+                            # not stat, is normal. Wider failures propagate.
+                            continue
+            except (FileNotFoundError, NotADirectoryError, PermissionError):
+                continue
+        return total
+
+    # ------------------------------------------------------------------
+    # Clone / fetch
+    # ------------------------------------------------------------------
 
     async def clone_repo(self, github_url: str, local_path: str, token: str | None = None) -> None:
         """Full clone of the repository (not shallow)."""

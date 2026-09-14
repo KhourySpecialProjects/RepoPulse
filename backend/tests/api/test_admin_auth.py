@@ -25,6 +25,9 @@ from app.models.user import User
 
 ADMIN_ENDPOINTS: list[tuple[str, str]] = [
     ("GET", "/api/v1/admin/overview"),
+    ("GET", "/api/v1/admin/storage"),
+    ("GET", "/api/v1/admin/storage/repos"),
+    ("POST", "/api/v1/admin/storage/recalculate"),
 ]
 
 
