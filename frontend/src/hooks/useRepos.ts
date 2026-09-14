@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getRepos,
@@ -17,7 +18,7 @@ import {
   syncPullRequests,
   classifyRepoCommits,
 } from '@/services/api'
-import type { GetCommitsParams } from '@/types'
+import type { GetCommitsParams, SyncStatus } from '@/types'
 import { toast } from 'sonner'
 
 export const repoKeys = {
@@ -32,20 +33,54 @@ export const repoKeys = {
   contributors: (id: string) => ['repos', 'contributors', id] as const,
 }
 
+/**
+ * How often to re-check while a sync is running somewhere.
+ *
+ * Sync state is shared, so the viewer who started it is not necessarily the
+ * one watching. Polling only while something is actually in flight keeps an
+ * idle dashboard quiet — the interval callback returns false the moment every
+ * repo reports back idle.
+ */
+const SYNC_POLL_MS = 4000
+
 export function useRepos(collectionId: string, limit = 50, offset = 0) {
   return useQuery({
     queryKey: repoKeys.byCollection(collectionId),
     queryFn: () => getRepos(collectionId, limit, offset),
     enabled: Boolean(collectionId),
+    refetchInterval: (query) =>
+      query.state.data?.items.some((repo) => repo.sync_status === 'syncing')
+        ? SYNC_POLL_MS
+        : false,
   })
 }
 
 export function useRepo(id: string) {
-  return useQuery({
+  const queryClient = useQueryClient()
+  const previousStatus = useRef<SyncStatus | undefined>(undefined)
+
+  const query = useQuery({
     queryKey: repoKeys.detail(id),
     queryFn: () => getRepo(id),
     enabled: Boolean(id),
+    refetchInterval: (q) =>
+      q.state.data?.sync_status === 'syncing' ? SYNC_POLL_MS : false,
   })
+
+  // Polling refreshes the repo itself, but commits and contributors are
+  // separate queries and would keep serving pre-sync data. Invalidate them on
+  // the syncing → settled edge, which is the only moment new data exists.
+  const status = query.data?.sync_status
+  useEffect(() => {
+    if (previousStatus.current === 'syncing' && status && status !== 'syncing') {
+      queryClient.invalidateQueries({ queryKey: repoKeys.commits(id) })
+      queryClient.invalidateQueries({ queryKey: repoKeys.contributors(id) })
+      queryClient.invalidateQueries({ queryKey: repoKeys.health(id) })
+    }
+    previousStatus.current = status
+  }, [status, id, queryClient])
+
+  return query
 }
 
 /** The full commit list RepoDetailPage loads to locate a commit's page. */

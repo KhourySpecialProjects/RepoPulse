@@ -65,7 +65,7 @@ function AddAccessDialog({ collectionId, accessRole, existingUserIds, onClose }:
             <p className="text-sm text-muted-foreground">No eligible users available.</p>
           ) : (
             <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-              <SelectTrigger style={{ backgroundColor: 'white' }}>
+              <SelectTrigger>
                 <SelectValue placeholder="Select a user" />
               </SelectTrigger>
               <SelectContent>

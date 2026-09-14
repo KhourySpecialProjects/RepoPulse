@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -350,21 +351,27 @@ async def get_collection_commit_activity(
     return CollectionCommitActivity(activity=activity)
 
 
-async def _sync_all_repos(collection_id: uuid.UUID) -> None:
-    """Background task: fetch all repos in a collection."""
+async def _sync_all_repos(collection_id: uuid.UUID, token: str | None = None) -> None:
+    """Background task: sync every repo in a collection.
+
+    This used to call `fetch_repo` and stop there — no commit re-parse, no
+    health recompute, no `last_synced_at`, and no token, so "Sync All" left the
+    dashboard showing exactly what it showed before and failed outright on
+    private repos. Reusing the per-repo indexer makes a collection sync mean
+    the same thing as syncing each repo by hand, including clearing the shared
+    `sync_status` each one is now marked with.
+    """
+    from app.api.routes.repos import _fetch_and_recompute
     from app.db.database import async_session_maker
 
     async with async_session_maker() as db:
         result = await db.execute(
-            select(Repo).where(Repo.collection_id == collection_id)
+            select(Repo.id).where(Repo.collection_id == collection_id)
         )
-        repos = result.scalars().all()
-        for repo in repos:
-            if repo.local_path:
-                try:
-                    await _git_service.fetch_repo(repo.local_path)
-                except Exception:
-                    pass
+        repo_ids = list(result.scalars().all())
+
+    for repo_id in repo_ids:
+        await _fetch_and_recompute(repo_id, token)
 
 
 @router.post(
@@ -393,7 +400,29 @@ async def sync_collection(
             detail="Collection not found",
         )
 
-    background_tasks.add_task(_sync_all_repos, collection_id)
+    user_record = await db.get(User, user_uuid)
+    if not user_record or not user_record.github_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="GitHub token not configured. Add a token in your profile to enable syncing.",
+        )
+
+    # Mark the whole collection before returning, so every other viewer's
+    # dashboard shows the sync running rather than a set of idle cards.
+    started = datetime.now(timezone.utc)
+    repos_result = await db.execute(
+        select(Repo).where(Repo.collection_id == collection_id)
+    )
+    for repo in repos_result.scalars().all():
+        repo.sync_status = "syncing"
+        repo.sync_started_at = started
+        repo.sync_started_by = user_record
+        repo.sync_error = None
+    await db.commit()
+
+    background_tasks.add_task(
+        _sync_all_repos, collection_id, user_record.github_token
+    )
     return {"detail": "Sync started", "collection_id": str(collection_id)}
 
 

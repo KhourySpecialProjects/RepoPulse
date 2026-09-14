@@ -88,7 +88,7 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
               value={form.role}
               onValueChange={(v) => setForm((f) => ({ ...f, role: v as CreateUserData['role'] }))}
             >
-              <SelectTrigger style={{ backgroundColor: 'white' }}>
+              <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -187,7 +187,7 @@ function EditUserDialog({ user, onClose }: { user: UserDetail; onClose: () => vo
               value={form.role}
               onValueChange={(v) => setForm((f) => ({ ...f, role: v as UpdateUserData['role'] }))}
             >
-              <SelectTrigger style={{ backgroundColor: 'white' }}>
+              <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

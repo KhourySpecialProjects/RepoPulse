@@ -24,6 +24,7 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from '@/components/ui/tooltip'
+import { UnreadBadge } from '@/components/UnreadBadge'
 import { useSidebar, COLLAPSED_GUTTER } from '@/contexts/SidebarContext'
 import type { HealthStatus } from '@/types'
 
@@ -251,7 +252,6 @@ export function AppSidebar() {
   // excluded server-side, so Recently deleted never counts.
   const pendingCount =
     (unreadData?.unread_count ?? 0) + (remindersData?.total ?? 0)
-  const badgeText = pendingCount > 99 ? '99+' : String(pendingCount)
   const unreadLabel =
     pendingCount > 0 ? `Notifications, ${pendingCount} pending` : 'Notifications'
 
@@ -374,13 +374,13 @@ export function AppSidebar() {
         <div className="h-14 flex items-center justify-between flex-shrink-0 border-b border-slate-700/50 px-3">
           {!collapsed && (
             <Link to="/" aria-label="RepoPulse home dashboard" className="flex items-center gap-2 min-w-0 rounded-md hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
-              <GitBranch className="h-5 w-5 text-indigo-400 flex-shrink-0" />
-              <span className="font-semibold text-white text-sm truncate">RepoPulse</span>
+              <GitBranch className="h-6 w-6 text-indigo-400 flex-shrink-0" />
+              <span className="font-semibold text-white text-base truncate">RepoPulse</span>
             </Link>
           )}
           {collapsed && (
             <Link to="/" aria-label="RepoPulse home dashboard" className="flex items-center justify-center w-full rounded-md hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
-              <GitBranch className="h-5 w-5 text-indigo-400" />
+              <GitBranch className="h-6 w-6 text-indigo-400" />
             </Link>
           )}
           {!collapsed && (
@@ -407,14 +407,7 @@ export function AppSidebar() {
                   className={`relative w-full flex items-center justify-center py-2 rounded-md transition-colors ${NAV_DEFAULT}`}
                 >
                   <Bell className="h-4 w-4" />
-                  {pendingCount > 0 && (
-                    <span
-                      data-testid="unread-badge"
-                      className="absolute right-2 top-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none tabular-nums text-white"
-                    >
-                      {badgeText}
-                    </span>
-                  )}
+                  <UnreadBadge count={pendingCount} size="sm" className="absolute right-2 top-1" />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">Notifications</TooltipContent>
@@ -430,14 +423,7 @@ export function AppSidebar() {
             >
               <Bell className="h-4 w-4 flex-shrink-0" />
               <span className="truncate">Notifications</span>
-              {pendingCount > 0 && (
-                <span
-                  data-testid="unread-badge"
-                  className="ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold leading-none tabular-nums text-white"
-                >
-                  {badgeText}
-                </span>
-              )}
+              <UnreadBadge count={pendingCount} className="ml-auto" />
             </button>
           )}
 
