@@ -897,6 +897,7 @@ export const handlers = [
       created_at: new Date().toISOString(),
       note_content_preview: null,
       repo_id: null,
+      commit_hash: null,
       subject: null,
       body: null,
       emailed_at: null,

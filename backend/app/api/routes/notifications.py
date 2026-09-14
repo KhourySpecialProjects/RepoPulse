@@ -52,9 +52,14 @@ NOTIFICATION_LABELS = {
 
 def _notif_to_read(
     notif: Notification,
-    note_content_preview: str | None = None,
-    repo_id: uuid.UUID | None = None,
+    note: Note | None = None,
 ) -> NotificationRead:
+    """Build the payload, deriving everything link-related from the note.
+
+    Takes the note itself rather than pre-extracted fields: every caller has
+    already loaded it, and each one was repeating the same preview/repo_id
+    derivation, so adding `commit_hash` would have meant a fourth copy.
+    """
     return NotificationRead(
         id=notif.id,
         type=notif.type.value if hasattr(notif.type, "value") else notif.type,
@@ -62,10 +67,13 @@ def _notif_to_read(
         comment_id=notif.comment_id,
         is_read=notif.is_read,
         created_at=notif.created_at,
-        note_content_preview=note_content_preview,
+        note_content_preview=(
+            note.content[:80] if note is not None and note.content else None
+        ),
         # A repo-scoped event links to its repo directly; a note-scoped one
         # inherits the repo of the note it belongs to.
-        repo_id=notif.repo_id or repo_id,
+        repo_id=notif.repo_id or (note.repo_id if note is not None else None),
+        commit_hash=note.commit_hash if note is not None else None,
         subject=notif.subject,
         body=notif.body,
         emailed_at=notif.emailed_at,
@@ -125,7 +133,8 @@ async def list_notifications(
     result = await db.execute(list_q)
     notifs = result.scalars().all()
 
-    # Bulk-load note previews and repo_ids
+    # Bulk-load the notes these notifications point at; everything the client
+    # needs to build a link (preview, repo, commit) comes off them.
     note_ids = list({n.note_id for n in notifs if n.note_id is not None})
     note_map: dict[uuid.UUID, Note] = {}
     for nid in note_ids:
@@ -133,15 +142,13 @@ async def list_notifications(
         if note:
             note_map[nid] = note
 
-    items = []
-    for notif in notifs:
-        preview = None
-        repo_id = None
-        if notif.note_id and notif.note_id in note_map:
-            note = note_map[notif.note_id]
-            preview = note.content[:80] if note.content else None
-            repo_id = note.repo_id
-        items.append(_notif_to_read(notif, preview, repo_id))
+    items = [
+        _notif_to_read(
+            notif,
+            note_map.get(notif.note_id) if notif.note_id else None,
+        )
+        for notif in notifs
+    ]
 
     return NotificationListResponse(
         items=items,
@@ -414,15 +421,9 @@ async def mark_notification_read(
     await db.commit()
     await db.refresh(notif)
 
-    preview = None
-    repo_id = None
-    if notif.note_id:
-        note = await db.get(Note, notif.note_id)
-        if note:
-            preview = note.content[:80] if note.content else None
-            repo_id = note.repo_id
+    note = await db.get(Note, notif.note_id) if notif.note_id else None
 
-    return _notif_to_read(notif, preview, repo_id)
+    return _notif_to_read(notif, note)
 
 
 @router.patch(
@@ -449,15 +450,9 @@ async def mark_notification_unread(
     await db.commit()
     await db.refresh(notif)
 
-    preview = None
-    repo_id = None
-    if notif.note_id:
-        note = await db.get(Note, notif.note_id)
-        if note:
-            preview = note.content[:80] if note.content else None
-            repo_id = note.repo_id
+    note = await db.get(Note, notif.note_id) if notif.note_id else None
 
-    return _notif_to_read(notif, preview, repo_id)
+    return _notif_to_read(notif, note)
 
 
 @router.post(
@@ -623,15 +618,9 @@ async def restore_notification(
     await db.commit()
     await db.refresh(notif)
 
-    preview = None
-    repo_id = None
-    if notif.note_id:
-        note = await db.get(Note, notif.note_id)
-        if note:
-            preview = note.content[:80] if note.content else None
-            repo_id = note.repo_id
+    note = await db.get(Note, notif.note_id) if notif.note_id else None
 
-    return _notif_to_read(notif, preview, repo_id)
+    return _notif_to_read(notif, note)
 
 
 @router.delete(

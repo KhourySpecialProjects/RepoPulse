@@ -301,6 +301,11 @@ export interface Notification {
   created_at: string
   note_content_preview: string | null
   repo_id: string | null
+  /**
+   * The commit the underlying note was written against, when there is one.
+   * Lets a click deep-link to that commit rather than just the repo.
+   */
+  commit_hash: string | null
   /** Set on repo-scoped events only. */
   subject: string | null
   body: string | null

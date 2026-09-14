@@ -97,6 +97,7 @@ function notif(over: Partial<Notification>): Notification {
     created_at: '2026-09-14T11:00:00Z',
     note_content_preview: null,
     repo_id: null,
+    commit_hash: null,
     subject: null,
     body: null,
     emailed_at: null,

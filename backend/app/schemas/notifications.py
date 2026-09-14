@@ -18,6 +18,10 @@ class NotificationRead(BaseModel):
     created_at: datetime
     note_content_preview: Optional[str] = None
     repo_id: Optional[uuid.UUID] = None
+    # The commit the underlying note was written against, when there is one.
+    # Lets the client deep-link straight to that commit instead of dropping the
+    # reader on the repo page to hunt for what the notification was about.
+    commit_hash: Optional[str] = None
     # Set on repo-scoped events, which carry their own text instead of reading
     # it from a note. NULL for mention/note_comment/reminder.
     subject: Optional[str] = None
