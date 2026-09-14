@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
+  Bell,
   AtSign,
   Clock,
   FolderMinus,
@@ -32,7 +33,6 @@ import {
 } from '@/hooks/useNotifications'
 import { ActiveRemindersPanel, ICON_BUTTON_CLASS } from '@/components/ActiveRemindersPanel'
 import { EmailRelayPanel } from '@/components/EmailRelayPanel'
-import { NyanCat } from '@/components/NyanCat'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { feedTitleFor } from '@/lib/notificationEvents'
@@ -250,7 +250,7 @@ export function NotificationsPage() {
               data-testid="notifications-empty"
               className="px-5 py-16 text-center text-muted-foreground"
             >
-              <NyanCat className="mx-auto mb-3" />
+              <Bell className="mx-auto mb-3 h-8 w-8 opacity-30" />
               <p className="text-sm font-medium">No notifications</p>
               <p className="mt-1 text-sm">
                 Mentions, replies and due reminders will appear here.
