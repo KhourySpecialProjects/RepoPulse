@@ -125,7 +125,10 @@ class HealthService:
         if not commits:
             return 0
 
-        counts = Counter(c["author_email"] for c in commits)
+        # Lower-cased to match how contributors are identified everywhere else;
+        # otherwise Bob@x.com and bob@x.com read as two people and skew the
+        # distribution signal.
+        counts = Counter(c["author_email"].lower() for c in commits)
         values = sorted(counts.values())
         n = len(values)
 

@@ -13,6 +13,7 @@ import { UserProfilePage } from '@/pages/UserProfilePage'
 import { AdminPage } from '@/pages/AdminPage'
 import { AppSidebar } from '@/components/AppSidebar'
 import { SidebarContext, COLLAPSED_GUTTER } from '@/contexts/SidebarContext'
+import { cn } from '@/lib/utils'
 
 interface ProtectedRouteProps {
   children: React.ReactNode
@@ -128,6 +129,7 @@ export function App() {
     const stored = parseInt(localStorage.getItem('sidebar_width') ?? '', 10)
     return isNaN(stored) ? DEFAULT_WIDTH : stored
   })
+  const [resizing, setResizing] = useState(false)
 
   if (isLoading) {
     return (
@@ -150,11 +152,21 @@ export function App() {
   const marginLeft = collapsed ? COLLAPSED_GUTTER : width
 
   return (
-    <SidebarContext.Provider value={{ collapsed, setCollapsed, width, setWidth }}>
+    <SidebarContext.Provider
+      value={{ collapsed, setCollapsed, width, setWidth, resizing, setResizing }}
+    >
       <div className="flex min-h-screen bg-gray-50">
         <AppSidebar />
-        {/* No transition during drag — sidebar updates width synchronously */}
-        <main className="flex-1 min-w-0" style={{ marginLeft }}>
+        {/* Eases in step with the sidebar panel, except while dragging, where
+            the margin must track the cursor exactly. */}
+        <main
+          className={cn(
+            'flex-1 min-w-0',
+            !resizing &&
+              'transition-[margin] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none'
+          )}
+          style={{ marginLeft }}
+        >
           <AppRoutes />
         </main>
       </div>

@@ -20,7 +20,7 @@ class AnthropicAdapter(LLMService):
         self,
         prompt: str,
         system: str | None = None,
-        max_tokens: int = 1024,
+        max_tokens: int = 2048,
     ) -> str:
         kwargs: dict = {
             "model": self._model,
@@ -31,12 +31,8 @@ class AnthropicAdapter(LLMService):
             kwargs["system"] = system
 
         message = await self._client.messages.create(**kwargs)
-
-        # Not content[0].text: newer models can return a ThinkingBlock first,
-        # which has no .text at all. Collect the text blocks and leave the rest
-        # alone. An answer with no text block yields "", which every caller
-        # already treats as an unusable response.
+        # Join every text block: a reply can arrive as several blocks, and
+        # indexing the first one alone silently drops the rest.
         return "".join(
-            block.text for block in message.content
-            if getattr(block, "type", None) == "text"
+            block.text for block in message.content if getattr(block, "type", None) == "text"
         )

@@ -91,9 +91,13 @@ async def contributor_operation_error_handler(request: Request, exc: Contributor
 
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc: Exception) -> JSONResponse:
+    # Starlette routes every HTTPException(404) here, so without this the
+    # specific message each route raises ("Repo not found", "Note not found")
+    # was replaced by a generic one.
+    detail = getattr(exc, "detail", None) or "Resource not found"
     return JSONResponse(
         status_code=status.HTTP_404_NOT_FOUND,
-        content={"detail": "Resource not found", "error_code": "NOT_FOUND"},
+        content={"detail": detail, "error_code": "NOT_FOUND"},
     )
 
 

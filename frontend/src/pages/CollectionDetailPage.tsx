@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowLeft, Plus, RefreshCw, GitBranch, LayoutGrid, Pencil, Archive, ArchiveRestore, Users } from 'lucide-react'
@@ -53,11 +53,14 @@ export function CollectionDetailPage() {
   const [accessPanelOpen, setAccessPanelOpen] = useState(false)
   const [syncing, setSyncing] = useState(false)
 
+  const syncTimer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(syncTimer.current), [])
+
   async function handleSync() {
     setSyncing(true)
     try {
       await syncMutation.mutateAsync(id ?? '')
-      window.setTimeout(() => setSyncing(false), 5000)
+      syncTimer.current = window.setTimeout(() => setSyncing(false), 5000)
     } catch {
       setSyncing(false)
     }

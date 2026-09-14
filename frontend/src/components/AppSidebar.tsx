@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Link, useNavigate, useLocation, useParams } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
+import { cn } from '@/lib/utils'
 import {
   GitBranch,
   ChevronLeft,
@@ -40,6 +41,123 @@ const NAV_BASE =
   'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer select-none'
 const NAV_DEFAULT = 'text-slate-300 hover:text-white hover:bg-slate-800'
 const NAV_ACTIVE = 'bg-indigo-600/20 text-indigo-300'
+
+// ── Notification dropdown ────────────────────────────────────────────────────
+function NotificationDropdown({ onClose }: { onClose: () => void }) {
+  const navigate = useNavigate()
+  const { data: notificationsData } = useNotifications({ limit: 20 })
+  const { data: unreadData } = useUnreadCount()
+  const markRead = useMarkNotificationRead()
+  const markAllRead = useMarkAllNotificationsRead()
+
+  const unreadCount = unreadData?.unread_count ?? 0
+  const notifications = notificationsData?.items ?? []
+
+  function formatTimeAgo(isoStr: string): string {
+    const ms = Date.now() - new Date(isoStr).getTime()
+    const minutes = Math.floor(ms / 60000)
+    if (minutes < 1) return 'just now'
+    if (minutes < 60) return `${minutes}m ago`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `${hours}h ago`
+    const days = Math.floor(hours / 24)
+    return `${days}d ago`
+  }
+
+  async function handleNotificationClick(id: string, repoId: string | null) {
+    await markRead.mutateAsync(id)
+    onClose()
+    if (repoId) navigate(`/repos/${repoId}`)
+  }
+
+  async function handleMarkAllRead() {
+    await markAllRead.mutateAsync()
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -8, scale: 0.96 }}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      exit={{ opacity: 0, x: -8, scale: 0.96 }}
+      transition={{ duration: 0.15 }}
+      className="absolute left-full top-0 ml-2 w-80 z-50 frosted-menu border border-border rounded-xl shadow-xl overflow-hidden"
+    >
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
+        <span className="text-sm font-semibold text-foreground">
+          Notifications
+          {unreadCount > 0 && (
+            <span className="ml-1.5 text-xs font-normal text-amber-600">
+              {unreadCount} unread
+            </span>
+          )}
+        </span>
+        <div className="flex items-center gap-1">
+          {unreadCount > 0 && (
+            <button
+              type="button"
+              onClick={handleMarkAllRead}
+              className="text-xs text-indigo-600 hover:text-indigo-700 transition-colors px-1.5 py-0.5 rounded"
+            >
+              Mark all read
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground p-0.5"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+      <div className="max-h-80 overflow-y-auto">
+        {notifications.length === 0 ? (
+          <div className="py-8 text-center text-muted-foreground">
+            <Bell className="h-6 w-6 mx-auto mb-2 opacity-30" />
+            <p className="text-sm">No notifications</p>
+          </div>
+        ) : (
+          notifications.map((notif) => (
+            <button
+              key={notif.id}
+              type="button"
+              onClick={() => handleNotificationClick(notif.id, notif.repo_id)}
+              className={`w-full text-left flex items-start gap-3 px-3 py-2.5 hover:bg-muted/50 transition-colors border-b border-border/50 last:border-0 ${
+                !notif.is_read ? 'bg-indigo-50/50' : ''
+              }`}
+            >
+              <div className="flex-shrink-0 mt-0.5">
+                {notif.type === 'mention' ? (
+                  <AtSign className="h-4 w-4 text-violet-500" />
+                ) : (
+                  <MessageSquare className="h-4 w-4 text-indigo-500" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-foreground">
+                  {notif.type === 'mention'
+                    ? 'You were mentioned'
+                    : 'New comment on your note'}
+                </p>
+                {notif.note_content_preview && (
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">
+                    {notif.note_content_preview}
+                  </p>
+                )}
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  {formatTimeAgo(notif.created_at)}
+                </p>
+              </div>
+              {!notif.is_read && (
+                <div className="flex-shrink-0 w-2 h-2 rounded-full bg-amber-500 mt-1.5" />
+              )}
+            </button>
+          ))
+        )}
+      </div>
+    </motion.div>
+  )
+}
 
 // ── Collection tree item ──────────────────────────────────────────────────────
 function CollectionTreeItem({
@@ -211,16 +329,17 @@ const COLLAPSE_THRESHOLD = 120
 
 // ── Main sidebar ─────────────────────────────────────────────────────────────
 export function AppSidebar() {
-  const { collapsed, setCollapsed, width, setWidth } = useSidebar()
+  const { collapsed, setCollapsed, width, setWidth, resizing, setResizing } = useSidebar()
   const isDragging = useRef(false)
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const params = useParams<{ id: string }>()
 
-  // Determine active repo id from URL
-  const isOnRepoPage = location.pathname.startsWith('/repos/')
-  const activeRepoId = isOnRepoPage ? params.id ?? null : null
+  // The sidebar renders outside <Routes>, so useParams() has no route context
+  // and would always be empty — read the id straight off the pathname.
+  const activeRepoId = location.pathname.startsWith('/repos/')
+    ? location.pathname.split('/')[2] || null
+    : null
 
   // Fetch the active repo to find its collection_id for auto-expand
   const { data: activeRepo } = useRepo(activeRepoId ?? '')
@@ -296,6 +415,7 @@ export function AppSidebar() {
   function handleDragStart(e: React.MouseEvent) {
     e.preventDefault()
     isDragging.current = true
+    setResizing?.(true)
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
 
@@ -317,6 +437,7 @@ export function AppSidebar() {
 
     function onMouseUp() {
       isDragging.current = false
+      setResizing?.(false)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
       document.removeEventListener('mousemove', onMouseMove)
@@ -337,31 +458,43 @@ export function AppSidebar() {
   // stopping short with a raw edge. The arrow keeps the same horizontal line as
   // the collapse arrow it replaces (h-14 header = 56px, so top-3 + h-8 centres
   // both at 28px).
-  if (collapsed) {
-    return (
-      <div
-        className="fixed left-0 top-0 bottom-0 z-40 bg-gray-50 border-r border-border"
-        style={{ width: COLLAPSED_GUTTER }}
-      >
-        <button
-          type="button"
-          onClick={toggleCollapsed}
-          title="Expand sidebar"
-          aria-label="Expand sidebar"
-          className="fixed left-3 top-3 z-50 flex h-8 w-8 items-center justify-center rounded-md bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 transition-colors"
-        >
-          <ChevronRight className="h-4 w-4" />
-        </button>
-      </div>
-    )
-  }
+  // One panel across both states so the browser can ease the width between
+  // them. Width stays an inline style (set instantly) and only the visual
+  // interpolation is deferred to the transition; during a drag the easing is
+  // dropped so the edge tracks the cursor exactly.
+  const panelTransition = resizing
+    ? ''
+    : 'transition-[width,background-color] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none'
 
   return (
     <TooltipProvider delayDuration={0}>
       <div
-        className="fixed left-0 top-0 bottom-0 z-40 bg-slate-900 flex flex-col overflow-hidden"
-        style={{ width }}
+        className={cn(
+          'fixed left-0 top-0 bottom-0 z-40 flex flex-col overflow-hidden',
+          collapsed ? 'bg-gray-50 border-r border-border' : 'bg-slate-900',
+          panelTransition
+        )}
+        style={{ width: collapsed ? COLLAPSED_GUTTER : width }}
       >
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            title="Expand sidebar"
+            aria-label="Expand sidebar"
+            className="fixed left-3 top-3 z-50 flex h-8 w-8 items-center justify-center rounded-md bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 hover:scale-105 active:scale-95 transition-[background-color,transform] duration-200 motion-reduce:transition-none"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        ) : (
+        <motion.div
+          key="sidebar-content"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.2, delay: 0.1 }}
+          className="flex flex-col h-full"
+          style={{ width }}
+        >
         {/* Drag handle */}
         <div
           onMouseDown={handleDragStart}
@@ -499,6 +632,8 @@ export function AppSidebar() {
             danger
           />
         </div>
+        </motion.div>
+        )}
       </div>
     </TooltipProvider>
   )

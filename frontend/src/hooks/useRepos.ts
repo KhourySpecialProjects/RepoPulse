@@ -18,6 +18,7 @@ import {
   classifyRepoCommits,
 } from '@/services/api'
 import type { GetCommitsParams } from '@/types'
+import { collectionKeys } from '@/hooks/useCollections'
 import { toast } from 'sonner'
 
 export const repoKeys = {
@@ -55,6 +56,8 @@ export function useAddRepos() {
       addRepos(collectionId, urls),
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: repoKeys.byCollection(variables.collectionId) })
+      // The collection header renders repo_count.
+      queryClient.invalidateQueries({ queryKey: collectionKeys.all })
     },
   })
 }
@@ -63,12 +66,11 @@ export function useSyncRepo() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => syncRepo(id),
-    onSuccess: (_result, id) => {
-      queryClient.invalidateQueries({ queryKey: repoKeys.detail(id) })
-      queryClient.invalidateQueries({ queryKey: repoKeys.health(id) })
-      queryClient.invalidateQueries({ queryKey: repoKeys.commits(id) })
-      queryClient.invalidateQueries({ queryKey: repoKeys.contributors(id) })
-      queryClient.invalidateQueries({ queryKey: ['repos', 'contextual-activity'] })
+    onSuccess: () => {
+      // Prefix-invalidate: the collection grid reads ['repos','collection',id],
+      // which the per-id keys below never covered.
+      queryClient.invalidateQueries({ queryKey: repoKeys.all })
+      queryClient.invalidateQueries({ queryKey: collectionKeys.all })
     },
   })
 }
@@ -80,6 +82,7 @@ export function useDeleteRepo() {
     onSuccess: (_result, id) => {
       queryClient.invalidateQueries({ queryKey: ['repos'] })
       queryClient.invalidateQueries({ queryKey: repoKeys.detail(id) })
+      queryClient.invalidateQueries({ queryKey: collectionKeys.all })
     },
   })
 }

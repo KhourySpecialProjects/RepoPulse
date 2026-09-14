@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.services.llm.base import LLMService
 from app.services.summary_service import SummaryService
 
 
@@ -64,3 +65,60 @@ async def test_mock_llm_is_not_real(summary_svc: SummaryService) -> None:
         "health_score": {}, "commits": [], "contributors": [],
     })
     assert result == "This is a mock LLM response."
+
+
+# ---------------------------------------------------------------------------
+# Token budgets
+#
+# max_tokens is a hard ceiling: when the model reaches it the reply is cut off
+# mid-sentence. Each prompt asks for a paragraph range, so the ceiling has to
+# sit well above that range or long summaries arrive truncated.
+# ---------------------------------------------------------------------------
+
+
+class _RecordingLLM(LLMService):
+    """Captures the max_tokens each prompt was generated with."""
+
+    def __init__(self) -> None:
+        self.max_tokens: int | None = None
+
+    async def generate(
+        self,
+        prompt: str,
+        system: str | None = None,
+        max_tokens: int = 1024,
+    ) -> str:
+        self.max_tokens = max_tokens
+        return "ok"
+
+
+@pytest.mark.asyncio
+async def test_repo_overview_has_headroom_for_four_paragraphs() -> None:
+    llm = _RecordingLLM()
+    await SummaryService(llm=llm).generate_repo_overview({
+        "name": "x", "github_url": "", "health_status": "unknown",
+        "health_score": {}, "commits": [], "contributors": [],
+    })
+    # Asks for 2-4 paragraphs across five topics — roughly 650 tokens at the
+    # top of that range, so the ceiling needs real headroom above it.
+    assert llm.max_tokens is not None and llm.max_tokens >= 1500
+
+
+@pytest.mark.asyncio
+async def test_contributor_activity_has_headroom_for_three_paragraphs() -> None:
+    llm = _RecordingLLM()
+    await SummaryService(llm=llm).generate_contributor_activity({
+        "display_name": "Alice", "repo_name": "x", "commits": [], "aliases": [],
+    })
+    assert llm.max_tokens is not None and llm.max_tokens >= 1000
+
+
+@pytest.mark.asyncio
+async def test_health_explanation_has_headroom_for_two_paragraphs() -> None:
+    llm = _RecordingLLM()
+    await SummaryService(llm=llm).generate_health_explanation({
+        "repo_name": "x", "status": "green", "composite": 0.5,
+        "commit_frequency": 1, "recency": 1, "distribution": 2,
+        "branch_activity": 1, "commit_message_quality": 2,
+    })
+    assert llm.max_tokens is not None and llm.max_tokens >= 800
