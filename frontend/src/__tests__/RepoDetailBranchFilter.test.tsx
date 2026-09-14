@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
@@ -65,6 +65,7 @@ const commitMain: Commit = {
   date: '2025-10-14T14:00:00Z',
   message: 'feat: main branch commit',
   branches: ['main'],
+  origin_branch: 'main',
   insertions: 10,
   deletions: 2,
   files_changed: 1,
@@ -79,6 +80,7 @@ const commitFeature: Commit = {
   date: '2025-10-13T09:30:00Z',
   message: 'feat: feature branch commit',
   branches: ['feature/auth'],
+  origin_branch: 'feature/auth',
   insertions: 5,
   deletions: 1,
   files_changed: 1,
@@ -93,6 +95,7 @@ const commitMultiBranch: Commit = {
   date: '2025-10-12T10:00:00Z',
   message: 'merge: merged into main',
   branches: ['main', 'feature/auth'],
+  origin_branch: 'main',
   insertions: 0,
   deletions: 0,
   files_changed: 0,
@@ -148,13 +151,52 @@ describe('RepoDetailPage - multi-branch commit schema (branches: string[])', () 
     expect(mainBadges.length).toBeGreaterThan(0)
   })
 
-  it('renders multiple branch badges for a commit on multiple branches', async () => {
+  it('labels a commit with its owning branch, not every branch containing it', async () => {
     setupHandlers()
     renderPage()
     await waitFor(() => expect(screen.getByText('merge: merged into main')).toBeInTheDocument())
-    // commitMultiBranch has ['main', 'feature/auth'] — both badges should be in the DOM
+    // commitMultiBranch is contained in ['main', 'feature/auth'] but was made
+    // on main, so it wears one badge — the owning branch. The feature/auth
+    // badges in the DOM belong to commitFeature and the filter chip row.
     const featureAuthBadges = screen.getAllByText('feature/auth')
     expect(featureAuthBadges.length).toBeGreaterThan(0)
+  })
+
+  it('selecting a branch shows only commits made on it', async () => {
+    // The regression this guards: `branches` lists every branch *containing* a
+    // commit, so filtering on it made `feature/auth` also match main's history
+    // — clicking a branch returned nearly the whole repo.
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('feat: main branch commit')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'feature/auth' }))
+
+    expect(screen.getByText('feat: feature branch commit')).toBeInTheDocument()
+    expect(screen.queryByText('feat: main branch commit')).not.toBeInTheDocument()
+    // Contained in feature/auth, but owned by main — must not come along.
+    expect(screen.queryByText('merge: merged into main')).not.toBeInTheDocument()
+  })
+
+  it('selecting trunk excludes commits made on branches cut from it', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('feat: main branch commit')).toBeInTheDocument())
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'main' })[0])
+
+    expect(screen.getByText('feat: main branch commit')).toBeInTheDocument()
+    expect(screen.getByText('merge: merged into main')).toBeInTheDocument()
+    expect(screen.queryByText('feat: feature branch commit')).not.toBeInTheDocument()
+  })
+
+  it('offers a chip only for branches that own commits', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+    // Both fixtures' owning branches, and nothing else.
+    expect(screen.getAllByRole('button', { name: 'feature/auth' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'main' }).length).toBeGreaterThan(0)
   })
 
   it('renders a branch filter chip row', async () => {

@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 # commit would be thousands of entries wide.
 _MAX_TRACKED_PATHS = 20
 
+# Trunk names to try when a clone has no origin/HEAD to read the default branch
+# from — a bare `git init` repo, or a remote that never set it.
+_TRUNK_FALLBACKS = ("main", "master")
+
 
 def _diffstat(commit: Any) -> dict[str, Any]:
     """Extract churn counts and changed-file paths from a commit.
@@ -102,8 +106,12 @@ class GitService:
 
         Returns a list of dicts with keys:
             hash, author_name, author_email, date, message, branches,
-            insertions, deletions, files_changed,
+            origin_branch, insertions, deletions, files_changed,
             file_paths, file_paths_truncated
+
+        `branches` is every branch containing the commit; `origin_branch` is the
+        single branch the work was done on. Filter on the latter — see
+        _attribute_origin_branches.
         """
         return await asyncio.to_thread(self._parse_commits_sync, local_path)
 
@@ -125,6 +133,73 @@ class GitService:
             return ref.name[len(ref.remote_name) + 1:]
         return ref.name
 
+    @staticmethod
+    def _detect_trunk(repo: git.Repo, ref_names: set[str]) -> str | None:
+        """The clone's default branch, preferred over a hardcoded main/master.
+
+        Read from origin/HEAD, which `git clone` sets to whatever the remote's
+        default branch is. Repos that develop on something else — RepoPulse
+        itself uses `devTesting`, with `main` far behind — would otherwise have
+        nearly every commit attributed to a feature branch.
+        """
+        for remote in repo.remotes:
+            try:
+                target = repo.git.symbolic_ref(f"refs/remotes/{remote.name}/HEAD")
+            except git.GitCommandError:
+                continue  # origin/HEAD not set on this remote
+            prefix = f"refs/remotes/{remote.name}/"
+            if target.startswith(prefix):
+                name = target[len(prefix):]
+                if name in ref_names:
+                    return name
+
+        for candidate in _TRUNK_FALLBACKS:
+            if candidate in ref_names:
+                return candidate
+
+        # Detached HEAD raises TypeError; an unborn branch raises ValueError.
+        try:
+            active = repo.active_branch.name
+        except (TypeError, ValueError):
+            return None
+        return active if active in ref_names else None
+
+    @staticmethod
+    def _attribute_origin_branches(
+        hash_to_branches: dict[str, set[str]], trunk: str | None
+    ) -> dict[str, str]:
+        """Map each commit hash → the one branch the work was done on.
+
+        `hash_to_branches` answers "which branches contain this commit", which
+        is every branch cut from it. The owning branch is the inverse: trunk
+        owns its own commits, and every other branch owns `trunk..branch` — the
+        commits unique to it.
+
+        A branch cut from another non-trunk branch shares its commits, so both
+        have them in `trunk..branch`. The tie-break is the smaller exclusive
+        set, i.e. the more specific branch, with the name as a stable
+        secondary key so attribution does not depend on dict ordering.
+        """
+        branch_to_hashes: dict[str, set[str]] = {}
+        for commit_hash, names in hash_to_branches.items():
+            for name in names:
+                branch_to_hashes.setdefault(name, set()).add(commit_hash)
+
+        trunk_hashes = branch_to_hashes.get(trunk, set()) if trunk else set()
+
+        owners: dict[str, str] = {h: trunk for h in trunk_hashes} if trunk else {}
+
+        exclusive = (
+            (name, hashes - trunk_hashes)
+            for name, hashes in branch_to_hashes.items()
+            if name != trunk
+        )
+        for name, hashes in sorted(exclusive, key=lambda kv: (len(kv[1]), kv[0])):
+            for commit_hash in hashes:
+                owners.setdefault(commit_hash, name)
+
+        return owners
+
     def _parse_commits_sync(self, local_path: str) -> list[dict[str, Any]]:
         t0 = time.perf_counter()
         repo = git.Repo(local_path)
@@ -145,6 +220,14 @@ class GitService:
         logger.debug(
             "parse_commits: found %d unique commits across %d refs in %.2fs (first pass) — %s",
             len(hash_to_commit), len(list(self._all_refs(repo))), time.perf_counter() - t0, local_path,
+        )
+
+        # Which branch was each commit actually made on? `hash_to_branches`
+        # cannot answer that — see _attribute_origin_branches.
+        ref_names = {self._ref_display_name(r) for r in self._all_refs(repo)}
+        trunk = self._detect_trunk(repo, ref_names)
+        origin_branch_by_hash = self._attribute_origin_branches(
+            hash_to_branches, trunk
         )
 
         # Second pass: build commit records
@@ -169,6 +252,10 @@ class GitService:
                 "date": committed_dt,
                 "message": commit.message.strip(),
                 "branches": branches,
+                # Falls back to the containment list only if attribution somehow
+                # missed the commit; every ref-reachable commit gets an owner.
+                "origin_branch": origin_branch_by_hash.get(h)
+                or (branches[0] if branches else ""),
                 **stats,
             })
 

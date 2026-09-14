@@ -53,6 +53,7 @@ def _commit(
     branches: list[str],
     email: str = "alice@example.com",
     name: str = "Alice",
+    origin_branch: str | None = None,
 ) -> dict:
     """One entry shaped like GitService.parse_commits output."""
     return {
@@ -63,6 +64,9 @@ def _commit(
         "date": datetime(2026, 1, day, 12, 0, tzinfo=timezone.utc),
         "message": message,
         "branches": branches,
+        # parse_commits always emits one owning branch; default to the first
+        # containing branch so callers only specify it when it matters.
+        "origin_branch": origin_branch or (branches[0] if branches else ""),
         "insertions": 100,
         "deletions": 10,
         "files_changed": 5,

@@ -100,7 +100,10 @@ export interface Commit {
   author_email: string
   date: string
   message: string
+  // Every branch containing the commit — drives the "merged to main" badge.
   branches: string[]
+  // The single branch the work was done on; what the branch filter matches.
+  origin_branch: string
   insertions: number
   deletions: number
   files_changed: number

@@ -462,9 +462,12 @@ export function RepoDetailPage() {
   const resolvedAuthor = (commit: { author_name: string; author_email: string }) =>
     emailToDisplayName[commit.author_email.toLowerCase()] ?? commit.author_name
 
+  // Owning branches only. Building this from `branches` listed every branch
+  // that merely contains a commit, so branches with no work of their own still
+  // got a chip that then matched most of the repo.
   const allBranches = useMemo(() => {
     const names = new Set<string>()
-    allCommitsData?.items.forEach(c => c.branches.forEach(b => names.add(b)))
+    allCommitsData?.items.forEach(c => { if (c.origin_branch) names.add(c.origin_branch) })
     return Array.from(names).sort()
   }, [allCommitsData])
 
@@ -490,7 +493,10 @@ export function RepoDetailPage() {
     const allContributorsSelected = selectedContributorIds.size === 0 ||
       (contributors != null && contributors.length > 0 && contributors.every(contributor => selectedContributorIds.has(contributor.id)))
     return (allCommitsData?.items ?? []).filter(c => {
-      const branchMatch = selectedBranches.size === 0 || c.branches.some(b => selectedBranches.has(b))
+      // Match the owning branch exactly. `c.branches.some(...)` matched any
+      // branch *containing* the commit, so selecting `dev` returned all of
+      // trunk's history too.
+      const branchMatch = selectedBranches.size === 0 || selectedBranches.has(c.origin_branch)
       // The contributor checkboxes (left menu) resolve aliases to a contributor.
       const contributorId = emailToContributorId[c.author_email.toLowerCase()]
       const contributorMatch = allContributorsSelected || selectedContributorIds.has(contributorId)
@@ -1236,7 +1242,9 @@ export function RepoDetailPage() {
                               {(() => {
                                 const mainNames = ['main', 'master']
                                 const onMain = commit.branches.some(b => mainNames.includes(b))
-                                const originBranch = commit.branches.find(b => !mainNames.includes(b)) ?? commit.branches[0]
+                                // The backend decides which branch owns a commit, so the
+                                // chip shown here is exactly what the filter matches on.
+                                const originBranch = commit.origin_branch
                                 const displayBranch = originBranch && originBranch.length > 22
                                   ? originBranch.slice(0, 20) + '…'
                                   : originBranch

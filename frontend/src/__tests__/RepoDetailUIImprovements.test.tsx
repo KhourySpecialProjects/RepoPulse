@@ -64,6 +64,7 @@ const mockCommit: Commit = {
   date: '2025-10-14T14:00:00Z',
   message: 'feat: implement auth',
   branches: ['main'],
+  origin_branch: 'main',
   insertions: 142,
   deletions: 23,
   files_changed: 6,
