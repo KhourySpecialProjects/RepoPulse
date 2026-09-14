@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, JSON, String, func
+from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, Integer, JSON, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,6 +34,22 @@ class Repo(Base):
     )
     expected_contributor_count: Mapped[int | None] = mapped_column(
         Integer, nullable=True
+    )
+    # Size on disk, persisted rather than measured per request: walking full
+    # clones on every dashboard load is unbounded work in a request handler.
+    #
+    # BigInteger, not Integer: int4 caps at 2 GiB and a full non-shallow
+    # clone's .git passes that, so Integer would fail on exactly the largest
+    # repo — the one an admin most needs to see.
+    #
+    # Nullable with no server default. NULL means "never measured"; 0 means
+    # "measured, and empty". Collapsing those makes staleness unreportable.
+    # There is no worktree_bytes column: it is derived as
+    # size_bytes - git_size_bytes, so it cannot disagree with the other two.
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    git_size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    size_computed_at: Mapped[DateTime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     # Sync state lives on the repo, not in the client that started it, so that

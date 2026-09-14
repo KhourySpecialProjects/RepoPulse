@@ -38,6 +38,13 @@ import type {
   PRListResponse,
   PRStats,
   PRSyncResponse,
+  AdminStorageSummary,
+  AdminRepoStorageItem,
+  AdminRepoSizeSort,
+  AdminRecalculateResult,
+  AdminOverview,
+  AdminSystemStatus,
+  AdminLlmUsage,
   CollectionCommitActivity,
 } from '@/types'
 
@@ -476,4 +483,67 @@ export async function restoreNote(id: string): Promise<void> {
 
 export async function purgeNote(id: string): Promise<void> {
   await apiClient.delete(`/notes/${id}/permanent`)
+}
+
+// ---------------------------------------------------------------------------
+// Admin
+//
+// Instance-wide, admin-gated. Every one of these 403s for a non-admin
+// server-side; the client-side role check is presentation only.
+// These return the response envelope as-is rather than unwrapping to a bare
+// array — unwrapping is what made getUsers and its MSW handler disagree.
+// ---------------------------------------------------------------------------
+
+export async function getAdminStorage(
+  includeOrphanSize = false,
+): Promise<AdminStorageSummary> {
+  const res = await apiClient.get<AdminStorageSummary>('/admin/storage', {
+    params: { include_orphan_size: includeOrphanSize },
+  })
+  return res.data
+}
+
+export async function getAdminRepoStorage(params?: {
+  limit?: number
+  offset?: number
+  sort?: AdminRepoSizeSort
+  collection_id?: string
+}): Promise<PaginatedResponse<AdminRepoStorageItem>> {
+  const res = await apiClient.get<PaginatedResponse<AdminRepoStorageItem>>(
+    '/admin/storage/repos',
+    { params },
+  )
+  return res.data
+}
+
+export async function recalculateAdminStorage(body?: {
+  repo_ids?: string[]
+  collection_id?: string
+}): Promise<AdminRecalculateResult> {
+  const res = await apiClient.post<AdminRecalculateResult>(
+    '/admin/storage/recalculate',
+    body ?? {},
+  )
+  return res.data
+}
+
+export async function getAdminOverview(
+  staleAfterDays = 7,
+): Promise<AdminOverview> {
+  const res = await apiClient.get<AdminOverview>('/admin/overview', {
+    params: { stale_after_days: staleAfterDays },
+  })
+  return res.data
+}
+
+export async function getAdminSystem(): Promise<AdminSystemStatus> {
+  const res = await apiClient.get<AdminSystemStatus>('/admin/system')
+  return res.data
+}
+
+export async function getAdminLlmUsage(days = 30): Promise<AdminLlmUsage> {
+  const res = await apiClient.get<AdminLlmUsage>('/admin/llm-usage', {
+    params: { days },
+  })
+  return res.data
 }

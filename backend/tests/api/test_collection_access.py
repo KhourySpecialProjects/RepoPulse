@@ -41,12 +41,7 @@ async def ta_user(db_session):
     return user
 
 
-@pytest_asyncio.fixture
-async def admin_user(db_session):
-    user = User(id=uuid.uuid4(), email="admin_ca@test.com", display_name="Admin", role="admin")
-    db_session.add(user)
-    await db_session.flush()
-    return user
+# admin_user now comes from tests/conftest.py.
 
 
 @pytest_asyncio.fixture
