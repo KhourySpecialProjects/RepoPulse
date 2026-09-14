@@ -138,6 +138,10 @@ async def test_user(db_session: AsyncSession) -> User:
         display_name="Test User",
         role="instructor",
         password_hash=None,
+        # Repo-creation and PR-sync endpoints gate on a configured token
+        # (repos.py add_repos, pull_requests.py sync). Without it those return
+        # 403 before reaching the behaviour under test.
+        github_token="ghp_testtoken",
     )
     db_session.add(user)
     await db_session.flush()
@@ -149,6 +153,37 @@ def auth_headers(test_user: User) -> dict[str, str]:
     """Return Authorization header dict for the test user."""
     token = create_access_token({"sub": str(test_user.id)})
     return {"Authorization": f"Bearer {token}"}
+
+
+# ---------------------------------------------------------------------------
+# Background repo indexing
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def no_background_indexing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Neutralise the background indexing tasks that repo routes schedule.
+
+    Two reasons these cannot run under test:
+
+    1. They git-clone over the network. add_repos schedules _clone_and_index
+       with force_clone=True, which would fetch the real GitHub URL.
+    2. _index_repo deliberately bypasses the injected session and opens its own
+       via the app's global async_session_maker. That engine pools connections
+       across tests, and asyncpg connections are bound to their creating event
+       loop — reusing one from another test's loop raises
+       "cannot perform operation: another operation is in progress".
+
+    No test asserts on indexing side effects; the ones that care about health
+    or sync state construct Repo rows directly.
+    """
+
+    async def _noop(*args: object, **kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr("app.api.routes.repos._clone_and_index", _noop)
+    monkeypatch.setattr("app.api.routes.repos._fetch_and_recompute", _noop)
+    monkeypatch.setattr("app.api.routes.collections._sync_all_repos", _noop)
 
 
 # ---------------------------------------------------------------------------

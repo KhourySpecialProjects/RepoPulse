@@ -253,7 +253,10 @@ async def create_user(
 
 @router.get(
     "/users/{user_id}",
-    response_model=UserRead,
+    # Admin/self get UserDetail, everyone else UserRead. 
+    # UserDetail first: UserRead would match every payload and drop the extra
+    # field, since UserDetail is a superset of it.
+    response_model=UserDetail | UserRead,
     responses={
         401: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
@@ -352,4 +355,6 @@ async def reset_password(
     user.password_hash = bcrypt.hash(body.new_password)
     await db.flush()
     await db.commit()
+    # updated_at is server-generated, so it is unloaded until refreshed.
+    await db.refresh(user)
     return _to_user_read(user)

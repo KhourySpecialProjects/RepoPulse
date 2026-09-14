@@ -3,7 +3,6 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db_session
@@ -15,9 +14,12 @@ from app.schemas.contributors import (
     ContributorRead,
     ContributorUpdate,
     MergeContributorsRequest,
+    UnmergeContributorsResponse,
 )
 from app.schemas.errors import ErrorResponse
 from app.services.permission_service import can_access_collection
+
+from app.services import contributor_service
 
 router = APIRouter()
 
@@ -45,16 +47,7 @@ async def _get_contributor_or_404(
 
 
 def _contributor_to_read(contributor: Contributor) -> ContributorRead:
-    return ContributorRead(
-        id=contributor.id,
-        display_name=contributor.display_name,
-        repo_id=contributor.repo_id,
-        created_at=contributor.created_at,
-        aliases=[
-            AliasRead(id=a.id, git_email=a.git_email, git_name=a.git_name)
-            for a in contributor.aliases
-        ],
-    )
+    return ContributorRead.model_validate(contributor)
 
 
 @router.get(
@@ -106,11 +99,10 @@ async def merge_contributors(
     db: AsyncSession = Depends(get_db_session),
     current_user_id: str = Depends(get_current_user),
 ) -> ContributorRead:
-    if len(body.contributor_ids) < 2:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="At least 2 contributor IDs required to merge",
-        )
+    contributor = await contributor_service.merge_contributors(
+        db, body.contributor_ids, body.display_name, uuid.UUID(current_user_id)
+    )
+    return _contributor_to_read(contributor)
 
     user_uuid = uuid.UUID(current_user_id)
     contributors: list[Contributor] = []
@@ -154,9 +146,18 @@ async def merge_contributors(
         await db.refresh(secondary)
         await db.delete(secondary)
 
-    await db.commit()
-    await db.refresh(primary)
-    return _contributor_to_read(primary)
+@router.post(
+    "/contributors/{contributor_id}/unmerge",
+    response_model=UnmergeContributorsResponse,
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+)
+async def unmerge_contributor(
+    contributor_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> UnmergeContributorsResponse:
+    restored = await contributor_service.unmerge_contributor(db, contributor_id, uuid.UUID(current_user_id))
+    return UnmergeContributorsResponse(contributors=[_contributor_to_read(c) for c in restored])
 
 
 @router.get(

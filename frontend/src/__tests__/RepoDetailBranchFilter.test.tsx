@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
@@ -48,6 +48,7 @@ const mockRepo: Repo = {
   local_path: '/repos/student-project',
   health_status: 'green',
   health_score: null,
+  last_commit_at: null,
   last_synced_at: '2025-10-15T10:00:00Z',
   created_at: '2025-09-01T00:00:00Z',
   updated_at: '2025-10-15T10:00:00Z',
@@ -67,6 +68,8 @@ const commitMain: Commit = {
   insertions: 10,
   deletions: 2,
   files_changed: 1,
+  commit_type: null,
+  quality_score: null,
 }
 
 const commitFeature: Commit = {
@@ -79,6 +82,8 @@ const commitFeature: Commit = {
   insertions: 5,
   deletions: 1,
   files_changed: 1,
+  commit_type: null,
+  quality_score: null,
 }
 
 const commitMultiBranch: Commit = {
@@ -91,6 +96,8 @@ const commitMultiBranch: Commit = {
   insertions: 0,
   deletions: 0,
   files_changed: 0,
+  commit_type: null,
+  quality_score: null,
 }
 
 const mockCommits = [commitMain, commitFeature, commitMultiBranch]
@@ -150,15 +157,19 @@ describe('RepoDetailPage - multi-branch commit schema (branches: string[])', () 
     expect(featureAuthBadges.length).toBeGreaterThan(0)
   })
 
-  it('renders a branch filter dropdown', async () => {
+  it('renders a branch filter chip row', async () => {
     setupHandlers()
     renderPage()
     await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
-    // The Select trigger should show "All branches"
-    expect(screen.getByText('All branches')).toBeInTheDocument()
+    // Chip rows replaced the old <Select>, so there is no "All branches"
+    // trigger any more: the row is a "Branch:" label, an "All" reset, and one
+    // toggle per branch. "All" is not unique — the Author row has one too.
+    expect(screen.getByText('Branch:')).toBeInTheDocument()
+    expect(screen.getAllByText('All').length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'feature/auth' }).length).toBeGreaterThan(0)
   })
 
-  it('shows all commits when filter is "All branches"', async () => {
+  it('shows all commits when no branch filter is selected', async () => {
     setupHandlers()
     renderPage()
     await waitFor(() => expect(screen.getByText('feat: main branch commit')).toBeInTheDocument())

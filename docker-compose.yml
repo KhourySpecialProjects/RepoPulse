@@ -14,7 +14,6 @@ services:
       - backend
     networks:
       - repopulse
-#recommit
   backend:
     build:
       context: ./backend

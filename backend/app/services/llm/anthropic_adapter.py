@@ -9,7 +9,7 @@ from app.services.llm.base import LLMService
 class AnthropicAdapter(LLMService):
     def __init__(
         self,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = settings.DEFAULT_LLM_MODEL,
         api_key: str | None = None,
     ) -> None:
         self._model = model

@@ -185,6 +185,8 @@ const mockCommits: Commit[] = [
     insertions: 142,
     deletions: 23,
     files_changed: 6,
+    commit_type: null,
+    quality_score: null,
   },
   {
     hash: 'def0987654321',
@@ -196,6 +198,8 @@ const mockCommits: Commit[] = [
     insertions: 18,
     deletions: 5,
     files_changed: 2,
+    commit_type: null,
+    quality_score: null,
   },
   {
     hash: 'ghi1122334455',
@@ -207,6 +211,8 @@ const mockCommits: Commit[] = [
     insertions: 54,
     deletions: 0,
     files_changed: 1,
+    commit_type: null,
+    quality_score: null,
   },
 ]
 
@@ -221,6 +227,7 @@ const mockNotes: Note[] = [
     content: 'Good progress so far. Alice is carrying most of the load — check in with Bob.',
     is_reminder: true,
     reminder_context: 'Check in at next office hours',
+    remind_at: null,
     is_checked: false,
     is_archived: false,
     created_at: '2025-10-10T10:00:00Z',
@@ -466,6 +473,7 @@ export const handlers = [
       content: body.content ?? '',
       is_reminder: body.is_reminder ?? false,
       reminder_context: body.reminder_context ?? null,
+      remind_at: body.remind_at ?? null,
       is_checked: false,
       is_archived: false,
       created_at: new Date().toISOString(),
@@ -611,10 +619,37 @@ export const handlers = [
     }
     return HttpResponse.json(response)
   }),
+  http.patch(`${BASE}/notifications/:id/unread`, () => {
+    return new HttpResponse(null, { status: 204 })
+  }),
+  http.post(`${BASE}/notifications/mark-all-unread`, () => {
+    return HttpResponse.json({ marked_unread: 0 })
+  }),
+  http.get(`${BASE}/notifications/recently-deleted`, () => {
+    return HttpResponse.json({ items: [], total: 0 })
+  }),
+  http.delete(`${BASE}/notifications/:id/permanent`, () => {
+    return new HttpResponse(null, { status: 204 })
+  }),
+  http.post(`${BASE}/notifications/:id/restore`, () => {
+    return new HttpResponse(null, { status: 204 })
+  }),
+  http.delete(`${BASE}/notifications/:id`, () => {
+    return new HttpResponse(null, { status: 204 })
+  }),
+  http.post(`${BASE}/notes/:id/restore`, () => {
+    return new HttpResponse(null, { status: 204 })
+  }),
+  http.delete(`${BASE}/notes/:id/permanent`, () => {
+    return new HttpResponse(null, { status: 204 })
+  }),
+  http.get(`${BASE}/notifications/reminders`, () => {
+    return HttpResponse.json({ items: [], total: 0 })
+  }),
   http.get(`${BASE}/notifications/unread-count`, () => {
     return HttpResponse.json({ unread_count: 0 })
   }),
-  http.post(`${BASE}/notifications/:id/read`, ({ params }) => {
+  http.patch(`${BASE}/notifications/:id/read`, ({ params }) => {
     const notif: Notification = {
       id: params.id as string,
       type: 'note_comment',
@@ -627,7 +662,7 @@ export const handlers = [
     }
     return HttpResponse.json(notif)
   }),
-  http.post(`${BASE}/notifications/read-all`, () => {
+  http.post(`${BASE}/notifications/mark-all-read`, () => {
     return HttpResponse.json({ marked_read: 0 })
   }),
 

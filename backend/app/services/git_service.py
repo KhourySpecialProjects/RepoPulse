@@ -11,6 +11,48 @@ import git
 
 logger = logging.getLogger(__name__)
 
+# How many changed-file paths to keep per commit. Paths feed the commit
+# classifier's rules prefilter and its prompt; a handful is enough to tell
+# docs-only from source work, and an uncapped list on a vendored-dependency
+# commit would be thousands of entries wide.
+_MAX_TRACKED_PATHS = 20
+
+
+def _diffstat(commit: Any) -> dict[str, Any]:
+    """Extract churn counts and changed-file paths from a commit.
+
+    commit.stats runs a diff against the parent, so it is the expensive part of
+    parsing — but it is computed once here and yields both the totals and the
+    per-file breakdown. Reading .files after .total costs nothing extra.
+
+    A commit whose diff cannot be read (corrupt object, unusual merge) degrades
+    to zeros rather than aborting the parse of every other commit. That failure
+    is reported as diffstat_available=False rather than left to be inferred:
+    zeros are indistinguishable from a genuinely empty commit, and the commit
+    classifier treats those two cases very differently.
+    """
+    try:
+        stats = commit.stats
+        total = stats.total
+        all_paths = list(stats.files.keys())
+        return {
+            "insertions": total.get("insertions", 0),
+            "deletions": total.get("deletions", 0),
+            "files_changed": total.get("files", 0),
+            "file_paths": all_paths[:_MAX_TRACKED_PATHS],
+            "file_paths_truncated": len(all_paths) > _MAX_TRACKED_PATHS,
+            "diffstat_available": True,
+        }
+    except Exception:
+        return {
+            "insertions": 0,
+            "deletions": 0,
+            "files_changed": 0,
+            "file_paths": [],
+            "file_paths_truncated": False,
+            "diffstat_available": False,
+        }
+
 
 class GitService:
     """Single point of contact for all git operations via GitPython."""
@@ -59,8 +101,9 @@ class GitService:
         """Parse all commits across all branches.
 
         Returns a list of dicts with keys:
-            hash, author_name, author_email, date, message,
-            branch, insertions, deletions, files_changed
+            hash, author_name, author_email, date, message, branches,
+            insertions, deletions, files_changed,
+            file_paths, file_paths_truncated
         """
         return await asyncio.to_thread(self._parse_commits_sync, local_path)
 
@@ -107,13 +150,7 @@ class GitService:
         # Second pass: build commit records
         commits: list[dict[str, Any]] = []
         for h, commit in hash_to_commit.items():
-            try:
-                stats = commit.stats.total
-                insertions = stats.get("insertions", 0)
-                deletions = stats.get("deletions", 0)
-                files_changed = stats.get("files", 0)
-            except Exception:
-                insertions = deletions = files_changed = 0
+            stats = _diffstat(commit)
 
             committed_dt = commit.committed_datetime
             if committed_dt.tzinfo is None:
@@ -132,9 +169,7 @@ class GitService:
                 "date": committed_dt,
                 "message": commit.message.strip(),
                 "branches": branches,
-                "insertions": insertions,
-                "deletions": deletions,
-                "files_changed": files_changed,
+                **stats,
             })
 
         commits.sort(key=lambda c: c["date"], reverse=True)
@@ -158,7 +193,13 @@ class GitService:
         return sorted(branches)
 
     async def get_recent_commits(self, local_path: str, limit: int = 15) -> list[dict[str, Any]]:
-        """Get the most recent commits from HEAD without full branch traversal."""
+        """Get the most recent commits from HEAD without full branch traversal.
+
+        Returns a list of dicts with keys:
+            hash (short), full_hash, message (subject only), author, date,
+            insertions, deletions, files_changed,
+            file_paths, file_paths_truncated
+        """
         return await asyncio.to_thread(self._get_recent_commits_sync, local_path, limit)
 
     def _get_recent_commits_sync(self, local_path: str, limit: int = 15) -> list[dict[str, Any]]:
@@ -181,6 +222,11 @@ class GitService:
                 "message": commit.message.strip().split("\n")[0],  # subject line only
                 "author": commit.author.name,
                 "date": commit.authored_datetime.isoformat(),
+                # Diffstat feeds the commit classifier's prompt: "Update user
+                # routes" reads very differently at +340/-12 across 9 files than
+                # at +2/-1 across 1. Bounded by `limit`, so the diff cost is a
+                # dozen commits, not the whole history.
+                **_diffstat(commit),
             })
         return commits
 

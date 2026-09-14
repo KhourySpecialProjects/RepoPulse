@@ -41,7 +41,7 @@ async def test_dev_login_invalid_uuid(test_client: AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_protected_route_requires_auth(test_client: AsyncClient) -> None:
     response = await test_client.get("/api/v1/collections")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 @pytest.mark.asyncio

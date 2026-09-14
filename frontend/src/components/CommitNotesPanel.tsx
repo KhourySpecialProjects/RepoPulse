@@ -32,11 +32,12 @@ export function CommitNotesPanel({ repoId, commitHash, collectionId }: CommitNot
   const { data: users } = useUsers(collectionId ? { collection_id: collectionId } : undefined)
   const { user: currentUser } = useAuth()
 
-  async function handleSubmit(values: { content: string; is_reminder: boolean; reminder_context: string }) {
+  async function handleSubmit(values: { content: string; is_reminder: boolean; reminder_context: string; remind_at: string | null }) {
     const noteData: CreateNoteData = {
       content: values.content,
       is_reminder: values.is_reminder,
       reminder_context: values.reminder_context || null,
+      remind_at: values.remind_at,
       repo_id: repoId,
       commit_hash: commitHash,
     }

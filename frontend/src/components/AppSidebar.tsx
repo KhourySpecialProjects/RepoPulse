@@ -14,19 +14,11 @@ import {
   Settings,
   Shield,
   LogOut,
-  X,
-  MessageSquare,
-  AtSign,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useCollections } from '@/hooks/useCollections'
 import { useRepos, useRepo } from '@/hooks/useRepos'
-import {
-  useUnreadCount,
-  useNotifications,
-  useMarkNotificationRead,
-  useMarkAllNotificationsRead,
-} from '@/hooks/useNotifications'
+import { useUnreadCount, useReminders } from '@/hooks/useNotifications'
 import {
   Tooltip,
   TooltipContent,
@@ -370,9 +362,17 @@ export function AppSidebar() {
   })
 
   // Notification bell state
-  const [notifOpen, setNotifOpen] = useState(false)
   const { data: unreadData } = useUnreadCount()
-  const unreadCount = unreadData?.unread_count ?? 0
+  const { data: remindersData } = useReminders()
+  // Unread notifications plus outstanding reminders: the things still wanting
+  // attention. Reading a notification drops the number, so clicking one has a
+  // visible effect without needing Mark all read. Soft-deleted rows are already
+  // excluded server-side, so Recently deleted never counts.
+  const pendingCount =
+    (unreadData?.unread_count ?? 0) + (remindersData?.total ?? 0)
+  const badgeText = pendingCount > 99 ? '99+' : String(pendingCount)
+  const unreadLabel =
+    pendingCount > 0 ? `Notifications, ${pendingCount} pending` : 'Notifications'
 
   // Auto-expand collection containing the active repo
   useEffect(() => {
@@ -535,13 +535,17 @@ export function AppSidebar() {
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={() => setNotifOpen((v) => !v)}
+                  onClick={() => navigate('/notifications')}
+                  aria-label={unreadLabel}
                   className={`relative w-full flex items-center justify-center py-2 rounded-md transition-colors ${NAV_DEFAULT}`}
                 >
                   <Bell className="h-4 w-4" />
-                  {unreadCount > 0 && (
-                    <span className="absolute top-1 right-2 min-w-[14px] h-3.5 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center px-1">
-                      {unreadCount > 99 ? '99+' : unreadCount}
+                  {pendingCount > 0 && (
+                    <span
+                      data-testid="unread-badge"
+                      className="absolute right-2 top-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none tabular-nums text-white"
+                    >
+                      {badgeText}
                     </span>
                   )}
                 </button>
@@ -551,32 +555,25 @@ export function AppSidebar() {
           ) : (
             <button
               type="button"
-              onClick={() => setNotifOpen((v) => !v)}
-              className={`relative w-full ${NAV_BASE} ${NAV_DEFAULT}`}
+              onClick={() => navigate('/notifications')}
+              aria-label={unreadLabel}
+              className={`relative w-full ${NAV_BASE} ${
+                location.pathname === '/notifications' ? NAV_ACTIVE : NAV_DEFAULT
+              }`}
             >
               <Bell className="h-4 w-4 flex-shrink-0" />
               <span className="truncate">Notifications</span>
-              {unreadCount > 0 && (
-                <span className="ml-auto min-w-[18px] h-4 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center px-1">
-                  {unreadCount > 99 ? '99+' : unreadCount}
+              {pendingCount > 0 && (
+                <span
+                  data-testid="unread-badge"
+                  className="ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold leading-none tabular-nums text-white"
+                >
+                  {badgeText}
                 </span>
               )}
             </button>
           )}
 
-          <AnimatePresence>
-            {notifOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setNotifOpen(false)}
-                />
-                <div className="relative z-50">
-                  <NotificationDropdown onClose={() => setNotifOpen(false)} />
-                </div>
-              </>
-            )}
-          </AnimatePresence>
         </div>
 
         {/* ── Collection tree ── */}

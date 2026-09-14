@@ -76,7 +76,7 @@ class TestGetMe:
 
     async def test_get_me_unauthenticated(self, test_client):
         resp = await test_client.get("/api/v1/users/me")
-        assert resp.status_code == 403
+        assert resp.status_code == 401
 
 
 class TestListUsers:
@@ -97,7 +97,7 @@ class TestListUsers:
 
     async def test_unauthenticated_rejected(self, test_client):
         resp = await test_client.get("/api/v1/users")
-        assert resp.status_code == 403
+        assert resp.status_code == 401
 
 
 class TestCreateUser:

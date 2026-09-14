@@ -3,12 +3,15 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { localInputToIso } from '@/lib/reminders'
 import type { UserDetail } from '@/types'
 
-interface NoteFormValues {
+export interface NoteFormValues {
   content: string
   is_reminder: boolean
   reminder_context: string
+  /** ISO timestamp when the reminder should fire, or null for no due date. */
+  remind_at: string | null
 }
 
 interface NoteFormProps {
@@ -23,6 +26,7 @@ export function NoteForm({ onSubmit, initialValues, isLoading = false, submitLab
   const [content, setContent] = useState(initialValues?.content ?? '')
   const [isReminder, setIsReminder] = useState(initialValues?.is_reminder ?? false)
   const [reminderContext, setReminderContext] = useState(initialValues?.reminder_context ?? '')
+  const [remindAtLocal, setRemindAtLocal] = useState('')
   const [mentionSearch, setMentionSearch] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -64,10 +68,13 @@ export function NoteForm({ onSubmit, initialValues, isLoading = false, submitLab
       content: content.trim(),
       is_reminder: isReminder,
       reminder_context: reminderContext.trim(),
+      // A due date only means anything on a reminder
+      remind_at: isReminder ? localInputToIso(remindAtLocal) : null,
     })
     setContent('')
     setIsReminder(false)
     setReminderContext('')
+    setRemindAtLocal('')
   }
 
   return (
@@ -123,12 +130,29 @@ export function NoteForm({ onSubmit, initialValues, isLoading = false, submitLab
       </div>
 
       {isReminder && (
-        <Input
-          value={reminderContext}
-          onChange={(e) => setReminderContext(e.target.value)}
-          placeholder="Reminder context (optional)"
-          className="text-xs"
-        />
+        <div className="flex flex-col gap-2">
+          <Input
+            value={reminderContext}
+            onChange={(e) => setReminderContext(e.target.value)}
+            placeholder="Reminder context (optional)"
+            className="text-xs"
+          />
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="flex-shrink-0">Remind me at</span>
+            <input
+              type="datetime-local"
+              aria-label="Remind me at"
+              value={remindAtLocal}
+              onChange={(e) => setRemindAtLocal(e.target.value)}
+              className="flex-1 h-7 rounded-md border border-input bg-background px-2 text-xs"
+            />
+          </label>
+          {!remindAtLocal && (
+            <p className="text-[11px] text-muted-foreground">
+              Without a time this reminder is saved but never notifies you.
+            </p>
+          )}
+        </div>
       )}
     </form>
   )
