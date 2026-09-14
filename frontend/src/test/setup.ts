@@ -10,6 +10,21 @@ globalThis.ResizeObserver = class ResizeObserver {
   disconnect() {}
 }
 
+// Polyfill IntersectionObserver for framer-motion's useInView, which
+// SummaryLiquidBackground uses. Without it the hook throws during commit and
+// takes the whole page render down with it.
+globalThis.IntersectionObserver = class IntersectionObserver {
+  readonly root = null
+  readonly rootMargin = ''
+  readonly thresholds: ReadonlyArray<number> = []
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+  takeRecords(): IntersectionObserverEntry[] {
+    return []
+  }
+} as unknown as typeof globalThis.IntersectionObserver
+
 beforeAll(() => server.listen({ onUnhandledRequest: 'warn' }))
 afterEach(() => {
   cleanup()
