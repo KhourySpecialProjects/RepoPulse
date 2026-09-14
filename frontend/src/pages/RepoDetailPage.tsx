@@ -840,7 +840,7 @@ export function RepoDetailPage() {
             </button>
             <div className="flex min-w-0 items-center gap-3">
                 <h1 className="min-w-0">
-                  <a href={repo.github_url} target="_blank" rel="noopener noreferrer" title="Open repository on GitHub" className="inline-flex max-w-full items-center gap-2 rounded-md border border-border px-3 py-1.5 text-lg font-semibold text-foreground transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <a href={repo.github_url} target="_blank" rel="noopener noreferrer" title="Open repository on GitHub" className="inline-flex max-w-full items-center gap-2 rounded-md border border-border px-3 py-1.5 text-2xl font-semibold text-foreground transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     <span className="truncate">{repo.name}</span>
                     <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   </a>
