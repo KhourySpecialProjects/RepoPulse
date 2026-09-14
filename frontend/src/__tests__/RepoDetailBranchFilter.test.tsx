@@ -170,7 +170,7 @@ describe('RepoDetailPage - multi-branch commit schema (branches: string[])', () 
     renderPage()
     await waitFor(() => expect(screen.getByText('feat: main branch commit')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByRole('button', { name: 'feature/auth' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'feature/auth' })[0])
 
     expect(screen.getByText('feat: feature branch commit')).toBeInTheDocument()
     expect(screen.queryByText('feat: main branch commit')).not.toBeInTheDocument()
