@@ -35,8 +35,7 @@ class Collection(Base):
         "User", back_populates="collections", lazy="selectin"
     )
     repos: Mapped[list["Repo"]] = relationship(
-        "Repo", back_populates="collection", lazy="selectin",
-        cascade="all, delete-orphan",
+        "Repo", back_populates="collection", lazy="selectin"
     )
     access_entries: Mapped[list["CollectionAccess"]] = relationship(
         "CollectionAccess",

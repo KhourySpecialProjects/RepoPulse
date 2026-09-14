@@ -64,9 +64,7 @@ export function SettingsPage() {
   async function handleSaveGithubToken(e: React.FormEvent) {
     e.preventDefault()
     try {
-      // Send '' rather than undefined: the backend only clears the stored token
-      // when the key is present, and omits the field entirely when undefined.
-      await updateCurrentUser.mutateAsync({ github_token: githubToken })
+      await updateCurrentUser.mutateAsync({ github_token: githubToken || undefined })
       setGithubToken('')
       toast.success(githubToken ? 'GitHub token updated' : 'GitHub token cleared')
     } catch {

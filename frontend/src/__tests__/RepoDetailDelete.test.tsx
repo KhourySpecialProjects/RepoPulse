@@ -70,7 +70,9 @@ describe('RepoDetailPage — Remove action', () => {
     expect(mockNavigate).not.toHaveBeenCalled()
   })
 
-  it('returns to the parent collection when delete succeeds', async () => {
+  // 1aa10ce moved this off navigate(-1): going back could land the user on
+  // the page of the repo they just deleted.
+  it('navigates to the collection when delete succeeds', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     renderPage()
     await waitFor(() => expect(screen.getByText('cs101-project')).toBeInTheDocument())

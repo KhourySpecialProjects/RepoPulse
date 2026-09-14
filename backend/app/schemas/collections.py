@@ -1,25 +1,10 @@
 from __future__ import annotations
 
-import re
 import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, field_validator
-
-# local_folder_name is concatenated into the clone path under REPO_ROOT_DIR, so
-# it has to stay a single plain folder name — no separators, and nothing that
-# resolves upwards out of the mount.
-_SAFE_FOLDER_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
-
-
-def _validate_folder_name(value: str) -> str:
-    if not _SAFE_FOLDER_NAME.match(value) or value.startswith("."):
-        raise ValueError(
-            "local_folder_name must contain only letters, digits, dots, dashes "
-            "or underscores, and cannot start with a dot"
-        )
-    return value
+from pydantic import BaseModel, ConfigDict
 
 
 class CollectionCreate(BaseModel):
@@ -28,11 +13,6 @@ class CollectionCreate(BaseModel):
     semester_tag: Optional[str] = None
     local_folder_name: str
 
-    @field_validator("local_folder_name")
-    @classmethod
-    def _check_folder_name(cls, value: str) -> str:
-        return _validate_folder_name(value)
-
 
 class CollectionUpdate(BaseModel):
     name: Optional[str] = None
@@ -40,11 +20,6 @@ class CollectionUpdate(BaseModel):
     semester_tag: Optional[str] = None
     local_folder_name: Optional[str] = None
     is_archived: Optional[bool] = None
-
-    @field_validator("local_folder_name")
-    @classmethod
-    def _check_folder_name(cls, value: Optional[str]) -> Optional[str]:
-        return value if value is None else _validate_folder_name(value)
 
 
 class CollectionRead(BaseModel):
