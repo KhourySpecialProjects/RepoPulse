@@ -5,6 +5,7 @@ import uuid
 
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.util import identity_key
 
 from app.models.commit_classification import CommitClassification
 from app.models.contributor import Contributor
@@ -26,7 +27,14 @@ async def remove_repo_records(db: AsyncSession, repo_id: uuid.UUID) -> None:
     # Explicit child-first deletion also supports databases whose foreign keys
     # predate cascade rules. All writes commit together or roll back together.
     statements = [
-        delete(Notification).where(or_(Notification.note_id.in_(note_ids), Notification.comment_id.in_(comment_ids))),
+        # Repo-scoped events (health, pull requests) reference the repo
+        # directly. repo_removed rows deliberately carry no repo_id so they
+        # survive this — see notification_service.notify_repo_event.
+        delete(Notification).where(or_(
+            Notification.note_id.in_(note_ids),
+            Notification.comment_id.in_(comment_ids),
+            Notification.repo_id == repo_id,
+        )),
         delete(NoteComment).where(NoteComment.note_id.in_(note_ids)),
         delete(Note).where(Note.id.in_(note_ids)),
         delete(Summary).where(or_(Summary.repo_id == repo_id, Summary.contributor_id.in_(contributor_ids))),
@@ -43,3 +51,15 @@ async def remove_repo_records(db: AsyncSession, repo_id: uuid.UUID) -> None:
     except Exception:
         await db.rollback()
         raise
+
+    # `synchronize_session=False` means the ORM never learns this row is gone,
+    # so the session would keep serving it from its identity map and a second
+    # `db.get(Repo, repo_id)` would return the deleted repo instead of None.
+    # Detaching just that instance forces the next lookup to hit the database.
+    #
+    # Expiring the whole session instead would be worse: expired attributes
+    # lazy-load on next access, and any of those reads landing outside a
+    # greenlet context raises MissingGreenlet.
+    stale = db.identity_map.get(identity_key(Repo, repo_id))
+    if stale is not None:
+        db.expunge(stale)

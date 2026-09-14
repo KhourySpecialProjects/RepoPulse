@@ -33,6 +33,9 @@ const notif = (id: string, isRead = false): Notification => ({
   created_at: '2026-09-11T11:00:00Z',
   note_content_preview: 'Hey @Mark',
   repo_id: 'repo-1',
+  subject: null,
+  body: null,
+  emailed_at: null,
 })
 
 const reminder = (id: string): Reminder => ({

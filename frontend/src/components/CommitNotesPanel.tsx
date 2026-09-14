@@ -63,6 +63,7 @@ export function CommitNotesPanel({ repoId, commitHash, collectionId }: CommitNot
                   note={note}
                   currentUserId={currentUser.id}
                   currentUserRole={currentUser.role}
+                  users={users ?? []}
                 />
               )}
             </div>

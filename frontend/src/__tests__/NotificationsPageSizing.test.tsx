@@ -38,6 +38,9 @@ const mention: Notification = {
   created_at: '2026-09-11T11:00:00Z',
   note_content_preview: 'Hey @Mark take a look at this commit',
   repo_id: 'repo-1',
+  subject: null,
+  body: null,
+  emailed_at: null,
 }
 
 const reminder: Reminder = {

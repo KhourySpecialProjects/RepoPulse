@@ -266,21 +266,90 @@ export interface CollectionAccessEntry {
   created_at: string
 }
 
+/**
+ * Every notification the backend can raise.
+ *
+ * The first three are note-scoped and read their text from the linked note.
+ * The rest are repo-scoped course activity and carry their own subject/body.
+ */
+export type NotificationEvent =
+  | 'mention'
+  | 'note_comment'
+  | 'reminder'
+  | 'repo_added'
+  | 'repo_removed'
+  | 'repo_health_declined'
+  | 'pr_opened'
+  | 'pr_merged'
+
 export interface Notification {
   id: string
-  type: 'mention' | 'note_comment' | 'reminder'
+  type: NotificationEvent
   note_id: string | null
   comment_id: string | null
   is_read: boolean
   created_at: string
   note_content_preview: string | null
   repo_id: string | null
+  /** Set on repo-scoped events only. */
+  subject: string | null
+  body: string | null
+  /** When the email relay delivered this, or null if it never did. */
+  emailed_at: string | null
 }
 
 export interface NotificationListResponse {
   items: Notification[]
   total: number
   unread_count: number
+}
+
+export type EmailTransport = 'smtp' | 'resend'
+export type SmtpEncryption = 'none' | 'starttls' | 'tls'
+
+/**
+ * The email relay panel's state.
+ *
+ * Stored secrets are never sent to the client — `smtp_password_set` and
+ * `resend_api_key_set` report only whether one is on file.
+ */
+export interface NotificationSettings {
+  email_enabled: boolean
+  transport: EmailTransport
+  from_email: string | null
+  from_name: string | null
+  smtp_host: string | null
+  smtp_port: number | null
+  smtp_username: string | null
+  smtp_encryption: SmtpEncryption
+  smtp_password_set: boolean
+  resend_api_key_set: boolean
+  subscribed_events: Record<NotificationEvent, boolean>
+  /** Whether a send would currently be attempted. */
+  deliverable: boolean
+}
+
+/**
+ * A partial update. Omitted fields keep their stored value; for the two secret
+ * fields an empty string clears the stored credential.
+ */
+export interface UpdateNotificationSettingsData {
+  email_enabled?: boolean
+  transport?: EmailTransport
+  from_email?: string
+  from_name?: string
+  smtp_host?: string
+  smtp_port?: number
+  smtp_username?: string
+  smtp_password?: string
+  smtp_encryption?: SmtpEncryption
+  resend_api_key?: string
+  subscribed_events?: Partial<Record<NotificationEvent, boolean>>
+}
+
+export interface TestEmailResponse {
+  detail: string
+  sent_to: string
 }
 
 /** An outstanding reminder, as shown in the notifications panel. */
