@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { isAxiosError } from 'axios'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { GraduationCap, BookOpen, Shield, Eye, EyeOff } from 'lucide-react'
@@ -58,7 +59,9 @@ export function LoginPage() {
       navigate('/')
     } catch (err: unknown) {
       const axiosError = err as { response?: { status?: number } }
-      if (axiosError?.response?.status === 403) {
+      if (isAxiosError(err) && err.code === 'ERR_CANCELED') {
+        setError('The server took too long to respond. Please try again.')
+      } else if (axiosError?.response?.status === 403) {
         setError('Dev login is not available. Please use email and password.')
       } else {
         setError('Login failed. Please try again.')
@@ -75,8 +78,12 @@ export function LoginPage() {
     try {
       await login(email, password)
       navigate('/')
-    } catch {
-      setError('Invalid email or password.')
+    } catch (err: unknown) {
+      if (isAxiosError(err) && err.code === 'ERR_CANCELED') {
+        setError('The server took too long to respond. Please try again.')
+      } else {
+        setError('Invalid email or password.')
+      }
     } finally {
       setIsSubmitting(false)
     }
