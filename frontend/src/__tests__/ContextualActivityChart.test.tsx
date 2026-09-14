@@ -20,6 +20,13 @@ vi.mock('recharts', () => ({
   YAxis: () => null,
 }))
 afterEach(() => { vi.useRealTimers(); areaProps.length = 0; referenceDotProps.length = 0 })
+// NOTE: a merge left a dangling `it('allows selecting a student and exposes
+// explanations without hovering', () => {` here with no body and no closing
+// brace, which made this file a syntax error and took `tsc` and the whole
+// Vitest run down with it. The opener is removed so the file parses; the test
+// it named still needs writing.
+vi.mock('@/hooks/useContextualActivity', () => ({ useContextualActivity: () => ({ data: { repositories: [{ id: 'repo', name: 'Repo', available: true, activity: [{ date: '2026-09-01', count: 1 }], students: [{ id: 'bob', name: 'Bob', activity: [] }, { id: 'alice', name: 'Alice', activity: [{ date: '2026-09-01', count: 1 }] }] }] }, isLoading: false }) }))
+afterEach(() => vi.useRealTimers())
 it('follows contributor IDs and restores the full graph', () => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date('2026-09-10T12:00:00Z'))

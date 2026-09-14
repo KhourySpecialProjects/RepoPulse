@@ -209,7 +209,8 @@ async def seed() -> None:
         # explicitly rather than relying on CASCADE to reach them — a table
         # that is not FK-reachable would silently keep its rows.
         await conn.execute(text(
-            "TRUNCATE TABLE reminder_shares, notifications, note_comments, "
+            "TRUNCATE TABLE reminder_shares, notifications, "
+            "notification_settings, note_comments, "
             "pull_requests, commit_classifications, collection_access, "
             "app_settings, summaries, notes, contributor_aliases, "
             "contributors, repos, collections, users RESTART IDENTITY CASCADE"

@@ -4,6 +4,11 @@ import {
   Bell,
   AtSign,
   Clock,
+  FolderMinus,
+  FolderPlus,
+  GitMerge,
+  GitPullRequest,
+  HeartPulse,
   MessageSquare,
   Trash2,
   RotateCcw,
@@ -27,8 +32,10 @@ import {
   usePurgeNote,
 } from '@/hooks/useNotifications'
 import { ActiveRemindersPanel, ICON_BUTTON_CLASS } from '@/components/ActiveRemindersPanel'
+import { EmailRelayPanel } from '@/components/EmailRelayPanel'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { feedTitleFor } from '@/lib/notificationEvents'
 import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
 import type { Notification, RecentlyDeletedItem } from '@/types'
 
@@ -56,13 +63,13 @@ function formatTimeAgo(isoStr: string): string {
 function NotificationIcon({ type }: { type: Notification['type'] }) {
   if (type === 'mention') return <AtSign className="h-5 w-5 text-violet-500" />
   if (type === 'reminder') return <Clock className="h-5 w-5 text-amber-500" />
+  if (type === 'repo_health_declined')
+    return <HeartPulse className="h-5 w-5 text-red-500" />
+  if (type === 'pr_opened') return <GitPullRequest className="h-5 w-5 text-sky-500" />
+  if (type === 'pr_merged') return <GitMerge className="h-5 w-5 text-emerald-500" />
+  if (type === 'repo_added') return <FolderPlus className="h-5 w-5 text-emerald-500" />
+  if (type === 'repo_removed') return <FolderMinus className="h-5 w-5 text-red-500" />
   return <MessageSquare className="h-5 w-5 text-indigo-500" />
-}
-
-function notificationTitle(type: Notification['type']): string {
-  if (type === 'mention') return 'You were mentioned'
-  if (type === 'reminder') return 'Reminder due'
-  return 'New comment on your note'
 }
 
 const SECTION_CLASS = 'mb-8 overflow-hidden rounded-xl border border-border bg-white'
@@ -213,7 +220,16 @@ export function NotificationsPage() {
         </div>
       </div>
 
-      <div data-testid="notifications-body" className={PAGE_BODY_CLASS}>
+      {/*
+        Two columns from `lg` up: everything that reports what happened on the
+        left, the email relay configuration on the right. Below `lg` they stack
+        in the same order, so the feed stays the first thing you see.
+      */}
+      <div
+        data-testid="notifications-body"
+        className={cn(PAGE_BODY_CLASS, 'lg:grid lg:grid-cols-[minmax(0,1fr)_24rem] lg:gap-6')}
+      >
+        <div className="min-w-0">
         {/* Reminders you can manage directly */}
         <section className={SECTION_CLASS}>
           <ActiveRemindersPanel />
@@ -262,15 +278,29 @@ export function NotificationsPage() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-medium text-foreground">
-                        {notificationTitle(notif.type)}
+                        {/*
+                          Repo events carry their own subject (it names the
+                          repo); note-scoped ones use the generic per-type
+                          title and quote the note underneath.
+                        */}
+                        {notif.subject ?? feedTitleFor(notif.type)}
                       </span>
-                      {notif.note_content_preview && (
+                      {(notif.note_content_preview ?? notif.body) && (
                         <span className="mt-0.5 block truncate text-sm text-muted-foreground">
-                          {notif.note_content_preview}
+                          {notif.note_content_preview ?? notif.body}
                         </span>
                       )}
-                      <span className="mt-1 block text-xs text-muted-foreground">
+                      <span className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                         {formatTimeAgo(notif.created_at)}
+                        {notif.emailed_at && (
+                          <span
+                            title="Also delivered by email"
+                            className="inline-flex items-center gap-0.5 text-muted-foreground"
+                          >
+                            <Mail className="h-3 w-3" />
+                            emailed
+                          </span>
+                        )}
                       </span>
                     </span>
                   </button>
@@ -315,6 +345,12 @@ export function NotificationsPage() {
 
         {/* Undo surface for anything deleted by mistake */}
         <RecentlyDeletedSection />
+        </div>
+
+        {/* Where notifications go besides this page */}
+        <aside className="min-w-0">
+          <EmailRelayPanel />
+        </aside>
       </div>
     </motion.div>
   )

@@ -35,6 +35,24 @@ export function isReminderOverdue(
 }
 
 /**
+ * Where clicking a reminder should take you.
+ *
+ * A reminder pinned to a commit deep-links to that commit so the page can
+ * scroll straight to it; one attached to a repo goes to the repo. A standalone
+ * reminder — created from the notifications page with no repo — has nowhere to
+ * go, and returns null so the row stays non-interactive rather than offering a
+ * click that does nothing.
+ */
+export function reminderTarget(reminder: {
+  repo_id: string | null
+  commit_hash: string | null
+}): string | null {
+  if (!reminder.repo_id) return null
+  const base = `/repos/${reminder.repo_id}`
+  return reminder.commit_hash ? `${base}?commit=${reminder.commit_hash}` : base
+}
+
+/**
  * Convert a `datetime-local` input value into an ISO string for the API.
  * Returns null for an empty input, meaning "reminder with no due date".
  */

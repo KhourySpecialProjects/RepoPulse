@@ -1,10 +1,10 @@
 import { ContextualActivityChart } from '@/components/ContextualActivityChart'
 import { useState, useEffect, useMemo, Fragment } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, useUnmergeContributor, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests, useClassifyCommits } from '@/hooks/useRepos'
+import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, useUnmergeContributor, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests, useClassifyCommits, ALL_COMMITS_PARAMS } from '@/hooks/useRepos'
 import { useRepoSummaries, useContributorSummaries, useGenerateSummary } from '@/hooks/useSummaries'
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '@/hooks/useNotes'
 import { useUsers, useCurrentUser } from '@/hooks/useUsers'
@@ -260,6 +260,13 @@ function readPullRequestsExpanded(repoId: string | undefined): boolean {
 export function RepoDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  // Held separately from `searchParams` so the banner survives the param being
+  // cleared, and so it can be shown during the initial load when there are no
+  // commits to scroll to yet.
+  const [pendingCommitJump, setPendingCommitJump] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get('commit')
+  )
   const [commitPage, setCommitPage] = useState(0)
   const [activeCommitHash, setActiveCommitHash] = useState<string | null>(null)
   const [highlightedCommitHash, setHighlightedCommitHash] = useState<string | null>(null)
@@ -339,7 +346,9 @@ export function RepoDetailPage() {
     limit: COMMITS_PER_PAGE,
     offset: commitPage * COMMITS_PER_PAGE,
   })
-  const { data: allCommitsData, isLoading: allCommitsLoading } = useRepoCommits(id ?? '', { limit: 500, offset: 0 })
+  // Same params object as usePrefetchRepo warms, so a hovered reminder's
+  // prefetch is a cache hit here rather than a second identical request.
+  const { data: allCommitsData, isLoading: allCommitsLoading } = useRepoCommits(id ?? '', ALL_COMMITS_PARAMS)
   const { data: contributors, isLoading: contributorsLoading } = useRepoContributors(id ?? '')
   const updateContributorMutation = useUpdateContributor(id ?? '')
   const mergeContributorsMutation = useMergeContributors(id ?? '')
@@ -617,6 +626,29 @@ export function RepoDetailPage() {
     }
   }, [highlightedCommitHash, displayedCommits])
 
+  // Deep link from a reminder: `/repos/:id?commit=<hash>`. The jump has to wait
+  // for the full commit list, since a commit's page number is only derivable
+  // from its index in that list — hovering the reminder prefetches it, so this
+  // usually fires on the first render after mount.
+  //
+  // The param is cleared once consumed so that a later manual jump, or a
+  // reload, does not silently drag the user back to this commit.
+  useEffect(() => {
+    const targetHash = searchParams.get('commit')
+    if (!targetHash || allCommitsLoading) return
+
+    handleScrollToCommit(targetHash)
+    setPendingCommitJump(null)
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current)
+        next.delete('commit')
+        return next
+      },
+      { replace: true }
+    )
+  }, [searchParams, allCommitsLoading])
+
   // Reset to page 0 when filters change
   useEffect(() => {
     setCommitPage(0)
@@ -699,6 +731,22 @@ export function RepoDetailPage() {
   if (repoLoading) {
     return (
       <div className="px-6 py-8">
+        {/* Arriving from a reminder, say where we are going. An unexplained
+            skeleton reads as a stall; naming the destination makes the same
+            wait legible. */}
+        {pendingCommitJump && (
+          <p
+            data-testid="commit-jump-pending"
+            className="mb-4 flex items-center gap-2 text-sm text-muted-foreground"
+          >
+            <GitCommit className="h-4 w-4 flex-shrink-0 text-indigo-500" />
+            Opening commit{' '}
+            <span className="font-mono text-foreground">
+              {pendingCommitJump.slice(0, 7)}
+            </span>
+            …
+          </p>
+        )}
         <div className="h-8 w-64 bg-muted rounded animate-pulse mb-4" />
         <div className="h-4 w-40 bg-muted rounded animate-pulse mb-8" />
         <div className="h-64 bg-muted rounded-lg animate-pulse" />
@@ -723,6 +771,18 @@ export function RepoDetailPage() {
             className="h-full bg-indigo-500 transition-[width] duration-300 ease-out"
             style={{ width: `${loadProgress}%` }}
           />
+        </div>
+      )}
+      {/* The repo header has rendered but the commit list has not, so the jump
+          cannot happen yet. Keep the destination on screen until it does. */}
+      {pendingCommitJump && (
+        <div
+          data-testid="commit-jump-pending"
+          className="flex items-center gap-2 border-b border-indigo-100 bg-indigo-50 px-6 py-2 text-sm text-indigo-800"
+        >
+          <GitCommit className="h-4 w-4 flex-shrink-0" />
+          Opening commit{' '}
+          <span className="font-mono">{pendingCommitJump.slice(0, 7)}</span>…
         </div>
       )}
       {/* Clean white page header */}
