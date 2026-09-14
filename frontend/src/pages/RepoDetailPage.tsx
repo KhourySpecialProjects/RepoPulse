@@ -5,7 +5,7 @@ import { motion } from 'framer-motion'
 import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, useUnmergeContributor, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests, useClassifyCommits, ALL_COMMITS_PARAMS } from '@/hooks/useRepos'
-import { useRepoSummaries, useContributorSummaries, useGenerateSummary } from '@/hooks/useSummaries'
+import { useRepoSummaries, useContributorSummaries, useGenerateSummary, summaryKeys } from '@/hooks/useSummaries'
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '@/hooks/useNotes'
 import { useUsers, useCurrentUser } from '@/hooks/useUsers'
 import { useAuth } from '@/hooks/useAuth'
@@ -14,6 +14,9 @@ import { HealthSignalPills } from '@/components/HealthSignalPills'
 import { CommitScorePill } from '@/components/CommitScorePill'
 import { CommitNotesPanel } from '@/components/CommitNotesPanel'
 import { MarkdownContent } from '@/components/MarkdownContent'
+import { TypedMarkdown } from '@/components/TypedMarkdown'
+import { ThinkingLabel } from '@/components/ThinkingLabel'
+import { SummaryLiquidBackground } from '@/components/SummaryLiquidBackground'
 import { NotesDrawer } from '@/components/NotesDrawer'
 import { Button } from '@/components/ui/button'
 import { LoadingContent } from '@/components/ui/loading-content'
@@ -58,11 +61,90 @@ function formatDate(dateStr: string | null | undefined): string {
   })
 }
 
+/** A commit's calendar day as `YYYY-MM-DD` in the viewer's timezone.
+ *
+ * Local, not UTC, so the filter agrees with the date the table already shows —
+ * a commit rendered as "Sep 14" must match a Sep 14 filter even when its UTC
+ * timestamp falls on the 13th or 15th. Sortable and comparable as a plain
+ * string, which is what the date filter's option values hold.
+ */
+function toLocalDateKey(dateStr: string): string {
+  const d = new Date(dateStr)
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${month}-${day}`
+}
+
+/** A `YYYY-MM-DD` key as "Sep 14" — month and day, no year.
+ *
+ * Built with the local Date constructor rather than `new Date(key)`, which
+ * parses a bare date string as UTC midnight and would render the day before
+ * in any negative-offset timezone.
+ */
+function formatMonthDay(dateKey: string): string {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric',
+  })
+}
+
 function formatDateTime(dateStr: string): string {
   return new Date(dateStr).toLocaleString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
     hour: 'numeric', minute: '2-digit',
   })
+}
+
+
+/** Reserve label space so the typing animation never shifts the controls. */
+function GenerateSummaryButton({
+  onClick,
+  isPending,
+}: {
+  onClick: () => void
+  isPending: boolean
+}) {
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={onClick}
+      loading={isPending}
+      disabled={isPending}
+      className="group relative"
+      aria-label={isPending ? 'Generating summary' : 'Generate Summary'}
+    >
+      <motion.span
+        aria-hidden
+        className="mr-1.5 inline-flex"
+        animate={
+          isPending
+            ? { rotate: [0, 180, 360], scale: [1, 1.18, 1] }
+            : { rotate: 0, scale: 1 }
+        }
+        transition={
+          isPending
+            ? { duration: 1.4, repeat: Infinity, ease: 'easeInOut' }
+            : { type: 'spring', stiffness: 300, damping: 18 }
+        }
+        whileHover={isPending ? undefined : { rotate: -12, scale: 1.15 }}
+      >
+        <Sparkles
+          className={cn(
+            'h-4 w-4 transition-colors',
+            isPending ? 'text-violet-600' : 'group-hover:text-violet-600'
+          )}
+        />
+      </motion.span>
+
+      <span className="inline-grid text-left">
+        <span aria-hidden="true" className="invisible col-start-1 row-start-1 pr-1">Generate Summary</span>
+        <span className="col-start-1 row-start-1 inline-flex items-center">
+          {isPending ? <ThinkingLabel /> : 'Generate Summary'}
+        </span>
+      </span>
+    </Button>
+  )
 }
 
 
@@ -273,6 +355,10 @@ export function RepoDetailPage() {
   const [highlightedCommitHash, setHighlightedCommitHash] = useState<string | null>(null)
   const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
   const [selectedTypes, setSelectedTypes] = useState<Set<CommitTypeFilter>>(new Set())
+  // Empty string means "no date filter" — it is the "All" option's value. Held
+  // as YYYY-MM-DD so it compares directly against toLocalDateKey; the year is
+  // hidden in the label only, so days never collide across years.
+  const [selectedDate, setSelectedDate] = useState('')
   // Set when the backend answers `status: 'preview'` — holds the counts the
   // confirmation dialog quotes back to the user.
   const [classifyPreview, setClassifyPreview] = useState<ClassifyCommitsResponse | null>(null)
@@ -305,6 +391,9 @@ export function RepoDetailPage() {
   const MAX_BRANCH_CHIPS = 5
 
   const [summaryExpanded, setSummaryExpanded] = useState(true)
+  // Set to the id of a just-generated summary so only that one types itself in;
+  // summaries loaded from history render instantly.
+  const [typingSummaryId, setTypingSummaryId] = useState<string | null>(null)
   const [summaryHistoryOpen, setSummaryHistoryOpen] = useState(false)
   const [showArchivedNotes, setShowArchivedNotes] = useState(false)
   const [notesPinned, setNotesPinned] = useState(false)
@@ -472,6 +561,14 @@ export function RepoDetailPage() {
   const resolvedAuthor = (commit: { author_name: string; author_email: string }) =>
     emailToDisplayName[commit.author_email.toLowerCase()] ?? commit.author_name
 
+  // Distinct days that actually have commits, newest first to match the commit
+  // list's own order. Options rather than a calendar, so empty days can't be
+  // picked and the year can stay off the label.
+  const commitDates = useMemo(() => {
+    const keys = new Set((allCommitsData?.items ?? []).map(c => toLocalDateKey(c.date)))
+    return Array.from(keys).sort().reverse()
+  }, [allCommitsData])
+
   // Owning branches only. Building this from `branches` listed every branch
   // that merely contains a commit, so branches with no work of their own still
   // got a chip that then matched most of the repo.
@@ -514,9 +611,12 @@ export function RepoDetailPage() {
       // "show me what still needs classifying" is expressible.
       const typeMatch =
         selectedTypes.size === 0 || selectedTypes.has(c.commit_type ?? 'unclassified')
-      return branchMatch && contributorMatch && typeMatch
+      // Exact calendar day, compared in the viewer's timezone so it agrees
+      // with the date shown in the row.
+      const dateMatch = !selectedDate || toLocalDateKey(c.date) === selectedDate
+      return branchMatch && contributorMatch && typeMatch && dateMatch
     })
-  }, [allCommitsData, selectedBranches, selectedContributorIds, contributors, emailToContributorId, selectedTypes])
+  }, [allCommitsData, selectedBranches, selectedContributorIds, contributors, emailToContributorId, selectedTypes, selectedDate])
 
   const displayedCommits = filteredCommits.slice(
     commitPage * COMMITS_PER_PAGE,
@@ -582,10 +682,25 @@ export function RepoDetailPage() {
   }
 
   async function handleGenerateSummary() {
-    await generateSummaryMutation.mutateAsync({
-      repo_id: id ?? null,
-      summary_type: 'repo_overview',
-    })
+    setSummaryExpanded(true)
+    setTypingSummaryId(null)
+    try {
+      await generateSummaryMutation.mutateAsync({
+        repo_id: id ?? null,
+        summary_type: 'repo_overview',
+      }, {
+        onSuccess: created => {
+          // Publish the new summary before pending ends, so the previous text
+          // cannot flash back while the history request is still refreshing.
+          queryClient.setQueryData<Summary[]>(summaryKeys.repoSummaries(id ?? ''), current =>
+            [created, ...(current ?? []).filter(summary => summary.id !== created.id)]
+          )
+          setTypingSummaryId(created.id)
+        },
+      })
+    } catch {
+      toast.error('Could not generate the summary. Please try again.')
+    }
   }
 
   function handleRemove() {
@@ -653,7 +768,7 @@ export function RepoDetailPage() {
   // Reset to page 0 when filters change
   useEffect(() => {
     setCommitPage(0)
-  }, [selectedBranches, selectedContributorIds, selectedTypes])
+  }, [selectedBranches, selectedContributorIds, selectedTypes, selectedDate])
 
   useEffect(() => {
     if (repo?.expected_contributor_count != null) {
@@ -799,7 +914,7 @@ export function RepoDetailPage() {
             </button>
             <div className="flex min-w-0 items-center gap-3">
                 <h1 className="min-w-0">
-                  <a href={repo.github_url} target="_blank" rel="noopener noreferrer" title="Open repository on GitHub" className="inline-flex max-w-full items-center gap-2 rounded-md border border-border px-3 py-1.5 text-lg font-semibold text-foreground transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <a href={repo.github_url} target="_blank" rel="noopener noreferrer" title="Open repository on GitHub" className="inline-flex max-w-full items-center gap-2 rounded-md border border-border px-3 py-1.5 text-2xl font-semibold text-foreground transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     <span className="truncate">{repo.name}</span>
                     <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   </a>
@@ -898,8 +1013,9 @@ export function RepoDetailPage() {
 
         {/* AI Summary — spans the full width above the two columns */}
         <motion.div variants={sectionVariants} initial="hidden" animate="visible">
-          <Card>
-            <CardHeader className="pt-4 pb-2">
+          <Card className="relative overflow-hidden">
+            <SummaryLiquidBackground generating={generateSummaryMutation.isPending} />
+            <CardHeader className="relative z-10 pb-2">
               <div className="flex items-center justify-between">
                 <button
                   className="flex items-center gap-1.5 text-base font-semibold hover:text-indigo-600 transition-colors"
@@ -908,25 +1024,26 @@ export function RepoDetailPage() {
                   AI Summary
                   {latestSummary && (summaryExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />)}
                 </button>
-                <Button
-                  size="sm"
-                  variant="outline"
+                <GenerateSummaryButton
                   onClick={handleGenerateSummary}
-                  loading={generateSummaryMutation.isPending} disabled={generateSummaryMutation.isPending}
-                >
-                  <Sparkles className={cn('h-4 w-4 mr-1.5', generateSummaryMutation.isPending && 'animate-pulse')} />
-                  {generateSummaryMutation.isPending ? 'Generating...' : 'Generate Summary'}
-                </Button>
+                  isPending={generateSummaryMutation.isPending}
+                />
               </div>
             </CardHeader>
             {summaryExpanded && (
-            <CardContent>
+            <CardContent className="relative z-10">
               {(generateSummaryMutation.isPending || summariesLoading) && (
-                <LoadingContent label={generateSummaryMutation.isPending ? 'Generating your summary… This may take a minute.' : 'Loading summary…'} />
+                <LoadingContent label={summariesLoading ? 'Loading summary…' : ''} />
               )}
-              {latestSummary ? (
+              {/* Hidden while pending so the previous summary cannot sit under
+                  the thinking state, then revealed by the typing animation. */}
+              {!generateSummaryMutation.isPending && latestSummary ? (
                 <div>
-                  <MarkdownContent content={latestSummary.content} />
+                  <TypedMarkdown
+                    content={latestSummary.content}
+                    animate={latestSummary.id === typingSummaryId}
+                    onDone={() => setTypingSummaryId(null)}
+                  />
                   <p className="text-xs text-muted-foreground mt-3">
                     Generated {formatDateTime(latestSummary.generated_at)} · {latestSummary.model_used}
                   </p>
@@ -1042,7 +1159,7 @@ export function RepoDetailPage() {
                   <div className="flex flex-col gap-2">
                     {allBranches.length > 0 && (
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground mr-1">Branch:</span>
+                        <span className="w-14 shrink-0 text-xs text-muted-foreground">Branch:</span>
                         <button
                           onClick={() => setSelectedBranches(new Set())}
                           className={cn(
@@ -1086,7 +1203,7 @@ export function RepoDetailPage() {
                       aria-label="Filter by commit type"
                       className="flex flex-wrap items-center gap-1.5"
                     >
-                      <span className="text-xs text-muted-foreground mr-1">Type:</span>
+                      <span className="w-14 shrink-0 text-xs text-muted-foreground">Type:</span>
                       <button
                         onClick={() => setSelectedTypes(new Set())}
                         className={cn(
@@ -1117,6 +1234,37 @@ export function RepoDetailPage() {
                           </button>
                         )
                       })}
+                    </div>
+                    <div
+                      role="group"
+                      aria-label="Filter by commit date"
+                      className="flex flex-wrap items-center gap-1.5"
+                    >
+                      <span className="w-14 shrink-0 text-xs text-muted-foreground">Date:</span>
+                      {/* "All" is the first option rather than a separate reset
+                          button, so this row starts with the same affordance as
+                          the Branch and Type rows above it. */}
+                      <select
+                        aria-label="Filter commits by date"
+                        value={selectedDate}
+                        onChange={e => setSelectedDate(e.target.value)}
+                        className={cn(
+                          'text-xs px-1.5 py-0.5 rounded border transition-colors focus:outline-none focus:border-indigo-400',
+                          selectedDate
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                        )}
+                      >
+                        <option value="">All</option>
+                        {commitDates.map(d => (
+                          <option key={d} value={d}>{formatMonthDay(d)}</option>
+                        ))}
+                      </select>
+                      {commitDates.length > 0 && (
+                        <span className="text-xs italic text-gray-400">
+                          *only showing dates with commits
+                        </span>
+                      )}
                     </div>
                   </div>
                     <div className="flex flex-wrap items-center justify-between gap-3 py-1">

@@ -374,13 +374,13 @@ export function AppSidebar() {
         <div className="h-14 flex items-center justify-between flex-shrink-0 border-b border-slate-700/50 px-3">
           {!collapsed && (
             <Link to="/" aria-label="RepoPulse home dashboard" className="flex items-center gap-2 min-w-0 rounded-md hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
-              <GitBranch className="h-5 w-5 text-indigo-400 flex-shrink-0" />
-              <span className="font-semibold text-white text-sm truncate">RepoPulse</span>
+              <GitBranch className="h-6 w-6 text-indigo-400 flex-shrink-0" />
+              <span className="font-semibold text-white text-base truncate">RepoPulse</span>
             </Link>
           )}
           {collapsed && (
             <Link to="/" aria-label="RepoPulse home dashboard" className="flex items-center justify-center w-full rounded-md hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
-              <GitBranch className="h-5 w-5 text-indigo-400" />
+              <GitBranch className="h-6 w-6 text-indigo-400" />
             </Link>
           )}
           {!collapsed && (

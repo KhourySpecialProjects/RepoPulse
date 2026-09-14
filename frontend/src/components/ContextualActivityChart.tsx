@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
 import { Area, AreaChart, CartesianGrid, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { TrickleProgress } from '@/components/ui/trickle-progress'
 import { useContextualActivity } from '@/hooks/useContextualActivity'
 import { contextualizeActivity } from '@/lib/activityContext'
 import type { ContextActivityPoint } from '@/types'
@@ -10,6 +11,18 @@ function ActivityTooltip({ active, payload }: { active?: boolean; payload?: { pa
   const point = payload?.[0]?.payload
   if (!active || !point) return null
   return <div className="max-w-xs rounded border bg-background p-3 text-sm shadow-md"><p className="font-medium">{point.date}: {point.count} commits</p>{point.context && <p>{point.context}</p>}</div>
+}
+
+/** Occupies the same h-56 the chart will, so the card doesn't collapse and
+ *  then jump when the data lands. */
+function ChartLoading() {
+  return (
+    <div role="status" aria-label="Loading commit activity graph" className="flex h-56 flex-col items-center justify-center gap-3">
+      <div aria-hidden="true" className="h-8 w-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin motion-reduce:animate-none" />
+      <p className="text-sm text-muted-foreground">Loading student activity…</p>
+      <TrickleProgress label="Commit activity loading progress" />
+    </div>
+  )
 }
 
 export function ContextualActivityChart({ collectionId, repoId, children, actions, selectedContributorIds = [] }: { collectionId: string; repoId: string; children?: ReactNode; actions?: ReactNode; selectedContributorIds?: string[] }) {
@@ -32,26 +45,19 @@ export function ContextualActivityChart({ collectionId, repoId, children, action
   const normalPoint = annotations.length === 0 ? points[points.length - 1] : undefined
   return <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
     <Card>
-      {/* pt trimmed off CardHeader's p-6: the title row is short, so the
-          default 24px read as dead space above it. */}
-      <CardHeader className="pt-4">
-        {/* Title and controls share one row: on their own line the controls
-            left a band of empty card beside the title and pushed the graph
-            down. flex-wrap so they stack only when the card is too narrow. */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-base">Commit Activity</CardTitle>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {actions}
-            <select aria-label="Activity range" value={range} onChange={e => setRange(e.target.value)} className="rounded border bg-background p-2 text-sm">
-              <option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="all">All history</option>
-            </select>
-          </div>
+      <CardHeader>
+        <CardTitle className="text-base">Commit Activity</CardTitle>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {actions}
+          <select aria-label="Activity range" value={range} onChange={e => setRange(e.target.value)} className="rounded border bg-background p-2 text-sm">
+            <option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="all">All history</option>
+          </select>
         </div>
         {children}
         <p className="text-xs text-muted-foreground">UTC daily counts. Hover highlighted points for context. Quiet periods: 3+ days; bursts: 10+ commits and at least 3× the preceding week’s daily average. Comparisons use other readable repositories in this collection with history before the interval. Patterns suggest a check-in, not a conclusion about effort.</p>
       </CardHeader>
       <CardContent>
-        {isLoading ? <p role="status">Loading student activity…</p> : isError ? <p role="alert">Could not load activity. <button onClick={() => refetch()} className="underline">Retry</button></p> : !repo?.available ? <p>Repository history unavailable. Sync the repository and try again.</p> : !repo.activity.length ? <p>No commit history available.</p> : <>
+        {isLoading ? <ChartLoading /> : isError ? <p role="alert">Could not load activity. <button onClick={() => refetch()} className="underline">Retry</button></p> : !repo?.available ? <p>Repository history unavailable. Sync the repository and try again.</p> : !repo.activity.length ? <p>No commit history available.</p> : <>
           <p className="mb-2 text-sm font-medium">{authorLabel} — commits per day</p>
           <div className="h-56" aria-label="Commit activity graph">
             <ResponsiveContainer width="100%" height="100%">
