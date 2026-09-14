@@ -155,6 +155,39 @@ def auth_headers(test_user: User) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+@pytest_asyncio.fixture
+async def admin_user(db_session: AsyncSession) -> User:
+    """An instance administrator, as distinct from test_user's "instructor".
+
+    Three modules already define an equivalent fixture locally
+    (test_users.py, test_collections_rbac.py, test_collection_access.py).
+    pytest resolves fixtures closest-first, so those shadow this one and are
+    unaffected by its existence.
+
+    Note for count assertions: requesting this fixture inserts a row into
+    `users`. A test asserting an empty instance must request neither this nor
+    test_user.
+    """
+    user = User(
+        id=uuid.uuid4(),
+        email="admin@example.com",
+        display_name="Admin User",
+        role="admin",
+        password_hash=None,
+        github_token="ghp_admintoken",
+    )
+    db_session.add(user)
+    await db_session.flush()
+    return user
+
+
+@pytest.fixture
+def admin_auth_headers(admin_user: User) -> dict[str, str]:
+    """Return Authorization header dict for the admin user."""
+    token = create_access_token({"sub": str(admin_user.id)})
+    return {"Authorization": f"Bearer {token}"}
+
+
 # ---------------------------------------------------------------------------
 # Background repo indexing
 # ---------------------------------------------------------------------------

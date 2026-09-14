@@ -7,7 +7,7 @@ from passlib.hash import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user, get_db_session
+from app.core.deps import get_current_user, get_db_session, require_admin_user
 from app.models.user import User
 from app.schemas.errors import ErrorResponse
 from app.schemas.users import (
@@ -43,10 +43,12 @@ async def _get_user_or_404(db: AsyncSession, user_id: uuid.UUID) -> User:
 
 
 async def _require_admin(db: AsyncSession, current_user_id: str) -> User:
-    me = await db.get(User, uuid.UUID(current_user_id))
-    if me is None or me.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-    return me
+    """Delegates to the shared gate in core.deps.
+
+    Kept as a wrapper rather than an alias so the local name stays greppable
+    and monkeypatch targets on this module keep working.
+    """
+    return await require_admin_user(db, current_user_id)
 
 
 @router.post(
