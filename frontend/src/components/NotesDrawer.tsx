@@ -19,6 +19,11 @@ interface NotesDrawerProps {
   currentUser: { id: string; role: string } | null | undefined
   onScrollToCommit: (hash: string) => void
   onPinnedChange?: (pinned: boolean) => void
+  /**
+   * A note arrived at from a notification. The drawer opens itself and marks
+   * the note — otherwise a deep link would land behind a closed panel.
+   */
+  highlightNoteId?: string | null
 }
 
 function formatDateTime(dateStr: string): string {
@@ -56,8 +61,9 @@ export function NotesDrawer({
   currentUser,
   onScrollToCommit,
   onPinnedChange,
+  highlightNoteId,
 }: NotesDrawerProps) {
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setIsOpen] = useState(Boolean(highlightNoteId))
   const [isPinned, setIsPinned] = useState(() => {
     try { return localStorage.getItem(`notes-drawer-pinned-${repoId}`) === 'true' } catch { return false }
   })
@@ -75,6 +81,20 @@ export function NotesDrawer({
   useEffect(() => {
     onPinnedChange?.(isPinned && isOpen)
   }, [isPinned, isOpen])
+
+  // A deep link can arrive after mount (the notes query resolves later, or the
+  // user clicks a second notification without leaving the page), so opening
+  // once in the initial state is not enough.
+  useEffect(() => {
+    if (highlightNoteId) setIsOpen(true)
+  }, [highlightNoteId])
+
+  useEffect(() => {
+    if (!highlightNoteId) return
+    document
+      .getElementById(`note-${highlightNoteId}`)
+      ?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+  }, [highlightNoteId, notes])
 
   useEffect(() => {
     if (!isOpen || isPinned) return
@@ -122,10 +142,16 @@ export function NotesDrawer({
             {visibleNotes.map((note, index) => (
               <div
                 key={note.id}
+                id={`note-${note.id}`}
+                data-highlighted={note.id === highlightNoteId ? 'true' : undefined}
                 className={cn(
                   'py-3',
                   index < visibleNotes.length - 1 && 'border-b border-border',
-                  note.is_archived && 'opacity-50'
+                  note.is_archived && 'opacity-50',
+                  // Ring rather than a background tint: notes already use
+                  // background to mean archived, and the two would blend.
+                  note.id === highlightNoteId &&
+                    '-mx-2 rounded-md px-2 ring-2 ring-indigo-400'
                 )}
               >
                 <div className="flex items-start justify-between gap-2">

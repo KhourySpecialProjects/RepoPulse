@@ -36,6 +36,7 @@ import { NyanCat } from '@/components/NyanCat'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { feedTitleFor } from '@/lib/notificationEvents'
+import { notificationTarget } from '@/lib/notificationTarget'
 import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
 import type { Notification, RecentlyDeletedItem } from '@/types'
 
@@ -173,9 +174,12 @@ export function NotificationsPage() {
   )
   const hasRead = notifications.some((n) => n.is_read)
 
-  async function handleNotificationClick(id: string, repoId: string | null) {
-    await markRead.mutateAsync(id)
-    if (repoId) navigate(`/repos/${repoId}`)
+  async function handleNotificationClick(notif: Notification) {
+    await markRead.mutateAsync(notif.id)
+    // Resolves to the commit or note behind the notification, not just the
+    // repo, so the reader arrives at what they were actually told about.
+    const target = notificationTarget(notif)
+    if (target) navigate(target)
   }
 
   return (
@@ -270,7 +274,7 @@ export function NotificationsPage() {
                 >
                   <button
                     type="button"
-                    onClick={() => handleNotificationClick(notif.id, notif.repo_id)}
+                    onClick={() => handleNotificationClick(notif)}
                     className="flex min-w-0 flex-1 items-start gap-3 text-left"
                   >
                     <span className="mt-0.5 flex-shrink-0">

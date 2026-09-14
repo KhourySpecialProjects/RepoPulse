@@ -270,6 +270,8 @@ export function RepoDetailPage() {
   const [commitPage, setCommitPage] = useState(0)
   const [activeCommitHash, setActiveCommitHash] = useState<string | null>(null)
   const [highlightedCommitHash, setHighlightedCommitHash] = useState<string | null>(null)
+  // Set when arriving from a notification about a note; opens the drawer on it.
+  const [highlightedNoteId, setHighlightedNoteId] = useState<string | null>(null)
   const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
   const [selectedTypes, setSelectedTypes] = useState<Set<CommitTypeFilter>>(new Set())
   // Set when the backend answers `status: 'preview'` — holds the counts the
@@ -648,6 +650,27 @@ export function RepoDetailPage() {
       { replace: true }
     )
   }, [searchParams, allCommitsLoading])
+
+  // Deep link from a notification about a note: `/repos/:id?note=<id>`. The
+  // drawer opens on that note. Unlike the commit jump this needs nothing
+  // loaded first — the drawer renders whatever notes it has and re-scrolls
+  // when they arrive — so the param is consumed immediately.
+  //
+  // Cleared like `?commit=`, so a reload does not drag the reader back here.
+  useEffect(() => {
+    const targetNote = searchParams.get('note')
+    if (!targetNote) return
+
+    setHighlightedNoteId(targetNote)
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current)
+        next.delete('note')
+        return next
+      },
+      { replace: true }
+    )
+  }, [searchParams])
 
   // Reset to page 0 when filters change
   useEffect(() => {
@@ -1674,6 +1697,7 @@ export function RepoDetailPage() {
           currentUser={currentUser}
           onScrollToCommit={handleScrollToCommit}
           onPinnedChange={setNotesPinned}
+          highlightNoteId={highlightedNoteId}
         />
 
       </div>{/* end body flex wrapper */}
