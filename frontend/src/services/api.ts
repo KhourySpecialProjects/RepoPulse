@@ -78,13 +78,19 @@ export function clearAuthToken() {
 }
 
 // Auth
+const AUTH_TIMEOUT_MS = 10_000
+
 export async function devLogin(userId: string): Promise<TokenResponse> {
-  const response = await apiClient.post<TokenResponse>('/auth/dev-login', { user_id: userId })
+  const response = await apiClient.post<TokenResponse>('/auth/dev-login', { user_id: userId }, {
+    signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
+  })
   return response.data
 }
 
 export async function login(email: string, password: string): Promise<TokenResponse> {
-  const response = await apiClient.post<TokenResponse>('/auth/login', { email, password })
+  const response = await apiClient.post<TokenResponse>('/auth/login', { email, password }, {
+    signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
+  })
   return response.data
 }
 

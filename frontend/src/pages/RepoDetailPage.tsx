@@ -10,6 +10,7 @@ import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '@/hooks/u
 import { useUsers, useCurrentUser } from '@/hooks/useUsers'
 import { useAuth } from '@/hooks/useAuth'
 import { HealthBadge } from '@/components/HealthBadge'
+import { HealthSignalPills } from '@/components/HealthSignalPills'
 import { CommitScorePill } from '@/components/CommitScorePill'
 import { CommitNotesPanel } from '@/components/CommitNotesPanel'
 import { MarkdownContent } from '@/components/MarkdownContent'
@@ -919,76 +920,16 @@ export function RepoDetailPage() {
                   </a>
                 </h1>
 
-              {healthScore && (() => {
-                const signals = [
-                  {
-                    label: 'Frequency',
-                    value: healthScore.commit_frequency,
-                    tip: 'Avg commits/week over the last 4 weeks. Green ≥10/wk, yellow 4–9/wk, red ≤3/wk.',
-                  },
-                  {
-                    label: 'Recency',
-                    value: healthScore.recency,
-                    tip: 'Days since the most recent commit. Green <3 days, yellow 3–7 days, red >7 days.',
-                  },
-                  {
-                    label: 'Distribution',
-                    value: healthScore.distribution,
-                    tip: 'How evenly commits are spread across contributors (Gini coefficient). Green = well distributed, red = one person dominates.',
-                  },
-                  {
-                    label: 'Branches',
-                    value: healthScore.branch_activity,
-                    tip: 'Active branch count. Green ≥2 branches, yellow = 1 branch with recent activity, red = stale or no branches.',
-                  },
-                  {
-                    label: 'Msg Quality',
-                    value: healthScore.commit_message_quality,
-                    tip: 'Percentage of commits with descriptive messages (≥10 chars, multi-word). Green <10% low-quality, red >30%.',
-                  },
-                  {
-                    label: 'Participation',
-                    value: healthScore.participation ?? 0,
-                    tip: 'Actual vs expected unique contributors. Green = at or above expected, yellow ≥60%, red <60%.',
-                  },
-                ]
-                return (
-                  <details className="group relative shrink-0 text-xs text-muted-foreground">
-                    <summary className={cn('flex cursor-pointer list-none items-center gap-1.5 rounded-full border px-3 py-1 font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden', healthScore.composite >= 0.75 ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : healthScore.composite >= 0.375 ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100')}>
-                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                      Health details
-                      <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
-                    </summary>
-                    <div className="absolute left-0 top-full z-30 mt-2 grid w-72 grid-cols-2 gap-3 rounded-lg border border-border bg-white p-4 shadow-lg">
-                    <div className="col-span-2 flex items-center justify-between border-b border-border pb-3">
-                      <HealthBadge status={healthScore.status ?? repo.health_status} />
-                      <span className="font-semibold text-foreground">{Math.round(healthScore.composite * 100)}/100</span>
-                    </div>
-                    {signals.map((signal) => {
-                      const norm = signal.value / 2
-                      const dotClass = norm >= 0.7
-                        ? 'bg-emerald-500'
-                        : norm >= 0.4
-                        ? 'bg-amber-500'
-                        : 'bg-red-500'
-                      return (
-                        <div
-                          key={signal.label}
-                          title={signal.tip}
-                          className={cn(
-                            'flex items-center gap-1.5 text-xs font-medium text-foreground cursor-default'
-                          )}
-                        >
-                          <span className={cn('h-2 w-2 rounded-full flex-shrink-0', dotClass)} />
-                          <span>{signal.label}</span>
-                          <span className="sr-only">{norm >= 0.7 ? 'Healthy' : norm >= 0.4 ? 'Needs attention' : 'At risk'}</span>
-                        </div>
-                      )
-                    })}
-                    </div>
-                  </details>
-                )
-              })()}
+              {/* The per-signal breakdown now lives on the Commit Activity
+                  card; the header keeps only the composite it rolls up to. */}
+              {healthScore && (
+                <div className="flex shrink-0 items-center gap-2">
+                  <HealthBadge status={healthScore.status ?? repo.health_status} />
+                  <span className="text-xs font-semibold text-muted-foreground">
+                    {Math.round(healthScore.composite * 100)}/100
+                  </span>
+                </div>
+              )}
             </div>
           </div>
           <span className="flex items-center justify-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
@@ -1154,6 +1095,7 @@ export function RepoDetailPage() {
 
                   </>}
                 >
+                  <HealthSignalPills health={healthScore} className="py-1" />
                   {checkIns.length > 0 && <p className="text-xs text-muted-foreground">Last checked: {formatRelativeDays(checkIns[checkIns.length - 1])}</p>}
                     {showPastCheckIn && (
                       <div className="flex items-center gap-2 mt-2 pt-2 border-t">
@@ -1187,7 +1129,7 @@ export function RepoDetailPage() {
             {/* Commits section */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible" transition={{ delay: 0.1 }}>
               <Card>
-                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+                <CardHeader className="pt-4 pb-2 flex flex-row items-center justify-between space-y-0">
                   <CardTitle className="text-base">Commits</CardTitle>
                   <Button
                     size="sm"
