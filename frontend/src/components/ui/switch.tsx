@@ -34,7 +34,7 @@ const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(
         'relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
         'disabled:cursor-not-allowed disabled:opacity-50',
-        checked ? 'bg-indigo-600' : 'bg-input',
+        checked ? 'bg-brand-600' : 'bg-input',
         className
       )}
     >

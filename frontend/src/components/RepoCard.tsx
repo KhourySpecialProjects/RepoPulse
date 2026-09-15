@@ -84,7 +84,7 @@ export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
       exit={{ opacity: 0, y: -10 }}
       transition={{ duration: 0.25, ease: 'easeOut' }}
     >
-      <Card className={cn('flex flex-col h-full bg-white shadow-sm hover:shadow-md border border-gray-100 transition-all duration-200 cursor-pointer overflow-hidden', healthBorderClass[repo.health_status])} onClick={handleDetails}>
+      <Card className={cn('flex flex-col h-full bg-white shadow-sm hover:shadow-md border border-border transition-all duration-200 cursor-pointer overflow-hidden', healthBorderClass[repo.health_status])} onClick={handleDetails}>
         <CardHeader className="pb-2">
           <div className="flex items-start justify-between gap-2">
             <h3 className="font-semibold text-base leading-tight truncate flex-1" title={repo.name}>

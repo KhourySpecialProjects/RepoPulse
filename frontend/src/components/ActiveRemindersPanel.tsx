@@ -73,7 +73,7 @@ export function ActiveRemindersPanel() {
           type="button"
           onClick={() => setAdding((v) => !v)}
           aria-expanded={adding}
-          className="inline-flex items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 transition-colors hover:bg-indigo-100"
+          className="inline-flex items-center gap-2 rounded-md border border-brand-200 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 transition-colors hover:bg-brand-100"
         >
           {adding ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
           {adding ? 'Cancel' : 'New reminder'}
@@ -114,7 +114,7 @@ export function ActiveRemindersPanel() {
                     className={cn(
                       'inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors',
                       shareIds.includes(u.id)
-                        ? 'border-indigo-300 bg-indigo-100 text-indigo-700'
+                        ? 'border-brand-300 bg-brand-100 text-brand-700'
                         : 'border-border bg-background hover:bg-muted'
                     )}
                   >
@@ -123,7 +123,7 @@ export function ActiveRemindersPanel() {
                       aria-label={`Share with ${u.display_name}`}
                       checked={shareIds.includes(u.id)}
                       onChange={() => toggleShare(u.id)}
-                      className="h-4 w-4 accent-indigo-600"
+                      className="h-4 w-4 accent-brand-600"
                     />
                     {u.display_name}
                   </label>
@@ -136,7 +136,7 @@ export function ActiveRemindersPanel() {
             type="button"
             onClick={handleAdd}
             disabled={!content.trim() || createNote.isPending}
-            className="h-10 self-start rounded-md bg-indigo-600 px-4 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="h-10 self-start rounded-md bg-brand-600 px-4 text-sm font-medium text-white transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Add reminder
           </button>
@@ -189,7 +189,7 @@ export function ActiveRemindersPanel() {
                     </p>
                   )}
                   {reminder.commit_hash && (
-                    <p className="mt-1 flex items-center gap-1.5 font-mono text-xs text-indigo-600">
+                    <p className="mt-1 flex items-center gap-1.5 font-mono text-xs text-brand-600">
                       <GitCommit className="h-3.5 w-3.5 flex-shrink-0" />
                       {reminder.commit_hash.slice(0, 7)}
                     </p>

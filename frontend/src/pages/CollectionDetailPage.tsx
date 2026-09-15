@@ -158,19 +158,19 @@ export function CollectionDetailPage() {
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => navigate('/collections')}
-              className="text-muted-foreground hover:text-indigo-600 transition-colors flex-shrink-0"
+              className="text-muted-foreground hover:text-brand-600 transition-colors flex-shrink-0"
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
             <h1 className="text-xl font-semibold text-foreground truncate">{collection.name}</h1>
             <div className="flex gap-1.5 flex-shrink-0">
               {collection.course_tag && (
-                <span className="text-xs bg-indigo-100 text-indigo-700 rounded-full px-2 py-0.5 font-medium">
+                <span className="text-xs bg-brand-100 text-brand-700 rounded-full px-2 py-0.5 font-medium">
                   {collection.course_tag}
                 </span>
               )}
               {collection.semester_tag && (
-                <span className="text-xs bg-violet-100 text-violet-700 rounded-full px-2 py-0.5 font-medium">
+                <span className="text-xs bg-orchid-100 text-orchid-700 rounded-full px-2 py-0.5 font-medium">
                   {collection.semester_tag}
                 </span>
               )}
@@ -186,7 +186,7 @@ export function CollectionDetailPage() {
             <button
               onClick={handleEditOpen}
               title="Edit collection"
-              className="p-1.5 rounded text-muted-foreground hover:text-indigo-600 hover:bg-indigo-100 transition-colors"
+              className="p-1.5 rounded text-muted-foreground hover:text-brand-600 hover:bg-brand-100 transition-colors"
             >
               <Pencil className="h-4 w-4" />
             </button>
@@ -202,7 +202,7 @@ export function CollectionDetailPage() {
               title="Manage access"
               aria-expanded={accessPanelOpen}
               aria-controls="collection-access-panel"
-              className={`p-1.5 rounded transition-colors ${accessPanelOpen ? 'text-indigo-600 bg-indigo-100' : 'text-muted-foreground hover:text-indigo-600 hover:bg-indigo-100'}`}
+              className={`p-1.5 rounded transition-colors ${accessPanelOpen ? 'text-brand-600 bg-brand-100' : 'text-muted-foreground hover:text-brand-600 hover:bg-brand-100'}`}
             >
               <Users className="h-4 w-4" />
             </button>
@@ -224,7 +224,7 @@ export function CollectionDetailPage() {
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.2 }}
-            className="overflow-hidden border-b border-border bg-gray-50"
+            className="overflow-hidden border-b border-border bg-brand-50"
           >
             <div className="px-6 py-5">
               <CollectionAccessPanel
@@ -405,7 +405,7 @@ export function CollectionDetailPage() {
                 type="text"
                 value={editForm.name}
                 onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
-                className="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-400"
+                className="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-brand-400"
                 placeholder="Collection name"
               />
             </div>
@@ -415,7 +415,7 @@ export function CollectionDetailPage() {
                 type="text"
                 value={editForm.course_tag}
                 onChange={e => setEditForm(f => ({ ...f, course_tag: e.target.value }))}
-                className="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-400"
+                className="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-brand-400"
                 placeholder="e.g. CS 101"
               />
             </div>
@@ -425,7 +425,7 @@ export function CollectionDetailPage() {
                 type="text"
                 value={editForm.semester_tag}
                 onChange={e => setEditForm(f => ({ ...f, semester_tag: e.target.value }))}
-                className="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-400"
+                className="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-brand-400"
                 placeholder="e.g. Fall 2025"
               />
             </div>

@@ -108,7 +108,7 @@ export function NoteComments({
               comment.author_id === currentUserId || currentUserRole === 'admin'
             return (
               <div key={comment.id} className="flex gap-2 items-start">
-                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-semibold flex items-center justify-center">
+                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-[10px] font-semibold flex items-center justify-center">
                   {getInitials(comment.author_display_name)}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -144,7 +144,7 @@ export function NoteComments({
         <button
           type="button"
           onClick={() => setIsReplying(true)}
-          className="text-xs text-muted-foreground hover:text-indigo-600 transition-colors"
+          className="text-xs text-muted-foreground hover:text-brand-600 transition-colors"
         >
           Reply
         </button>
@@ -189,7 +189,7 @@ export function NoteComments({
               type="submit"
               size="sm"
               loading={createComment.isPending} disabled={createComment.isPending || !replyText.trim()}
-              className={cn('text-xs h-6 px-2 bg-indigo-600 hover:bg-indigo-700 text-white border-0')}
+              className={cn('text-xs h-6 px-2 bg-brand-600 hover:bg-brand-700 text-white border-0')}
             >
               {createComment.isPending ? 'Posting...' : 'Reply'}
             </Button>

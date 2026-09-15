@@ -256,7 +256,7 @@ export function EmailRelayPanel() {
                 className={cn(
                   'rounded px-3 py-1 text-sm transition-colors disabled:cursor-not-allowed',
                   draft.transport === option
-                    ? 'bg-indigo-600 text-white'
+                    ? 'bg-brand-600 text-white'
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
@@ -379,7 +379,7 @@ export function EmailRelayPanel() {
             onClick={saveRelay}
             loading={update.isPending}
             disabled={update.isPending || !dirty}
-            className="bg-indigo-600 text-white hover:bg-indigo-700"
+            className="bg-brand-600 text-white hover:bg-brand-700"
           >
             Save relay
           </Button>

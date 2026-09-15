@@ -295,12 +295,12 @@ describe('RepoDetailPage - Commit row note count indicators', () => {
     setupHandlers({ notes: [noteWithHash] })
     renderPage()
     await waitFor(() => expect(screen.getAllByText('abc1234').length).toBeGreaterThan(0))
-    // The indigo badge on the commit button shows the total count
-    const indigo = document.querySelector(
-      '.bg-indigo-100.text-indigo-700.rounded-full.px-1\\.5'
+    // The brand-purple badge on the commit button shows the total count
+    const badge = document.querySelector(
+      '.bg-brand-100.text-brand-700.rounded-full.px-1\\.5'
     ) as HTMLElement
-    expect(indigo).not.toBeNull()
-    expect(indigo.textContent).toBe('1')
+    expect(badge).not.toBeNull()
+    expect(badge.textContent).toBe('1')
   })
 
   it('shows reminder badge when a commit note is a reminder', async () => {
@@ -312,11 +312,11 @@ describe('RepoDetailPage - Commit row note count indicators', () => {
     setupHandlers({ notes: [reminderNote] })
     renderPage()
     await waitFor(() => expect(screen.getAllByText('abc1234').length).toBeGreaterThan(0))
-    const indigo = document.querySelector(
-      '.bg-indigo-100.text-indigo-700.rounded-full.px-1\\.5'
+    const badge = document.querySelector(
+      '.bg-brand-100.text-brand-700.rounded-full.px-1\\.5'
     ) as HTMLElement
-    expect(indigo).not.toBeNull()
-    expect(indigo.textContent).toBe('1')
+    expect(badge).not.toBeNull()
+    expect(badge.textContent).toBe('1')
     expect(screen.getByText('1 reminder')).toBeInTheDocument()
   })
 
@@ -326,11 +326,11 @@ describe('RepoDetailPage - Commit row note count indicators', () => {
     setupHandlers({ notes: [reminder1, reminder2] })
     renderPage()
     await waitFor(() => expect(screen.getAllByText('abc1234').length).toBeGreaterThan(0))
-    const indigo = document.querySelector(
-      '.bg-indigo-100.text-indigo-700.rounded-full.px-1\\.5'
+    const badge = document.querySelector(
+      '.bg-brand-100.text-brand-700.rounded-full.px-1\\.5'
     ) as HTMLElement
-    expect(indigo).not.toBeNull()
-    expect(indigo.textContent).toBe('2')
+    expect(badge).not.toBeNull()
+    expect(badge.textContent).toBe('2')
     expect(screen.getByText('2 reminders')).toBeInTheDocument()
   })
 
