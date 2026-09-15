@@ -36,6 +36,7 @@ from app.services.permission_service import (
 )
 
 from app.schemas.repos import RepoDeleteResponse
+from app.services import commit_snapshot_service
 from app.services.notification_service import (
     notify_health_change,
     notify_repo_event,
@@ -233,6 +234,9 @@ async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: s
             branches = await _git_service.get_active_branches(local_path)
 
             await _upsert_contributors(db, repo_id, commits)
+            # Kept so the Commits table and activity chart still have something
+            # to show if this clone is not readable next time.
+            await commit_snapshot_service.store(db, repo_id, commits)
             await db.refresh(repo)
             actual_count = len(repo.contributors)
 
@@ -697,25 +701,43 @@ async def get_repo_commits(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Repo not found",
         )
-    if not repo.local_path:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Repo has no local path. Add and sync the repo first.",
-        )
+    # The clone is the source of truth and is tried first. When it will not
+    # open — never cloned on this machine, recreated bind mount, corrupt
+    # checkout — the last sync's snapshot is served instead, flagged as stale.
+    # Only when there is no snapshot either does this stay an error: an empty
+    # table that looks normal hides the problem.
+    stale = False
+    all_commits: list[dict] = []
 
-    try:
-        t0 = time.perf_counter()
-        all_commits = await _git_service.parse_commits(repo.local_path)
-        logger.debug(
-            "get_repo_commits: parse_commits returned %d commits in %.2fs (limit=%d offset=%d branch=%s) — %s",
-            len(all_commits), time.perf_counter() - t0, limit, offset, branch, repo.name,
-        )
-    except Exception as exc:
-        logger.exception("parse_commits failed for repo %s: %s", repo.local_path, exc)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Could not read commits: {exc}",
-        )
+    if repo.local_path:
+        try:
+            t0 = time.perf_counter()
+            all_commits = await _git_service.parse_commits(repo.local_path)
+            logger.debug(
+                "get_repo_commits: parse_commits returned %d commits in %.2fs (limit=%d offset=%d branch=%s) — %s",
+                len(all_commits), time.perf_counter() - t0, limit, offset, branch, repo.name,
+            )
+        except Exception as exc:
+            logger.warning(
+                "parse_commits failed for repo %s (%s); falling back to the "
+                "last synced snapshot: %s",
+                repo.name, repo.local_path, exc,
+            )
+            all_commits = await commit_snapshot_service.load(db, repo_id)
+            stale = True
+            if not all_commits:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Could not read commits: {exc}",
+                )
+    else:
+        all_commits = await commit_snapshot_service.load(db, repo_id)
+        stale = True
+        if not all_commits:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Repo has no local path. Add and sync the repo first.",
+            )
 
     # Cached classifications for this repo, keyed by full SHA — which is
     # exactly what parse_commits puts in c["hash"], so no conversion is needed.
@@ -786,7 +808,9 @@ async def get_repo_commits(
         for c in page
     ]
 
-    return PaginatedCommits(items=items, total=total, limit=limit, offset=offset)
+    return PaginatedCommits(
+        items=items, total=total, limit=limit, offset=offset, stale=stale
+    )
 
 
 @router.get(

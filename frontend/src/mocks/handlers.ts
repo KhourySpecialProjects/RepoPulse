@@ -14,6 +14,8 @@ import type {
   NoteComment,
   Notification,
   NotificationListResponse,
+  NotificationPreferences,
+  UpdateNotificationPreferencesData,
   CollectionAccessEntry,
   PRStats,
   PRListResponse,
@@ -284,6 +286,20 @@ const mockUserDetails: UserDetail[] = [
 const mockNoteComments: NoteComment[] = []
 
 const mockNotifications: Notification[] = []
+
+/** Everything on — what a user who has never edited their choices sees. */
+const mockNotificationPreferences: NotificationPreferences = {
+  subscribed_events: {
+    mention: true,
+    note_comment: true,
+    reminder: true,
+    repo_added: true,
+    repo_removed: true,
+    repo_health_declined: true,
+    pr_opened: true,
+    pr_merged: true,
+  },
+}
 
 const mockCollectionAccess: CollectionAccessEntry[] = []
 
@@ -879,6 +895,20 @@ export const handlers = [
   }),
   http.post(`${BASE}/notifications/mark-all-read`, () => {
     return HttpResponse.json({ marked_read: 0 })
+  }),
+
+  // Subscriptions — a fresh account has everything on.
+  http.get(`${BASE}/notifications/preferences`, () => {
+    return HttpResponse.json(mockNotificationPreferences)
+  }),
+  http.put(`${BASE}/notifications/preferences`, async ({ request }) => {
+    const body = (await request.json()) as UpdateNotificationPreferencesData
+    return HttpResponse.json({
+      subscribed_events: {
+        ...mockNotificationPreferences.subscribed_events,
+        ...body.subscribed_events,
+      },
+    })
   }),
 
   // Pull Requests

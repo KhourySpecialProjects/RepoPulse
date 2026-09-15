@@ -2,6 +2,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   dismissNotification,
   getNotifications,
+  getNotificationPreferences,
+  updateNotificationPreferences,
   getRecentlyDeleted,
   getReminders,
   getUnreadCount,
@@ -14,6 +16,7 @@ import {
   markAllNotificationsRead,
   markAllNotificationsUnread,
 } from '@/services/api'
+import type { UpdateNotificationPreferencesData } from '@/types'
 
 export function useNotifications(params?: {
   unread_only?: boolean
@@ -128,6 +131,34 @@ export function useMarkAllNotificationsUnread() {
     mutationFn: markAllNotificationsUnread,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['notifications'] })
+    },
+  })
+}
+
+// ── Subscriptions ───────────────────────────────────────────────────────────
+
+/** Which events this account wants. Scoped to the signed-in user. */
+export function useNotificationPreferences() {
+  return useQuery({
+    queryKey: ['notifications', 'preferences'],
+    queryFn: getNotificationPreferences,
+    staleTime: 60_000,
+  })
+}
+
+export function useUpdateNotificationPreferences() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: UpdateNotificationPreferencesData) =>
+      updateNotificationPreferences(data),
+    onSuccess: (preferences) => {
+      // The response is the full new map, so seed the cache with it rather
+      // than invalidating and refetching what we were just handed.
+      qc.setQueryData(['notifications', 'preferences'], preferences)
+      // Muting an event stops new rows being created, so what is already in
+      // the feed is unaffected — but a newly unmuted event can start arriving
+      // immediately, and the feed should pick that up.
+      qc.invalidateQueries({ queryKey: ['notifications'], exact: true })
     },
   })
 }

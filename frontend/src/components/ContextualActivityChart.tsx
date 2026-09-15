@@ -58,6 +58,8 @@ export function ContextualActivityChart({ collectionId, repoId, children, action
       </CardHeader>
       <CardContent>
         {isLoading ? <ChartLoading /> : isError ? <p role="alert">Could not load activity. <button onClick={() => refetch()} className="underline">Retry</button></p> : !repo?.available ? <p>Repository history unavailable. Sync the repository and try again.</p> : !repo.activity.length ? <p>No commit history available.</p> : <>
+          {/* Drawn from the last sync's snapshot, not the clone. */}
+          {repo.stale && <p className="mb-2 text-xs text-amber-700">Showing the last synced history — the local clone could not be read.</p>}
           <p className="mb-2 text-sm font-medium">{authorLabel} — commits per day</p>
           <div className="h-56" aria-label="Commit activity graph">
             <ResponsiveContainer width="100%" height="100%">

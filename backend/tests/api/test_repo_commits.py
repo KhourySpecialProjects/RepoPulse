@@ -287,7 +287,10 @@ async def test_repo_commits_returns_paginated_envelope(
 
     assert resp.status_code == 200
     body = resp.json()
-    assert set(body) == {"items", "total", "limit", "offset"}
+    # `stale` rides alongside the standard envelope: it says whether these came
+    # from the clone or from the last sync's snapshot.
+    assert set(body) == {"items", "total", "limit", "offset", "stale"}
+    assert body["stale"] is False
     assert body["total"] == 3
     assert body["offset"] == 0
     assert len(body["items"]) == 3
@@ -453,7 +456,14 @@ async def test_repo_commits_empty_repo_returns_empty_envelope(
         )
 
     assert resp.status_code == 200
-    assert resp.json() == {"items": [], "total": 0, "limit": 50, "offset": 0}
+    # A readable clone that genuinely has no commits: empty, and not stale.
+    assert resp.json() == {
+        "items": [],
+        "total": 0,
+        "limit": 50,
+        "offset": 0,
+        "stale": False,
+    }
 
 
 # ---------------------------------------------------------------------------

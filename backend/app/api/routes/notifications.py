@@ -10,9 +10,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import get_current_user, get_db_session
 from app.models.note import Note
 from app.models.notification import Notification
+from app.models.notification_preference import (
+    DEFAULT_SUBSCRIBED_EVENTS,
+    NotificationPreference,
+)
 from app.models.reminder_share import ReminderShare
 from app.models.user import User
 from app.schemas.errors import ErrorResponse
+from app.schemas.notification_preferences import (
+    NotificationPreferencesRead,
+    NotificationPreferencesUpdate,
+)
 from app.schemas.notifications import (
     NotificationListResponse,
     NotificationRead,
@@ -142,6 +150,79 @@ async def list_notifications(
         total=total,
         unread_count=unread_count,
     )
+
+
+# ---------------------------------------------------------------------------
+# Subscriptions
+# ---------------------------------------------------------------------------
+#
+# Declared before the `/{notification_id}` routes so "preferences" is never
+# matched against them.
+
+
+def _events_for(preference: NotificationPreference | None) -> dict[str, bool]:
+    """The user's full event map, defaults under whatever they have saved.
+
+    Merging this way means an event added after the user last saved reads as
+    subscribed rather than going missing from the response.
+    """
+    stored = preference.subscribed_events if preference is not None else None
+    return {**DEFAULT_SUBSCRIBED_EVENTS, **(stored or {})}
+
+
+async def _preference_row(
+    db: AsyncSession, user_uuid: uuid.UUID
+) -> NotificationPreference | None:
+    result = await db.execute(
+        select(NotificationPreference).where(
+            NotificationPreference.user_id == user_uuid
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+@router.get("/preferences", response_model=NotificationPreferencesRead)
+async def get_notification_preferences(
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> NotificationPreferencesRead:
+    """Which events this user currently wants.
+
+    No row is created here: the default is computed, so reading your
+    preferences stays a read. The row appears the first time you change one.
+    """
+    preference = await _preference_row(db, uuid.UUID(current_user_id))
+    return NotificationPreferencesRead(subscribed_events=_events_for(preference))
+
+
+@router.put("/preferences", response_model=NotificationPreferencesRead)
+async def update_notification_preferences(
+    body: NotificationPreferencesUpdate,
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> NotificationPreferencesRead:
+    """Change some subscriptions, leaving the others as they were.
+
+    Scoped to the caller: there is no path by which one user edits another's
+    subscriptions, which is what keeps a TA's choices separate from a
+    professor's.
+    """
+    user_uuid = uuid.UUID(current_user_id)
+    preference = await _preference_row(db, user_uuid)
+    if preference is None:
+        preference = NotificationPreference(user_id=user_uuid)
+        db.add(preference)
+
+    # Merge, so a client that sends only the checkbox it changed does not
+    # silently reset every other event.
+    preference.subscribed_events = {
+        **_events_for(preference),
+        **body.subscribed_events,
+    }
+
+    await db.commit()
+    await db.refresh(preference)
+    return NotificationPreferencesRead(subscribed_events=_events_for(preference))
 
 
 @router.get(

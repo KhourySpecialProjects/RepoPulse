@@ -13,6 +13,9 @@ import type { Notification } from '@/types'
 const getNotifications = vi.fn()
 
 vi.mock('@/services/api', () => ({
+  // The reminders panel reads the signed-in user's subscriptions.
+  getNotificationPreferences: () => Promise.resolve({ subscribed_events: {} }),
+  updateNotificationPreferences: vi.fn(),
   getNotifications: (...a: unknown[]) => getNotifications(...a),
   getUnreadCount: () => Promise.resolve({ unread_count: 0 }),
   getReminders: () => Promise.resolve({ items: [], total: 0 }),

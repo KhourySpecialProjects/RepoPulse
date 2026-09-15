@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, Fragment } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { TrickleProgress } from '@/components/ui/trickle-progress'
-import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed, TriangleAlert } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, useUnmergeContributor, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests, useClassifyCommits, ALL_COMMITS_PARAMS } from '@/hooks/useRepos'
 import { useRepoSummaries, useContributorSummaries, useGenerateSummary, summaryKeys } from '@/hooks/useSummaries'
@@ -1196,6 +1196,21 @@ export function RepoDetailPage() {
                 <p className="text-muted-foreground text-sm">No commits found.</p>
               ) : (
                 <div className="flex flex-col gap-2">
+                  {/* The clone could not be read, so these came from the last
+                      sync. Said out loud because anything committed since is
+                      missing, and a silently stale list looks live. */}
+                  {allCommitsData.stale && (
+                    <p
+                      data-testid="commits-stale-notice"
+                      className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+                    >
+                      <TriangleAlert className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                      <span>
+                        Showing the last synced history — the local clone could
+                        not be read. Sync the repository for anything newer.
+                      </span>
+                    </p>
+                  )}
                   <div className="flex flex-col gap-2">
                     {allBranches.length > 0 && (
                       <div className="flex flex-wrap items-center gap-1.5">

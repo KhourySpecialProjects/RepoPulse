@@ -8,7 +8,6 @@ import type {
   HealthScore,
   Contributor,
   UnmergeContributorsResponse,
-  Commit,
   Note,
   CreateNoteData,
   UpdateNoteData,
@@ -17,6 +16,7 @@ import type {
   AppSettings,
   UpdateSettingsData,
   PaginatedResponse,
+  CommitsResponse,
   GetCommitsParams,
   GetNotesParams,
   UserDetail,
@@ -28,6 +28,8 @@ import type {
   NoteComment,
   Notification,
   NotificationListResponse,
+  NotificationPreferences,
+  UpdateNotificationPreferencesData,
   ReminderListResponse,
   RecentlyDeletedListResponse,
   CommitQualityResponse,
@@ -170,8 +172,8 @@ export async function getRepoHealth(id: string): Promise<HealthScore> {
   return response.data
 }
 
-export async function getRepoCommits(id: string, params?: GetCommitsParams): Promise<PaginatedResponse<Commit>> {
-  const response = await apiClient.get<PaginatedResponse<Commit>>(`/repos/${id}/commits`, { params })
+export async function getRepoCommits(id: string, params?: GetCommitsParams): Promise<CommitsResponse> {
+  const response = await apiClient.get<CommitsResponse>(`/repos/${id}/commits`, { params })
   return response.data
 }
 
@@ -375,6 +377,24 @@ export async function markAllNotificationsUnread(): Promise<{ marked_unread: num
 
 export async function markAllNotificationsRead(): Promise<{ marked_read: number }> {
   const res = await apiClient.post<{ marked_read: number }>('/notifications/mark-all-read')
+  return res.data
+}
+
+// Which events this account wants to be notified about
+export async function getNotificationPreferences(): Promise<NotificationPreferences> {
+  const res = await apiClient.get<NotificationPreferences>('/notifications/preferences')
+  return res.data
+}
+
+export async function updateNotificationPreferences(
+  data: UpdateNotificationPreferencesData
+): Promise<NotificationPreferences> {
+  // A partial map: the server merges it over what is stored, so sending one
+  // toggled event cannot reset the others.
+  const res = await apiClient.put<NotificationPreferences>(
+    '/notifications/preferences',
+    data
+  )
   return res.data
 }
 
