@@ -29,7 +29,7 @@ class NotificationType(str, enum.Enum):
 
 
 #: Repo-scoped event types, which store their own text rather than deriving it
-#: from a note. Kept here so routes and the email dispatcher agree on the split.
+#: from a note. Kept here so every reader agrees on the split.
 REPO_EVENT_TYPES = frozenset(
     {
         NotificationType.repo_added,
@@ -80,11 +80,6 @@ class Notification(Base):
     # NULL for mention/note_comment/reminder, which derive text from the note.
     subject: Mapped[str | None] = mapped_column(String(300), nullable=True)
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # When the email relay delivered this notification. NULL means never sent —
-    # either the recipient is unsubscribed, the relay is off, or delivery failed.
-    emailed_at: Mapped[DateTime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
     is_read: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False, index=True
     )

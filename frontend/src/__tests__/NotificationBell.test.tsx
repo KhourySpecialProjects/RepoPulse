@@ -36,7 +36,6 @@ const notif = (id: string, isRead = false): Notification => ({
   commit_hash: null,
   subject: null,
   body: null,
-  emailed_at: null,
 })
 
 const reminder = (id: string): Reminder => ({
@@ -105,7 +104,7 @@ function renderSidebar(width = 220) {
     <QueryClientProvider client={makeClient()}>
       <MemoryRouter initialEntries={['/collections']}>
         <SidebarContext.Provider
-          value={{ collapsed: false, setCollapsed: () => {}, width, setWidth: () => {} }}
+          value={{ collapsed: false, setCollapsed: () => {}, width, setWidth: () => {}, dragging: false, setDragging: () => {} }}
         >
           <AppSidebar />
           <LocationDisplay />

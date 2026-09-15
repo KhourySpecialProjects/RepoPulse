@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
+import { useBackState } from '@/hooks/useBackTarget'
 import type { Collection, CreateCollectionData } from '@/types'
 
 const containerVariants = {
@@ -30,6 +31,7 @@ const itemVariants = {
 
 export function CollectionsPage() {
   const navigate = useNavigate()
+  const backState = useBackState()
   const [showArchived, setShowArchived] = useState(false)
   const [editingCollection, setEditingCollection] = useState<Collection | null>(null)
   const [editForm, setEditForm] = useState({ name: '', course_tag: '', semester_tag: '' })
@@ -160,7 +162,7 @@ export function CollectionsPage() {
               <motion.div key={collection.id} variants={itemVariants} className={cn(collection.is_archived && 'opacity-70')}>
                 <Card
                   className="cursor-pointer bg-white shadow-sm hover:shadow-md border border-border hover:border-brand-200 transition-all duration-200 h-full"
-                  onClick={() => navigate(`/collections/${collection.id}`)}
+                  onClick={() => navigate(`/collections/${collection.id}`, { state: backState })}
                 >
                   <CardHeader className="pb-2">
                     <div className="flex items-start justify-between gap-2">

@@ -2,7 +2,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   dismissNotification,
   getNotifications,
-  getNotificationSettings,
+  getNotificationPreferences,
+  updateNotificationPreferences,
   getRecentlyDeleted,
   getReminders,
   getUnreadCount,
@@ -14,10 +15,8 @@ import {
   markNotificationUnread,
   markAllNotificationsRead,
   markAllNotificationsUnread,
-  sendTestEmail,
-  updateNotificationSettings,
 } from '@/services/api'
-import type { UpdateNotificationSettingsData } from '@/types'
+import type { UpdateNotificationPreferencesData } from '@/types'
 
 export function useNotifications(params?: {
   unread_only?: boolean
@@ -136,29 +135,30 @@ export function useMarkAllNotificationsUnread() {
   })
 }
 
-// ── Email relay ─────────────────────────────────────────────────────────────
+// ── Subscriptions ───────────────────────────────────────────────────────────
 
-export function useNotificationSettings() {
+/** Which events this account wants. Scoped to the signed-in user. */
+export function useNotificationPreferences() {
   return useQuery({
-    queryKey: ['notifications', 'settings'],
-    queryFn: getNotificationSettings,
+    queryKey: ['notifications', 'preferences'],
+    queryFn: getNotificationPreferences,
     staleTime: 60_000,
   })
 }
 
-export function useUpdateNotificationSettings() {
+export function useUpdateNotificationPreferences() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: UpdateNotificationSettingsData) =>
-      updateNotificationSettings(data),
-    onSuccess: (settings) => {
-      // The response is the full new state, so seed the cache with it rather
+    mutationFn: (data: UpdateNotificationPreferencesData) =>
+      updateNotificationPreferences(data),
+    onSuccess: (preferences) => {
+      // The response is the full new map, so seed the cache with it rather
       // than invalidating and refetching what we were just handed.
-      qc.setQueryData(['notifications', 'settings'], settings)
+      qc.setQueryData(['notifications', 'preferences'], preferences)
+      // Muting an event stops new rows being created, so what is already in
+      // the feed is unaffected — but a newly unmuted event can start arriving
+      // immediately, and the feed should pick that up.
+      qc.invalidateQueries({ queryKey: ['notifications'], exact: true })
     },
   })
-}
-
-export function useSendTestEmail() {
-  return useMutation({ mutationFn: (to?: string) => sendTestEmail(to) })
 }

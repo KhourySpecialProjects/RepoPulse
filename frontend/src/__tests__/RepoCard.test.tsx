@@ -87,7 +87,9 @@ describe('RepoCard', () => {
     // Click the card itself (not a button)
     const heading = screen.getByText('student-project')
     fireEvent.click(heading.closest('[class*="cursor-pointer"]')!)
-    expect(mockNavigate).toHaveBeenCalledWith('/repos/repo-1')
+    // The origin rides along so the repo page's back arrow returns to the page
+    // the card was clicked on. MemoryRouter defaults to "/" here.
+    expect(mockNavigate).toHaveBeenCalledWith('/repos/repo-1', { state: { from: '/' } })
   })
 
   it('renders critical badge for red status', () => {

@@ -12,14 +12,13 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db_session
-from app.models.notification import Notification, NotificationType
+from app.models.notification import NotificationType
 from app.models.pull_request import PullRequest
 from app.models.repo import Repo
 from app.models.user import User
 from app.schemas.errors import ErrorResponse
 from app.services.github_service import GitHubService
 from app.services.notification_service import (
-    deliver_emails,
     notify_repo_event,
     recipients_for_repo,
 )
@@ -170,9 +169,8 @@ async def sync_pull_requests(
         )
         await db.execute(stmt)
 
-        raised = await _notify_pr_changes(db, repo, rows, known_states)
+        await _notify_pr_changes(db, repo, rows, known_states)
         await db.commit()
-        await deliver_emails(db, raised)
 
     return PRSyncResponse(
         synced=len(raw_prs),
@@ -186,7 +184,7 @@ async def _notify_pr_changes(
     repo: Repo,
     rows: list[dict],
     known_states: dict[int, str],
-) -> list[Notification]:
+) -> None:
     """Raise pr_opened / pr_merged for PRs whose state is news.
 
     A PR is "opened" only the first time this repo sees it, and "merged" only
@@ -208,9 +206,8 @@ async def _notify_pr_changes(
     # synced while it genuinely had zero PRs, and whose very first PR arrives
     # later. That is a far better failure than the storm.
     if not known_states:
-        return []
+        return
 
-    raised: list[Notification] = []
     # Resolved once: the audience is the same for every PR on this repo.
     recipients = await recipients_for_repo(db, repo)
 
@@ -220,7 +217,7 @@ async def _notify_pr_changes(
         previously = known_states.get(number)
 
         if previously is None and state == "open":
-            raised += await notify_repo_event(
+            await notify_repo_event(
                 db,
                 repo=repo,
                 type=NotificationType.pr_opened,
@@ -232,7 +229,7 @@ async def _notify_pr_changes(
                 recipients=recipients,
             )
         elif state == "merged" and previously != "merged":
-            raised += await notify_repo_event(
+            await notify_repo_event(
                 db,
                 repo=repo,
                 type=NotificationType.pr_merged,
@@ -243,8 +240,6 @@ async def _notify_pr_changes(
                 ),
                 recipients=recipients,
             )
-
-    return raised
 
 
 @router.get(
