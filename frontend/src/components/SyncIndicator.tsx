@@ -15,7 +15,7 @@ export function SyncIndicator({ repo, className }: { repo: Repo; className?: str
       <span
         data-testid="sync-indicator"
         className={cn(
-          'inline-flex items-center gap-1.5 text-xs text-indigo-600',
+          'inline-flex items-center gap-1.5 text-xs text-brand-600',
           className
         )}
       >

@@ -199,8 +199,8 @@ export function SettingsPage() {
     currentUser?.role === 'admin'
       ? 'bg-rose-100 text-rose-700'
       : currentUser?.role === 'ta'
-        ? 'bg-violet-100 text-violet-700'
-        : 'bg-indigo-100 text-indigo-700'
+        ? 'bg-orchid-100 text-orchid-700'
+        : 'bg-brand-100 text-brand-700'
 
   return (
     <motion.div
@@ -440,7 +440,7 @@ export function SettingsPage() {
                     className={cn(
                       'px-4 py-1.5 text-sm font-medium transition-colors',
                       provider === p
-                        ? 'bg-indigo-600 text-white'
+                        ? 'bg-brand-600 text-white'
                         : 'bg-white text-muted-foreground hover:bg-muted'
                     )}
                   >

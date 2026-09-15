@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { TrickleProgress } from '@/components/ui/trickle-progress'
 import { useContextualActivity } from '@/hooks/useContextualActivity'
 import { ACTIVITY_LEGEND, GOOD_HISTORY_COLOR, MARKER_RING, activityContextColor, contextualizeActivity } from '@/lib/activityContext'
+import { BRAND } from '@/lib/theme'
 import type { ActivityContextKind, ContextActivityPoint } from '@/types'
 
 /** A day the graph puts a marker on — `kind` is known non-null. */
@@ -21,7 +22,7 @@ function ActivityTooltip({ active, payload }: { active?: boolean; payload?: { pa
 function ChartLoading() {
   return (
     <div role="status" aria-label="Loading commit activity graph" className="flex h-56 flex-col items-center justify-center gap-3">
-      <div aria-hidden="true" className="h-8 w-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin motion-reduce:animate-none" />
+      <div aria-hidden="true" className="h-8 w-8 rounded-full border-2 border-brand-500 border-t-transparent animate-spin motion-reduce:animate-none" />
       <p className="text-sm text-muted-foreground">Loading student activity…</p>
       <TrickleProgress label="Commit activity loading progress" />
     </div>
@@ -71,15 +72,17 @@ export function ContextualActivityChart({ collectionId, repoId, children, action
               <AreaChart data={points} margin={{ top: 12, right: 16, bottom: 0, left: 0 }}>
                 <defs>
                   <linearGradient id="contextualActivityGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0.05} />
+                    <stop offset="5%" stopColor={BRAND.violet} stopOpacity={0.3} />
+                    <stop offset="95%" stopColor={BRAND.violet} stopOpacity={0.05} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={35} />
                 <YAxis allowDecimals={false} />
                 <Tooltip content={<ActivityTooltip />} />
-                <Area dataKey="count" type="monotone" stroke="#6366f1" strokeWidth={2} fill="url(#contextualActivityGradient)" />
+                {/* Series colour is brand; marker colours stay semantic, since
+                    they encode what kind of day it was. */}
+                <Area dataKey="count" type="monotone" stroke={BRAND.violet} strokeWidth={2} fill="url(#contextualActivityGradient)" />
                 {normalPoint && <ReferenceDot x={normalPoint.date} y={normalPoint.count} r={0} label={{ value: '✓', position: 'top', fill: GOOD_HISTORY_COLOR, fontSize: 20 }} />}
                 {annotations.map(p => <ReferenceDot key={p.date} x={p.date} y={p.count} r={6} fill={activityContextColor(p.kind)} stroke={MARKER_RING} strokeWidth={1.5} />)}
               </AreaChart>

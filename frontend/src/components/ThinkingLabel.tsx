@@ -50,9 +50,9 @@ export function ThinkingLabel() {
   }, [reducedMotion])
 
   return (
-    <span aria-hidden="true" className="inline-flex items-center text-violet-600">
+    <span aria-hidden="true" className="inline-flex items-center text-orchid-600">
       <span>{reducedMotion ? 'Generating…' : text}</span>
-      <span className="summary-thinking-cursor ml-0.5 inline-block h-4 w-[2px] shrink-0 rounded-full bg-violet-500" />
+      <span className="summary-thinking-cursor ml-0.5 inline-block h-4 w-[2px] shrink-0 rounded-full bg-orchid-500" />
     </span>
   )
 }

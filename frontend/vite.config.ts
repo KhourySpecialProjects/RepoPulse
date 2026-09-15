@@ -24,5 +24,10 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    // Vitest's default (`false`) replaces every CSS import — `?raw` included —
+    // with an empty string, which silently made the theme-token guards assert
+    // nothing at all. Costs the suite nothing: only main.tsx imports CSS, and
+    // no test renders it.
+    css: true,
   },
 })

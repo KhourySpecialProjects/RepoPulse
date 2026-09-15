@@ -44,7 +44,7 @@ export function HealthMixDonut({ repos, className, loading, failed, selectedStat
           </div>
           <ul className="min-w-0 flex-1 space-y-1">
             {mix.map(slice => <li key={slice.status}>
-              <button type="button" aria-label={`Show ${slice.label} repositories`} aria-pressed={selectedStatus === slice.status} onClick={() => onSelectStatus?.(slice.status)} className={cn('flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-xs transition-colors hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-indigo-500', selectedStatus === slice.status && 'bg-indigo-50 ring-1 ring-indigo-200')}>
+              <button type="button" aria-label={`Show ${slice.label} repositories`} aria-pressed={selectedStatus === slice.status} onClick={() => onSelectStatus?.(slice.status)} className={cn('flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-xs transition-colors hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-brand-500', selectedStatus === slice.status && 'bg-brand-50 ring-1 ring-brand-200')}>
                 <span className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', DOT_CLASS[slice.status])} /><span className="flex-1 text-left text-slate-500">{slice.label}</span><span className="font-semibold tabular-nums">{slice.count}</span>
               </button>
             </li>)}
@@ -53,7 +53,7 @@ export function HealthMixDonut({ repos, className, loading, failed, selectedStat
         <div className="min-h-0 flex-shrink-0 border-t border-slate-100 pt-2">
           <p className="mb-2 text-[10px] text-slate-400">Repository map · select a tile</p>
           <nav aria-label="Repository health map" className="flex max-h-12 flex-wrap gap-1 overflow-y-auto">
-            {repos.map(repo => <Link key={repo.id} to={`/repos/${repo.id}`} state={backState} title={`${repo.name} · ${HEALTH_STATUS_LABELS[repo.health_status]}`} aria-label={`${repo.name} · ${HEALTH_STATUS_LABELS[repo.health_status]}`} className={cn('flex h-5 w-5 items-center justify-center rounded-md border transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-indigo-500', TILE_CLASS[repo.health_status])}><GitBranch className="h-2.5 w-2.5" /></Link>)}
+            {repos.map(repo => <Link key={repo.id} to={`/repos/${repo.id}`} state={backState} title={`${repo.name} · ${HEALTH_STATUS_LABELS[repo.health_status]}`} aria-label={`${repo.name} · ${HEALTH_STATUS_LABELS[repo.health_status]}`} className={cn('flex h-5 w-5 items-center justify-center rounded-md border transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-brand-500', TILE_CLASS[repo.health_status])}><GitBranch className="h-2.5 w-2.5" /></Link>)}
           </nav>
         </div>
       </>}

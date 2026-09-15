@@ -12,6 +12,7 @@ import {
 } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useCollectionCommitActivity } from '@/hooks/useCollections'
+import { BRAND } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 
 type ChartRange = '7d' | '30d' | '90d' | 'all'
@@ -62,8 +63,8 @@ export function CollectionCommitActivityChart({ collectionId }: Props) {
                   className={cn(
                     'text-xs px-2 py-1 rounded border transition-colors',
                     range === r
-                      ? 'bg-indigo-600 text-white border-indigo-600'
-                      : 'text-muted-foreground border-border hover:border-indigo-300'
+                      ? 'bg-brand-600 text-white border-brand-600'
+                      : 'text-muted-foreground border-border hover:border-brand-300'
                   )}
                 >
                   {r === 'all' ? 'All' : r}
@@ -88,8 +89,8 @@ export function CollectionCommitActivityChart({ collectionId }: Props) {
                 <AreaChart data={chartData}>
                   <defs>
                     <linearGradient id="collectionActivityGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0.05} />
+                      <stop offset="5%" stopColor={BRAND.violet} stopOpacity={0.3} />
+                      <stop offset="95%" stopColor={BRAND.violet} stopOpacity={0.05} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
@@ -118,14 +119,14 @@ export function CollectionCommitActivityChart({ collectionId }: Props) {
                   <Area
                     type="monotone"
                     dataKey="count"
-                    stroke="#6366f1"
+                    stroke={BRAND.violet}
                     fill="url(#collectionActivityGradient)"
                     strokeWidth={2}
                   >
                     <LabelList
                       dataKey="count"
                       position="top"
-                      style={{ fontSize: 13, fill: '#6366f1', fontWeight: 600 }}
+                      style={{ fontSize: 13, fill: BRAND.violet, fontWeight: 600 }}
                     />
                   </Area>
                 </AreaChart>

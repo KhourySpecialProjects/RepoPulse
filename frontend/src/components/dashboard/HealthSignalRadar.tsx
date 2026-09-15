@@ -9,6 +9,7 @@ import {
 } from 'recharts'
 import { averageHealthSignals } from '@/lib/dashboardInsights'
 import { cn } from '@/lib/utils'
+import { BRAND } from '@/lib/theme'
 import type { Repo } from '@/types'
 
 /** Each signal is scored 0–2 by the backend. */
@@ -51,9 +52,9 @@ export function HealthSignalRadar({ repos, className, loading, failed }: { repos
               />
               <Radar
                 dataKey="value"
-                stroke="#4f46e5"
+                stroke={BRAND.violet}
                 strokeWidth={2}
-                fill="#6366f1"
+                fill={BRAND.violet}
                 fillOpacity={0.25}
               />
             </RadarChart>
@@ -62,7 +63,7 @@ export function HealthSignalRadar({ repos, className, loading, failed }: { repos
       </div>
 
       {!loading && !failed && weakest && (
-        <p className="mt-2 rounded-lg bg-indigo-50/60 px-2 py-2 text-[11px] text-slate-500">
+        <p className="mt-2 rounded-lg bg-brand-50/60 px-2 py-2 text-[11px] text-slate-500">
           Weakest signal:{' '}
           <span className="font-medium text-foreground">{weakest.label}</span> at{' '}
           {weakest.value.toFixed(1)} of {SIGNAL_MAX}.
