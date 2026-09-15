@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { ExternalLink, Code2, RefreshCw, Trash2, Users, Clock, Bell, GitCommit } from 'lucide-react'
-import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Sparkline } from '@/components/charts'
 import { HealthBadge } from '@/components/HealthBadge'
 import { SyncIndicator } from '@/components/SyncIndicator'
 import { useSyncRepo, useDeleteRepo } from '@/hooks/useRepos'
 import { useCurrentUser } from '@/hooks/useUsers'
+import { useBackState } from '@/hooks/useBackTarget'
 import type { Repo, HealthStatus } from '@/types'
 
 const healthBorderClass: Record<HealthStatus, string> = {
@@ -37,13 +38,12 @@ function formatDateTime(dateStr: string | null): string {
 
 export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
   const navigate = useNavigate()
+  const backState = useBackState()
   const syncMutation = useSyncRepo()
   const deleteRepoMutation = useDeleteRepo()
   const [syncing, setSyncing] = useState(false)
   const { data: currentUser } = useCurrentUser()
   const hasToken = Boolean(currentUser?.github_token_configured)
-
-  const sparklineData = weeklyCommits.map((count, index) => ({ week: index, commits: count }))
 
   function handleGitHub() {
     window.open(repo.github_url, '_blank', 'noopener,noreferrer')
@@ -74,7 +74,7 @@ export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
   }
 
   function handleDetails() {
-    navigate(`/repos/${repo.id}`)
+    navigate(`/repos/${repo.id}`, { state: backState })
   }
 
   return (
@@ -84,7 +84,7 @@ export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
       exit={{ opacity: 0, y: -10 }}
       transition={{ duration: 0.25, ease: 'easeOut' }}
     >
-      <Card className={cn('flex flex-col h-full bg-white shadow-sm hover:shadow-md border border-gray-100 transition-all duration-200 cursor-pointer overflow-hidden', healthBorderClass[repo.health_status])} onClick={handleDetails}>
+      <Card className={cn('flex flex-col h-full bg-white shadow-sm hover:shadow-md border border-border transition-all duration-200 cursor-pointer overflow-hidden', healthBorderClass[repo.health_status])} onClick={handleDetails}>
         <CardHeader className="pb-2">
           <div className="flex items-start justify-between gap-2">
             <h3 className="font-semibold text-base leading-tight truncate flex-1" title={repo.name}>
@@ -121,25 +121,10 @@ export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
 
           <SyncIndicator repo={repo} className="mt-2" />
 
-          {sparklineData.length > 0 && (
-            <div className="h-12">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={sparklineData}>
-                  <Line
-                    type="monotone"
-                    dataKey="commits"
-                    stroke="hsl(var(--primary))"
-                    strokeWidth={1.5}
-                    dot={false}
-                  />
-                  <Tooltip
-                    contentStyle={{ fontSize: '11px', padding: '4px 8px' }}
-                    formatter={(value: number) => [`${value} commits`, 'Week']}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          )}
+          {/* Was an inline LineChart duplicating what the admin tiles
+              needed; both now share one component, so a change to the
+              sparkline cannot land in one place and not the other. */}
+          <Sparkline values={weeklyCommits} unit="commits" className="h-12" />
 
           <div className="flex items-center gap-1 mt-auto pt-1" onClick={(e) => e.stopPropagation()}>
             <Button

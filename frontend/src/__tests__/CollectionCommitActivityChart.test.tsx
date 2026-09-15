@@ -89,7 +89,7 @@ describe('CollectionCommitActivityChart', () => {
     renderChart()
     // Default range is 30d
     const thirtyBtn = await screen.findByRole('button', { name: '30d' })
-    expect(thirtyBtn.className).toContain('bg-indigo-600')
+    expect(thirtyBtn.className).toContain('bg-brand-600')
   })
 
   it('switches active range when a button is clicked', async () => {
@@ -97,8 +97,10 @@ describe('CollectionCommitActivityChart', () => {
     renderChart()
     await screen.findByRole('button', { name: '7d' })
     fireEvent.click(screen.getByRole('button', { name: '7d' }))
-    expect(screen.getByRole('button', { name: '7d' }).className).toContain('bg-indigo-600')
-    expect(screen.getByRole('button', { name: '30d' }).className).not.toContain('bg-indigo-600')
+    expect(screen.getByRole('button', { name: '7d' }).className).toContain('bg-brand-600')
+    // Paired with the positive assertion above so a renamed brand class can
+    // not make this pass vacuously.
+    expect(screen.getByRole('button', { name: '30d' }).className).not.toContain('bg-brand-600')
   })
 
   it('shows empty state when all filtered points have zero commits', async () => {

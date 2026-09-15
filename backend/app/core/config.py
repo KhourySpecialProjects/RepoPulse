@@ -19,11 +19,6 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     GITHUB_TOKEN: str = ""
 
-    # Where the frontend is reachable. Only used to build links in notification
-    # emails — an email whose link points at the container's own hostname is
-    # useless, so this is the one place the public address is configured.
-    APP_BASE_URL: str = "http://localhost:5173"
-
     # The single source of truth for which model the app talks to. Models get
     # retired: when that happens every LLM feature 404s at once, and this is the
     # one line that has to change. Overridable per-user via AppSettings, and per

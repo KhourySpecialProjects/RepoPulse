@@ -165,13 +165,116 @@ export interface AppSettings {
   id: string
   user_id: string
   repo_root_directory: string
-  llm_provider: string
-  llm_model: string
-  anthropic_api_key_configured: boolean
-  ollama_base_url: string | null
   health_thresholds: Record<string, unknown> | null
   /** Instructor rubric added to the built-in criteria. '' means no addendum. */
   commit_evaluation_criteria: string
+  /**
+   * The model the instance is configured to use. Read-only here — the
+   * provider, the model and the API key are one instance-wide setting only an
+   * administrator can change (see LlmConfig). Shown so a user knows what will
+   * run without needing admin rights.
+   */
+  llm_model: string
+}
+
+/**
+ * One user's AI token allowance for the current calendar month.
+ *
+ * `limit` and `remaining` are null together, and only for an administrator,
+ * who is never metered. Branch on `unlimited` rather than on null.
+ */
+export interface TokenQuota {
+  /** Calendar month the usage counts against, e.g. '2026-09'. */
+  period: string
+  used: number
+  limit: number | null
+  remaining: number | null
+  unlimited: boolean
+  exceeded: boolean
+}
+
+/** The instance-wide LLM configuration. Admin-only. */
+export interface LlmConfig {
+  id: string
+  llm_provider: 'anthropic' | 'ollama'
+  llm_model: string
+  /** True when a key is available, from the database or the environment. */
+  anthropic_api_key_configured: boolean
+  /** True when the working key comes from ANTHROPIC_API_KEY, not the panel. */
+  anthropic_api_key_from_env: boolean
+  ollama_base_url: string | null
+  default_monthly_token_limit: number
+  /**
+   * USD per million tokens, set by an administrator. Serialised as a decimal
+   * string so no precision is lost in transit. Null means no rate is set,
+   * which is reported as cost unavailable rather than as zero.
+   */
+  input_price_per_mtok: string | null
+  output_price_per_mtok: string | null
+  updated_at: string | null
+}
+
+export interface UpdateLlmConfigData {
+  llm_provider?: 'anthropic' | 'ollama'
+  llm_model?: string
+  /** null clears the stored key and falls back to ANTHROPIC_API_KEY. */
+  anthropic_api_key?: string | null
+  ollama_base_url?: string | null
+  default_monthly_token_limit?: number
+  /** null clears the rate, which stops a cost being reported at all. */
+  input_price_per_mtok?: string | null
+  output_price_per_mtok?: string | null
+}
+
+/**
+ * Instance-wide token spend for a month, and what it cost.
+ *
+ * Everything but the rates is measured: the token counts come from what the
+ * provider reported per call. Replaces the old LLM Usage tab's "Token usage
+ * and cost" card, which could only report that nothing was recorded.
+ */
+export interface TokenUsageSummary {
+  period: string
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  /** Successful calls. A failed call writes no usage row. */
+  calls: number
+  models: string[]
+  input_price_per_mtok: string | null
+  output_price_per_mtok: string | null
+  /** Null when either rate is unset — an unknown cost, not a free one. */
+  estimated_cost_usd: string | null
+  /**
+   * True when more than one model spent tokens this period. One
+   * instance-wide rate pair cannot price two models, so the total is
+   * approximate and has to be labelled as such.
+   */
+  mixed_models: boolean
+}
+
+/** A row of the admin token-usage table. */
+export interface UserTokenUsage {
+  user_id: string
+  display_name: string
+  email: string
+  role: UserRole
+  used: number
+  limit: number | null
+  remaining: number | null
+  unlimited: boolean
+  exceeded: boolean
+  /**
+   * This user's own override, or null when they follow the instance default.
+   * Distinct from `limit`, the resolved effective number — both are needed to
+   * tell "500,000 (default)" from "500,000 (set for this user)".
+   */
+  override: number | null
+}
+
+export interface UserTokenUsageListResponse
+  extends PaginatedResponse<UserTokenUsage> {
+  period: string
 }
 
 export interface PaginatedResponse<T> {
@@ -179,6 +282,17 @@ export interface PaginatedResponse<T> {
   total: number
   limit: number
   offset: number
+}
+
+/**
+ * Commits, plus whether they are live.
+ *
+ * `stale` means the local clone could not be read and these came from the
+ * snapshot written at the last successful sync — worth saying out loud, since
+ * anything committed since then is missing.
+ */
+export interface CommitsResponse extends PaginatedResponse<Commit> {
+  stale: boolean
 }
 
 export interface TokenResponse {
@@ -222,13 +336,6 @@ export interface UpdateNoteData {
   remind_at?: string | null
   is_checked?: boolean
   is_archived?: boolean
-}
-
-export interface UserSummary {
-  id: string
-  display_name: string
-  email: string
-  role: string
 }
 
 export interface UserDetail {
@@ -309,8 +416,6 @@ export interface Notification {
   /** Set on repo-scoped events only. */
   subject: string | null
   body: string | null
-  /** When the email relay delivered this, or null if it never did. */
-  emailed_at: string | null
 }
 
 export interface NotificationListResponse {
@@ -319,52 +424,20 @@ export interface NotificationListResponse {
   unread_count: number
 }
 
-export type EmailTransport = 'smtp' | 'resend'
-export type SmtpEncryption = 'none' | 'starttls' | 'tls'
-
 /**
- * The email relay panel's state.
+ * Which events this account wants to be notified about.
  *
- * Stored secrets are never sent to the client — `smtp_password_set` and
- * `resend_api_key_set` report only whether one is on file.
+ * Per user, not per instance: a TA and a professor on the same collection each
+ * have their own map. Always complete — the server merges defaults in — so the
+ * UI can render the full list without guessing.
  */
-export interface NotificationSettings {
-  email_enabled: boolean
-  transport: EmailTransport
-  from_email: string | null
-  from_name: string | null
-  smtp_host: string | null
-  smtp_port: number | null
-  smtp_username: string | null
-  smtp_encryption: SmtpEncryption
-  smtp_password_set: boolean
-  resend_api_key_set: boolean
+export interface NotificationPreferences {
   subscribed_events: Record<NotificationEvent, boolean>
-  /** Whether a send would currently be attempted. */
-  deliverable: boolean
 }
 
-/**
- * A partial update. Omitted fields keep their stored value; for the two secret
- * fields an empty string clears the stored credential.
- */
-export interface UpdateNotificationSettingsData {
-  email_enabled?: boolean
-  transport?: EmailTransport
-  from_email?: string
-  from_name?: string
-  smtp_host?: string
-  smtp_port?: number
-  smtp_username?: string
-  smtp_password?: string
-  smtp_encryption?: SmtpEncryption
-  resend_api_key?: string
-  subscribed_events?: Partial<Record<NotificationEvent, boolean>>
-}
-
-export interface TestEmailResponse {
-  detail: string
-  sent_to: string
+/** A partial update: send only the events being changed. */
+export interface UpdateNotificationPreferencesData {
+  subscribed_events: Partial<Record<NotificationEvent, boolean>>
 }
 
 /** An outstanding reminder, as shown in the notifications panel. */
@@ -394,12 +467,15 @@ export interface GenerateSummaryData {
   summary_type: SummaryType
 }
 
+/**
+ * What a user may change about their own settings.
+ *
+ * No provider, model or API key: those moved to the admin-only LlmConfig.
+ * The backend ignores them if sent, so their absence here is the type
+ * catching it at compile time instead.
+ */
 export interface UpdateSettingsData {
   repo_root_directory?: string
-  llm_provider?: string
-  llm_model?: string
-  anthropic_api_key?: string
-  ollama_base_url?: string | null
   health_thresholds?: Record<string, unknown> | null
   commit_evaluation_criteria?: string
 }
@@ -505,9 +581,15 @@ export interface PRSyncResponse {
   fetched_at: string
 }
 
+/** Why a day is marked on the activity graph. Drives the marker colour and the
+ *  graph's legend, so the reason is readable without opening a tooltip. */
+export type ActivityContextKind = 'burst-unusual' | 'burst-deadline' | 'quiet'
+
 export interface ContextActivityPoint extends CommitActivityPoint {
   ts: number
   context: string
+  /** null on an unremarkable day — no marker, no legend entry. */
+  kind: ActivityContextKind | null
 }
 export interface StudentActivity {
   id: string
@@ -518,6 +600,8 @@ export interface RepositoryActivity {
   id: string
   name: string
   available: boolean
+  /** True when the history came from the last sync's snapshot, not the clone. */
+  stale?: boolean
   activity: CommitActivityPoint[]
   students: StudentActivity[]
 }
@@ -723,5 +807,117 @@ export interface AdminLlmUsage {
   models_in_use: string[]
   retired_models_in_use: string[]
   current_default_model: string
+  generated_at: string
+}
+
+// ---------------------------------------------------------------------------
+// Admin pipeline health
+//
+// This block answers "is the application working", not "how are the students
+// doing". Health data appears only as coverage — unknown status and a null
+// health_score both mean the scoring pipeline did not run. The
+// green/yellow/red spread is an instructor concern and is not served here.
+// ---------------------------------------------------------------------------
+
+/** All three states always present, zero-filled. */
+export interface AdminSyncStateCounts {
+  idle: number
+  syncing: number
+  failed: number
+}
+
+/**
+ * Repos grouped by identical sync_error.
+ *
+ * Grouped because the shape of the failure is the diagnosis: twelve repos
+ * failing on one credential is one problem, not twelve.
+ */
+export interface AdminSyncErrorGroup {
+  error: string
+  repos: number
+  example_repo_name: string
+  last_seen: string | null
+}
+
+export type AdminAgeBucketKey =
+  | 'lt1d'
+  | '1to3d'
+  | '3to7d'
+  | '7to30d'
+  | 'gt30d'
+  | 'never'
+
+/** `never` is its own bucket, not an infinite age — it sits off the ramp. */
+export interface AdminAgeBucket {
+  key: AdminAgeBucketKey
+  label: string
+  repos: number
+}
+
+export type AdminCoverageGapKey =
+  | 'no_health_score'
+  | 'unknown_health'
+  | 'unmeasured_clone'
+  | 'missing_clone'
+  | 'orphan_directory'
+  | 'unattributed_summary'
+
+/** Always carries its own `total`: the denominators genuinely differ per gap. */
+export interface AdminCoverageGap {
+  key: AdminCoverageGapKey
+  label: string
+  affected: number
+  total: number
+}
+
+export interface AdminPipeline {
+  sync_state: AdminSyncStateCounts
+  sync_errors: AdminSyncErrorGroup[]
+  /** Over last_synced_at (when we pulled), never last_commit_at. */
+  sync_age: AdminAgeBucket[]
+  coverage: AdminCoverageGap[]
+  generated_at: string
+}
+
+// ---------------------------------------------------------------------------
+// Admin attention
+// ---------------------------------------------------------------------------
+
+/**
+ * Operational codes only. There is deliberately no `health_red`: a failing
+ * student project is an instructor's problem, and listing it here would bury
+ * the faults only an admin can fix.
+ */
+export type AdminAttentionCode =
+  | 'sync_failed'
+  | 'never_synced'
+  | 'stale_sync'
+  | 'clone_missing'
+  | 'unmeasured'
+  | 'no_health_data'
+
+export interface AdminAttentionReason {
+  code: AdminAttentionCode
+  label: string
+}
+
+export interface AdminAttentionRepo {
+  id: string
+  name: string
+  collection_id: string
+  collection_name: string
+  sync_status: string
+  sync_error: string | null
+  last_synced_at: string | null
+  local_path: string | null
+  reasons: AdminAttentionReason[]
+  severity: number
+}
+
+export interface AdminAttention {
+  items: AdminAttentionRepo[]
+  total: number
+  limit: number
+  offset: number
   generated_at: string
 }

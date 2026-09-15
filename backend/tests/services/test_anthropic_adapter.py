@@ -1,9 +1,13 @@
-"""Tests for AnthropicAdapter's response unwrapping.
+"""Tests for AnthropicAdapter's response unwrapping and token accounting.
 
 Newer Claude models can return a ThinkingBlock ahead of the text, so the
 response content is a list whose first element is not necessarily what the
 caller wants. Reading content[0].text raises AttributeError on those models —
 which surfaced as every LLM call in the app failing at once.
+
+The token counts matter for a second reason: they are what the per-user
+monthly quota charges against, so they have to come from what the API
+reported and accumulate across every call the adapter makes.
 """
 from __future__ import annotations
 
@@ -19,12 +23,15 @@ def _block(kind: str, **attrs: object) -> SimpleNamespace:
     return SimpleNamespace(type=kind, **attrs)
 
 
-def _adapter_returning(*blocks: SimpleNamespace) -> AnthropicAdapter:
+def _adapter_returning(
+    *blocks: SimpleNamespace, usage: SimpleNamespace | None = None
+) -> AnthropicAdapter:
     adapter = AnthropicAdapter(model="claude-sonnet-5", api_key="test-key")
+    response = SimpleNamespace(content=list(blocks))
+    if usage is not None:
+        response.usage = usage
     adapter._client = SimpleNamespace(
-        messages=SimpleNamespace(
-            create=AsyncMock(return_value=SimpleNamespace(content=list(blocks)))
-        )
+        messages=SimpleNamespace(create=AsyncMock(return_value=response))
     )
     return adapter
 
@@ -69,3 +76,60 @@ async def test_system_prompt_is_passed_through_only_when_given(system: str | Non
     assert kwargs["max_tokens"] == 64
     assert kwargs["model"] == "claude-sonnet-5"
     assert ("system" in kwargs) is (system is not None)
+
+
+# ── token accounting ─────────────────────────────────────────────────────────
+
+
+async def test_usage_starts_at_zero() -> None:
+    adapter = _adapter_returning(_block("text", text="ok"))
+    assert adapter.usage.total_tokens == 0
+
+
+async def test_usage_records_what_the_api_reported() -> None:
+    adapter = _adapter_returning(
+        _block("text", text="ok"),
+        usage=SimpleNamespace(input_tokens=1_200, output_tokens=340),
+    )
+
+    await adapter.generate("prompt")
+
+    assert adapter.usage.input_tokens == 1_200
+    assert adapter.usage.output_tokens == 340
+    assert adapter.usage.total_tokens == 1_540
+
+
+async def test_usage_accumulates_across_calls() -> None:
+    """The classifier reuses one adapter for every chunk of a batch, so the
+    per-request total is the sum over its calls, not the last one."""
+    adapter = _adapter_returning(
+        _block("text", text="ok"),
+        usage=SimpleNamespace(input_tokens=10, output_tokens=5),
+    )
+
+    await adapter.generate("one")
+    await adapter.generate("two")
+    await adapter.generate("three")
+
+    assert adapter.usage.total_tokens == 45
+
+
+async def test_a_response_without_usage_counts_as_zero() -> None:
+    """Never a guess. An unreported call is charged nothing rather than an
+    invented average — the quota has to be defensible to the user it blocks."""
+    adapter = _adapter_returning(_block("text", text="ok"))
+
+    await adapter.generate("prompt")
+
+    assert adapter.usage.total_tokens == 0
+
+
+async def test_usage_is_recorded_even_when_no_text_comes_back() -> None:
+    """A thinking-only answer is useless to the caller and still billed."""
+    adapter = _adapter_returning(
+        _block("thinking", thinking="..."),
+        usage=SimpleNamespace(input_tokens=80, output_tokens=200),
+    )
+
+    assert await adapter.generate("prompt") == ""
+    assert adapter.usage.total_tokens == 280

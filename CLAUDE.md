@@ -108,7 +108,13 @@ Every feature is built test-first. The workflow is always:
 
 ### LLM Integration
 - All LLM calls go through the abstract `LLMService` interface in `app/services/llm/base.py`.
-- The Anthropic adapter reads the API key from `ANTHROPIC_API_KEY` env var and the model from the user's `AppSettings`.
+- **The provider, model and API key are instance-wide and admin-only**, held in the single `llm_config` row (`app/models/llm_config.py`). Users do not supply their own key. `get_llm_config` creates that row on first read from `settings.DEFAULT_LLM_*`, so a fresh install works with nothing configured; the Anthropic adapter falls back to the `ANTHROPIC_API_KEY` env var when no key is stored.
+- `resolve_llm_settings(db, user_id)` is the one way to get a request's LLM config. It reads the instance config plus that user's `commit_evaluation_criteria` — the rubric is the only per-user LLM setting left on `AppSettings`.
+- **Every LLM entry point must call `require_quota(db, user)` before building the adapter, and `record_usage(...)` after.** A quota enforced at some entry points is no quota — the unguarded one becomes the way around it. `QuotaExceeded` is translated into the 429 envelope by a handler in `main.py`, so routes need no try/except.
+- Token counts come from what the provider reported, accumulated on the adapter's `usage`. Never estimate: `LlmUsage` in `app/schemas/admin.py` documents why an invented figure is worse than none.
+- Limits are per calendar month (UTC), resolved as: admins are unmetered → `users.monthly_token_limit` when not NULL (0 means no access) → `llm_config.default_monthly_token_limit`.
+- **Cost is priced from admin-entered rates only** (`llm_config.input/output_price_per_mtok`, `Numeric` not float). No built-in price table — it would go stale silently. Both rates NULL means cost is reported as *unavailable*, never as `$0.00`, which would call a month of real spend free.
+- The admin panel has one AI tab, `AiSettingsTab`. There is no LLM Usage tab: the token-and-cost report sits at the bottom of AI Settings beside the rates it is priced at, and call volume over time is the Overview tab's `LlmVolumeCard`. `/admin/llm-usage` still backs that card — do not delete it.
 - Summary prompts are defined as templates in the `SummaryService`, not in the adapter.
 - Store all generated summaries in the `Summary` table with model name and timestamp.
 - Do not call the LLM during tests. Mock the `LLMService` interface in test fixtures.

@@ -23,7 +23,7 @@ import os
 import shutil
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select, text
@@ -33,8 +33,14 @@ from app.core.config import settings
 from app.db.database import Base
 from app.models.repo import Repo
 from app.schemas.admin import (
+    AdminAttention,
     AdminOverview,
+    AdminPipeline,
+    AgeBucket,
+    AttentionReason,
+    AttentionRepo,
     CloneStorage,
+    CoverageGap,
     DiskUsage,
     DriftItem,
     EntityCounts,
@@ -48,7 +54,9 @@ from app.schemas.admin import (
     RepoStorageItem,
     StorageDrift,
     StorageSummary,
+    SyncErrorGroup,
     SyncFreshness,
+    SyncStateCounts,
     SystemStatus,
     TableStat,
 )
@@ -203,6 +211,144 @@ _LLM_UNATTRIBUTED_SQL = text(
       AND s.generated_at >= now() - make_interval(days => :days)
     """
 )
+
+
+# ---------------------------------------------------------------------------
+# Pipeline health
+#
+# Health data appears here only as coverage — `unknown` status and a NULL
+# health_score, both of which mean "the scoring pipeline did not run". The
+# green/yellow/red spread is deliberately absent: that is an instructor's
+# question, and answering it here would turn an operations dashboard into a
+# gradebook.
+# ---------------------------------------------------------------------------
+
+_SYNC_STATE_SQL = text(
+    """
+    SELECT
+      count(*) FILTER (WHERE sync_status = 'idle')    AS idle,
+      count(*) FILTER (WHERE sync_status = 'syncing') AS syncing,
+      count(*) FILTER (WHERE sync_status = 'failed')  AS failed
+    FROM repos
+    """
+)
+
+# Only currently-failing repos. A sync_error left behind on a repo that has
+# since succeeded is history, and reporting it would keep a fixed fault on the
+# dashboard forever.
+#
+# Ordered by size so the systemic fault leads: twelve repos sharing one error
+# is one thing to fix, and it should not sit below a one-off.
+_SYNC_ERROR_GROUPS_SQL = text(
+    """
+    SELECT
+      sync_error                 AS error,
+      count(*)                   AS repos,
+      min(name)                  AS example_repo_name,
+      max(last_synced_at)        AS last_seen
+    FROM repos
+    WHERE sync_status = 'failed' AND sync_error IS NOT NULL
+    GROUP BY sync_error
+    ORDER BY count(*) DESC, sync_error ASC
+    """
+)
+
+# Half-open intervals, so the buckets partition the fleet: every repo lands in
+# exactly one and the column heights sum to the repo count.
+_SYNC_AGE_SQL = text(
+    """
+    SELECT
+      count(*) FILTER (
+        WHERE last_synced_at >= now() - make_interval(days => 1)
+      ) AS lt1d,
+      count(*) FILTER (
+        WHERE last_synced_at <  now() - make_interval(days => 1)
+          AND last_synced_at >= now() - make_interval(days => 3)
+      ) AS "1to3d",
+      count(*) FILTER (
+        WHERE last_synced_at <  now() - make_interval(days => 3)
+          AND last_synced_at >= now() - make_interval(days => 7)
+      ) AS "3to7d",
+      count(*) FILTER (
+        WHERE last_synced_at <  now() - make_interval(days => 7)
+          AND last_synced_at >= now() - make_interval(days => 30)
+      ) AS "7to30d",
+      count(*) FILTER (
+        WHERE last_synced_at <  now() - make_interval(days => 30)
+      ) AS "gt30d",
+      count(*) FILTER (WHERE last_synced_at IS NULL) AS never
+    FROM repos
+    """
+)
+
+_AGE_BUCKET_LABELS: tuple[tuple[str, str], ...] = (
+    ("lt1d", "Under a day"),
+    ("1to3d", "1-3 days"),
+    ("3to7d", "3-7 days"),
+    ("7to30d", "7-30 days"),
+    ("gt30d", "Over 30 days"),
+    ("never", "Never synced"),
+)
+
+# size_bytes IS NULL is "never measured"; 0 is a real measurement of an empty
+# clone. Conflating them would report a working measurement pass as a gap.
+_COVERAGE_SQL = text(
+    """
+    SELECT
+      count(*)                                        AS repos,
+      count(*) FILTER (WHERE health_score IS NULL)     AS no_health_score,
+      count(*) FILTER (WHERE health_status = 'unknown') AS unknown_health,
+      count(*) FILTER (WHERE size_bytes IS NULL)       AS unmeasured_clone
+    FROM repos
+    """
+)
+
+_UNATTRIBUTED_SUMMARY_SQL = text(
+    """
+    SELECT
+      count(*)                                  AS summaries,
+      count(*) FILTER (WHERE repo_id IS NULL)   AS unattributed
+    FROM summaries
+    """
+)
+
+# ---------------------------------------------------------------------------
+# Attention
+# ---------------------------------------------------------------------------
+
+_ATTENTION_REPOS_SQL = text(
+    """
+    SELECT
+      r.id, r.name, r.collection_id, c.name AS collection_name,
+      r.sync_status, r.sync_error, r.last_synced_at, r.local_path,
+      r.size_bytes, r.health_score
+    FROM repos r
+    JOIN collections c ON c.id = r.collection_id
+    ORDER BY r.name ASC
+    """
+)
+
+# Weights, not a flat count: a repo whose clone has vanished or whose sync is
+# erroring is actionable now, while a missing measurement is housekeeping.
+# Ordering by fault count alone would float five cosmetic gaps above one
+# outage.
+_ATTENTION_WEIGHTS: dict[str, int] = {
+    "sync_failed": 5,
+    "clone_missing": 4,
+    "never_synced": 3,
+    "stale_sync": 2,
+    "no_health_data": 1,
+    "unmeasured": 1,
+}
+
+_ATTENTION_LABELS: dict[str, str] = {
+    "sync_failed": "Last sync failed",
+    "clone_missing": "No files on disk",
+    "never_synced": "Never synced",
+    "stale_sync": "Sync is stale",
+    "no_health_data": "No health score",
+    "unmeasured": "Clone size never measured",
+}
 
 
 class AdminStatsService:
@@ -652,3 +798,184 @@ class AdminStatsService:
             duration_ms=int((time.perf_counter() - started) * 1000),
             computed_at=now,
         )
+
+    # ------------------------------------------------------------------
+    # Pipeline health
+    # ------------------------------------------------------------------
+
+    async def sync_state(self, db: AsyncSession) -> SyncStateCounts:
+        row = (await db.execute(_SYNC_STATE_SQL)).mappings().one()
+        return SyncStateCounts(**row)
+
+    async def sync_error_groups(self, db: AsyncSession) -> list[SyncErrorGroup]:
+        rows = (await db.execute(_SYNC_ERROR_GROUPS_SQL)).mappings().all()
+        return [SyncErrorGroup(**row) for row in rows]
+
+    async def sync_age(self, db: AsyncSession) -> list[AgeBucket]:
+        row = (await db.execute(_SYNC_AGE_SQL)).mappings().one()
+        return [
+            AgeBucket(key=key, label=label, repos=row[key])
+            for key, label in _AGE_BUCKET_LABELS
+        ]
+
+    async def coverage_gaps(
+        self, db: AsyncSession, *, drift: StorageDrift
+    ) -> list[CoverageGap]:
+        """Rows a working pipeline would have filled.
+
+        Takes the drift result rather than recomputing it: `detect_drift` walks
+        the filesystem once and does a set difference, so calling it twice
+        would both double the I/O and let a clone created between the two
+        passes be reported as neither orphaned nor missing.
+        """
+        repos = (await db.execute(_COVERAGE_SQL)).mappings().one()
+        summaries = (await db.execute(_UNATTRIBUTED_SUMMARY_SQL)).mappings().one()
+
+        repo_total = repos["repos"]
+        missing = len(drift.missing_clones)
+        orphans = len(drift.orphan_directories)
+
+        return [
+            CoverageGap(
+                key="no_health_score",
+                label="Repos with no health score",
+                affected=repos["no_health_score"],
+                total=repo_total,
+            ),
+            CoverageGap(
+                key="unknown_health",
+                label="Repos scored unknown",
+                affected=repos["unknown_health"],
+                total=repo_total,
+            ),
+            CoverageGap(
+                key="unmeasured_clone",
+                label="Clones never measured",
+                affected=repos["unmeasured_clone"],
+                total=repo_total,
+            ),
+            CoverageGap(
+                key="missing_clone",
+                label="Database rows with no files on disk",
+                affected=missing,
+                total=repo_total,
+            ),
+            CoverageGap(
+                key="orphan_directory",
+                label="Directories on disk with no database row",
+                # Counted against what is on disk, not against repo rows: a
+                # directory with no row is, by definition, not one of the rows,
+                # so the repo count is the wrong denominator.
+                affected=orphans,
+                total=orphans + repo_total - missing,
+            ),
+            CoverageGap(
+                key="unattributed_summary",
+                label="Summaries with no repo",
+                affected=summaries["unattributed"],
+                total=summaries["summaries"],
+            ),
+        ]
+
+    async def pipeline(self, db: AsyncSession) -> AdminPipeline:
+        """Ingestion health and data coverage, as of now.
+
+        Takes no window: every query behind this is point-in-time. It briefly
+        accepted one, which scoped an email-delivery figure that no longer
+        exists; keeping the parameter would advertise a filter that changes
+        nothing in the response.
+        """
+        # Orphan sizing stays off: walking one abandoned multi-gigabyte clone
+        # would stall the landing page this feeds.
+        drift = await self.detect_drift(db, include_orphan_size=False)
+        return AdminPipeline(
+            sync_state=await self.sync_state(db),
+            sync_errors=await self.sync_error_groups(db),
+            sync_age=await self.sync_age(db),
+            coverage=await self.coverage_gaps(db, drift=drift),
+            generated_at=datetime.now(timezone.utc),
+        )
+
+    # ------------------------------------------------------------------
+    # Attention
+    # ------------------------------------------------------------------
+
+    async def attention(
+        self,
+        db: AsyncSession,
+        *,
+        limit: int = 10,
+        offset: int = 0,
+        stale_after_days: int = 7,
+    ) -> tuple[list[AttentionRepo], int]:
+        """Repos carrying an operational fault, worst first.
+
+        Ranked in Python rather than SQL because one of the six reasons —
+        `clone_missing` — is only knowable from the filesystem snapshot, and a
+        severity computed half in SQL and half here could order rows by a
+        number that disagrees with the reasons displayed beside them.
+
+        Bounded by the PRD's repo scale, and the snapshot is one scandir pass
+        that `detect_drift` already performs for the same request.
+
+        There is deliberately no `health_red` reason. A red repo that is
+        otherwise fine is a struggling student project; putting it in this
+        queue would bury the faults only an admin can act on.
+        """
+        on_disk = set(await self._git.list_clone_directories())
+        rows = (await db.execute(_ATTENTION_REPOS_SQL)).mappings().all()
+        stale_before = datetime.now(timezone.utc) - timedelta(days=stale_after_days)
+
+        flagged: list[AttentionRepo] = []
+        for row in rows:
+            codes: list[str] = []
+
+            if row["sync_status"] == "failed":
+                codes.append("sync_failed")
+
+            if row["last_synced_at"] is None:
+                codes.append("never_synced")
+            elif row["last_synced_at"] < stale_before:
+                codes.append("stale_sync")
+
+            # A repo that has never synced has no clone yet, which is expected
+            # rather than a fault — flagging it would double-count one cause.
+            if row["last_synced_at"] is not None and (
+                not row["local_path"]
+                or os.path.normpath(row["local_path"]) not in on_disk
+            ):
+                codes.append("clone_missing")
+
+            # NULL is "never measured". 0 is a real measurement of an empty
+            # clone and is not a gap.
+            if row["size_bytes"] is None:
+                codes.append("unmeasured")
+
+            if row["health_score"] is None:
+                codes.append("no_health_data")
+
+            if not codes:
+                continue
+
+            flagged.append(
+                AttentionRepo(
+                    id=row["id"],
+                    name=row["name"],
+                    collection_id=row["collection_id"],
+                    collection_name=row["collection_name"],
+                    sync_status=row["sync_status"],
+                    sync_error=row["sync_error"],
+                    last_synced_at=row["last_synced_at"],
+                    local_path=row["local_path"],
+                    reasons=[
+                        AttentionReason(code=code, label=_ATTENTION_LABELS[code])
+                        for code in codes
+                    ],
+                    severity=sum(_ATTENTION_WEIGHTS[code] for code in codes),
+                )
+            )
+
+        # Name is not a cosmetic tiebreak: without it, LIMIT/OFFSET over rows
+        # of equal severity can repeat or skip entries between pages.
+        flagged.sort(key=lambda item: (-item.severity, item.name))
+        return flagged[offset : offset + limit], len(flagged)

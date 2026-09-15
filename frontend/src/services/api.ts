@@ -1,51 +1,58 @@
 import axios from 'axios'
 import type {
-  TokenResponse,
-  Collection,
-  CreateCollectionData,
-  UpdateCollectionData,
-  Repo,
-  HealthScore,
-  Contributor,
-  UnmergeContributorsResponse,
-  Commit,
-  Note,
-  CreateNoteData,
-  UpdateNoteData,
-  Summary,
-  GenerateSummaryData,
+  AdminAttention,
+  AdminLlmUsage,
+  AdminOverview,
+  AdminPipeline,
+  AdminRecalculateResult,
+  AdminRepoSizeSort,
+  AdminRepoStorageItem,
+  AdminStorageSummary,
+  AdminSystemStatus,
   AppSettings,
-  UpdateSettingsData,
-  PaginatedResponse,
+  ChangePasswordData,
+  ClassifyCommitsResponse,
+  Collection,
+  CollectionAccessEntry,
+  CollectionCommitActivity,
+  CommitQualityResponse,
+  CommitsResponse,
+  Contributor,
+  CreateCollectionData,
+  CreateNoteData,
+  CreateUserData,
+  GenerateSummaryData,
   GetCommitsParams,
   GetNotesParams,
-  UserDetail,
-  CreateUserData,
-  UpdateUserData,
-  PatchMeData,
-  ChangePasswordData,
-  CollectionAccessEntry,
+  HealthScore,
+  LlmConfig,
+  Note,
   NoteComment,
   Notification,
   NotificationListResponse,
-  NotificationSettings,
-  ReminderListResponse,
-  TestEmailResponse,
-  UpdateNotificationSettingsData,
-  RecentlyDeletedListResponse,
-  CommitQualityResponse,
-  ClassifyCommitsResponse,
+  NotificationPreferences,
   PRListResponse,
   PRStats,
   PRSyncResponse,
-  AdminStorageSummary,
-  AdminRepoStorageItem,
-  AdminRepoSizeSort,
-  AdminRecalculateResult,
-  AdminOverview,
-  AdminSystemStatus,
-  AdminLlmUsage,
-  CollectionCommitActivity,
+  PaginatedResponse,
+  PatchMeData,
+  RecentlyDeletedListResponse,
+  ReminderListResponse,
+  Repo,
+  Summary,
+  TokenQuota,
+  TokenResponse,
+  TokenUsageSummary,
+  UnmergeContributorsResponse,
+  UpdateCollectionData,
+  UpdateLlmConfigData,
+  UpdateNoteData,
+  UpdateNotificationPreferencesData,
+  UpdateSettingsData,
+  UpdateUserData,
+  UserDetail,
+  UserTokenUsage,
+  UserTokenUsageListResponse,
 } from '@/types'
 
 const apiClient = axios.create({
@@ -173,8 +180,8 @@ export async function getRepoHealth(id: string): Promise<HealthScore> {
   return response.data
 }
 
-export async function getRepoCommits(id: string, params?: GetCommitsParams): Promise<PaginatedResponse<Commit>> {
-  const response = await apiClient.get<PaginatedResponse<Commit>>(`/repos/${id}/commits`, { params })
+export async function getRepoCommits(id: string, params?: GetCommitsParams): Promise<CommitsResponse> {
+  const response = await apiClient.get<CommitsResponse>(`/repos/${id}/commits`, { params })
   return response.data
 }
 
@@ -184,11 +191,6 @@ export async function getRepoContributors(id: string): Promise<Contributor[]> {
 }
 
 // Contributors
-export async function getContributor(id: string): Promise<Contributor> {
-  const response = await apiClient.get<Contributor>(`/contributors/${id}`)
-  return response.data
-}
-
 export async function updateContributor(id: string, displayName: string): Promise<Contributor> {
   const response = await apiClient.put<Contributor>(`/contributors/${id}`, { display_name: displayName })
   return response.data
@@ -201,11 +203,6 @@ export async function mergeContributors(ids: string[], displayName: string): Pro
 
 export async function unmergeContributor(id: string): Promise<UnmergeContributorsResponse> {
   const response = await apiClient.post<UnmergeContributorsResponse>(`/contributors/${id}/unmerge`)
-  return response.data
-}
-
-export async function getContributorAliases(id: string): Promise<Contributor> {
-  const response = await apiClient.get<Contributor>(`/contributors/${id}/aliases`)
   return response.data
 }
 
@@ -260,6 +257,59 @@ export async function getOllamaModels(baseUrl: string): Promise<string[]> {
 
 export async function updateSettings(data: UpdateSettingsData): Promise<AppSettings> {
   const response = await apiClient.patch<AppSettings>('/settings', data)
+  return response.data
+}
+
+/** The signed-in user's own AI token usage. Any role may read this. */
+export async function getMyTokenUsage(): Promise<TokenQuota> {
+  const response = await apiClient.get<TokenQuota>('/settings/token-usage')
+  return response.data
+}
+
+// Shared LLM configuration and token limits (admin only)
+export async function getLlmConfig(): Promise<LlmConfig> {
+  const response = await apiClient.get<LlmConfig>('/admin/llm-config')
+  return response.data
+}
+
+export async function updateLlmConfig(data: UpdateLlmConfigData): Promise<LlmConfig> {
+  const response = await apiClient.patch<LlmConfig>('/admin/llm-config', data)
+  return response.data
+}
+
+export async function getTokenUsageSummary(): Promise<TokenUsageSummary> {
+  const response = await apiClient.get<TokenUsageSummary>(
+    '/admin/token-usage/summary'
+  )
+  return response.data
+}
+
+export async function getTokenUsage(params?: {
+  limit?: number
+  offset?: number
+}): Promise<UserTokenUsageListResponse> {
+  const response = await apiClient.get<UserTokenUsageListResponse>(
+    '/admin/token-usage',
+    { params }
+  )
+  return response.data
+}
+
+/**
+ * Set or clear one user's monthly allowance.
+ *
+ * `null` clears the override so the user follows the instance default; `0`
+ * revokes their AI access. The parameter is required so those two cannot be
+ * confused with an accidental omission.
+ */
+export async function setUserTokenLimit(
+  userId: string,
+  monthlyTokenLimit: number | null
+): Promise<UserTokenUsage> {
+  const response = await apiClient.patch<UserTokenUsage>(
+    `/admin/users/${userId}/token-limit`,
+    { monthly_token_limit: monthlyTokenLimit }
+  )
   return response.data
 }
 
@@ -381,26 +431,20 @@ export async function markAllNotificationsRead(): Promise<{ marked_read: number 
   return res.data
 }
 
-// Email relay settings
-export async function getNotificationSettings(): Promise<NotificationSettings> {
-  const res = await apiClient.get<NotificationSettings>('/notifications/settings')
+// Which events this account wants to be notified about
+export async function getNotificationPreferences(): Promise<NotificationPreferences> {
+  const res = await apiClient.get<NotificationPreferences>('/notifications/preferences')
   return res.data
 }
 
-export async function updateNotificationSettings(
-  data: UpdateNotificationSettingsData
-): Promise<NotificationSettings> {
-  const res = await apiClient.put<NotificationSettings>('/notifications/settings', data)
-  return res.data
-}
-
-export async function sendTestEmail(to?: string): Promise<TestEmailResponse> {
-  // Omitting `to` sends to the signed-in user's own account address. The
-  // override exists because dev accounts are seeded with @example.com, which
-  // real providers refuse to deliver to.
-  const res = await apiClient.post<TestEmailResponse>(
-    '/notifications/settings/test-email',
-    { to: to ?? null }
+export async function updateNotificationPreferences(
+  data: UpdateNotificationPreferencesData
+): Promise<NotificationPreferences> {
+  // A partial map: the server merges it over what is stored, so sending one
+  // toggled event cannot reset the others.
+  const res = await apiClient.put<NotificationPreferences>(
+    '/notifications/preferences',
+    data
   )
   return res.data
 }
@@ -544,6 +588,22 @@ export async function getAdminSystem(): Promise<AdminSystemStatus> {
 export async function getAdminLlmUsage(days = 30): Promise<AdminLlmUsage> {
   const res = await apiClient.get<AdminLlmUsage>('/admin/llm-usage', {
     params: { days },
+  })
+  return res.data
+}
+
+export async function getAdminPipeline(): Promise<AdminPipeline> {
+  const res = await apiClient.get<AdminPipeline>('/admin/pipeline')
+  return res.data
+}
+
+export async function getAdminAttention(params?: {
+  limit?: number
+  offset?: number
+  stale_after_days?: number
+}): Promise<AdminAttention> {
+  const res = await apiClient.get<AdminAttention>('/admin/attention', {
+    params,
   })
   return res.data
 }

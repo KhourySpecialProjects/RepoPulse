@@ -4,8 +4,13 @@ import { Area, AreaChart, CartesianGrid, ReferenceDot, ResponsiveContainer, Tool
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { TrickleProgress } from '@/components/ui/trickle-progress'
 import { useContextualActivity } from '@/hooks/useContextualActivity'
-import { contextualizeActivity } from '@/lib/activityContext'
-import type { ContextActivityPoint } from '@/types'
+import { CHROME, TICK } from '@/lib/chartTheme'
+import { ACTIVITY_LEGEND, GOOD_HISTORY_COLOR, MARKER_RING, activityContextColor, contextualizeActivity } from '@/lib/activityContext'
+import { BRAND } from '@/lib/theme'
+import type { ActivityContextKind, ContextActivityPoint } from '@/types'
+
+/** A day the graph puts a marker on — `kind` is known non-null. */
+type MarkedPoint = ContextActivityPoint & { kind: ActivityContextKind }
 
 function ActivityTooltip({ active, payload }: { active?: boolean; payload?: { payload?: ContextActivityPoint }[] }) {
   const point = payload?.[0]?.payload
@@ -18,7 +23,7 @@ function ActivityTooltip({ active, payload }: { active?: boolean; payload?: { pa
 function ChartLoading() {
   return (
     <div role="status" aria-label="Loading commit activity graph" className="flex h-56 flex-col items-center justify-center gap-3">
-      <div aria-hidden="true" className="h-8 w-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin motion-reduce:animate-none" />
+      <div aria-hidden="true" className="h-8 w-8 rounded-full border-2 border-brand-500 border-t-transparent animate-spin motion-reduce:animate-none" />
       <p className="text-sm text-muted-foreground">Loading student activity…</p>
       <TrickleProgress label="Commit activity loading progress" />
     </div>
@@ -41,7 +46,9 @@ export function ContextualActivityChart({ collectionId, repoId, children, action
   const historyStart = repo?.activity[0]?.date ?? start
   const peers = data?.repositories.filter(r => r.id !== repoId && r.available).map(r => r.activity) ?? []
   const points = contextualizeActivity(activity, peers, historyStart, today).filter(p => p.date >= start)
-  const annotations = points.filter(p => p.context)
+  // `kind` rather than `context`: it is the discriminator the marker colour and
+  // the legend both read, and narrowing it here drops a non-null assertion.
+  const annotations = points.filter((p): p is MarkedPoint => p.kind !== null)
   const normalPoint = annotations.length === 0 ? points[points.length - 1] : undefined
   return <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
     <Card>
@@ -58,29 +65,46 @@ export function ContextualActivityChart({ collectionId, repoId, children, action
       </CardHeader>
       <CardContent>
         {isLoading ? <ChartLoading /> : isError ? <p role="alert">Could not load activity. <button onClick={() => refetch()} className="underline">Retry</button></p> : !repo?.available ? <p>Repository history unavailable. Sync the repository and try again.</p> : !repo.activity.length ? <p>No commit history available.</p> : <>
+          {/* Drawn from the last sync's snapshot, not the clone. */}
+          {repo.stale && <p className="mb-2 text-xs text-amber-700">Showing the last synced history — the local clone could not be read.</p>}
           <p className="mb-2 text-sm font-medium">{authorLabel} — commits per day</p>
           <div className="h-56" aria-label="Commit activity graph">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={points} margin={{ top: 12, right: 16, bottom: 0, left: 0 }}>
                 <defs>
                   <linearGradient id="contextualActivityGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0.05} />
+                    <stop offset="5%" stopColor={BRAND.violet} stopOpacity={0.3} />
+                    <stop offset="95%" stopColor={BRAND.violet} stopOpacity={0.05} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={35} />
-                <YAxis allowDecimals={false} />
+                <CartesianGrid vertical={false} stroke={CHROME.grid} strokeDasharray="0" />
+                <XAxis dataKey="date" tick={TICK} minTickGap={35} axisLine={{ stroke: CHROME.axis }} tickLine={false} />
+                <YAxis allowDecimals={false} tick={TICK} axisLine={false} tickLine={false} />
                 <Tooltip content={<ActivityTooltip />} />
-                <Area dataKey="count" type="monotone" stroke="#6366f1" strokeWidth={2} fill="url(#contextualActivityGradient)" />
-                {normalPoint && <ReferenceDot x={normalPoint.date} y={normalPoint.count} r={0} label={{ value: '✓', position: 'top', fill: '#16a34a', fontSize: 20 }} />}
-                {annotations.map(p => <ReferenceDot key={p.date} x={p.date} y={p.count} r={6} fill="#d97706" stroke="#fff" />)}
+                {/* Series colour is brand; marker colours stay semantic, since
+                    they encode what kind of day it was. */}
+                <Area dataKey="count" type="monotone" stroke={BRAND.violet} strokeWidth={2} fill="url(#contextualActivityGradient)" />
+                {normalPoint && <ReferenceDot x={normalPoint.date} y={normalPoint.count} r={0} label={{ value: '✓', position: 'top', fill: GOOD_HISTORY_COLOR, fontSize: 20 }} />}
+                {annotations.map(p => <ReferenceDot key={p.date} x={p.date} y={p.count} r={6} fill={activityContextColor(p.kind)} stroke={MARKER_RING} strokeWidth={1.5} />)}
               </AreaChart>
             </ResponsiveContainer>
           </div>
-          {annotations.length > 0 && <div className="mt-3 max-h-48 space-y-2 overflow-auto" aria-label="Significant activity periods">
-            {annotations.map(p => <details key={p.date} className="rounded border p-2 text-sm"><summary className="cursor-pointer font-medium">{p.date} — {p.count ? 'Unusual burst' : 'Quiet period'}</summary><p className="mt-2">{p.context}</p></details>)}
-          </div>}
+          {/* Every kind is listed whether or not it is on the chart today, so
+              the legend reads as a key rather than a changing summary. */}
+          <ul aria-label="Marker legend" className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+            {ACTIVITY_LEGEND.map(entry => (
+                <li key={entry.key} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  {/* Same dark ring the markers wear, so the swatch is the
+                      object the graph draws rather than an approximation. */}
+                  <span
+                    aria-hidden="true"
+                    className="h-2.5 w-2.5 shrink-0 rounded-full border"
+                    style={{ backgroundColor: entry.color, borderColor: MARKER_RING }}
+                  />
+                  {entry.label}
+                </li>
+            ))}
+          </ul>
         </>}
       </CardContent>
     </Card>

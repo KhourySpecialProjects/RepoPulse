@@ -1,7 +1,8 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { vi, it, expect, afterEach } from 'vitest'
 import type { ReactNode } from 'react'
 import { ContextualActivityChart } from '@/components/ContextualActivityChart'
+import { ACTIVITY_LEGEND, MARKER_RING } from '@/lib/activityContext'
 vi.mock('@/hooks/useContextualActivity', () => ({ useContextualActivity: () => ({ data: { repositories: [{ id: 'repo', name: 'Repo', available: true, activity: [{ date: '2026-09-01', count: 1 }], students: [{ id: 'alice', name: 'Alice', activity: [{ date: '2026-09-01', count: 1 }] }] }] }, isLoading: false }) }))
 // Recharts needs a measurable container, which jsdom cannot provide, so stub the
 // pieces we assert on and let the rest render as inert markers.
@@ -32,7 +33,15 @@ it('follows contributor IDs and restores the full graph', () => {
   expect(screen.getByLabelText('Activity range').parentElement).toHaveClass('justify-end')
   expect(screen.queryByLabelText('Student activity')).not.toBeInTheDocument()
   expect(screen.getByText('Alice — commits per day')).toBeInTheDocument()
-  expect(screen.getByText(/Peer comparison unavailable/)).toBeInTheDocument()
+  // Context strings used to be listed in <details> panels under the graph. Those
+  // are gone; the legend names the marker colours and the full text moved to the
+  // tooltip. It is a fixed key, so all four entries show regardless of what this
+  // fixture happens to trigger.
+  const legend = screen.getByRole('list', { name: 'Marker legend' })
+  expect(within(legend).getByText('Unusual Burst')).toBeInTheDocument()
+  expect(within(legend).getByText('Quiet Period')).toBeInTheDocument()
+  expect(within(legend).getByText('Deadline Burst')).toBeInTheDocument()
+  expect(within(legend).getByText('Good Commit History')).toBeInTheDocument()
   rerender(<ContextualActivityChart collectionId="collection" repoId="repo" selectedContributorIds={[]} />)
   expect(screen.getByText('All students — commits per day')).toBeInTheDocument()
   rerender(<ContextualActivityChart collectionId="collection" repoId="repo" selectedContributorIds={['alice', 'bob']} />)
@@ -43,5 +52,15 @@ it('draws a smoothed curve while keeping the contextual markers', () => {
   vi.setSystemTime(new Date('2026-09-10T12:00:00Z'))
   render(<ContextualActivityChart collectionId="collection" repoId="repo" />)
   expect(areaProps[0]?.type).toBe('monotone')
-  expect(referenceDotProps.some(p => p.fill === '#d97706')).toBe(true)
+  // Against the legend's own palette rather than a literal hex, so a colour
+  // change reads as a colour change and not as a broken chart.
+  expect(
+    referenceDotProps.some(p => ACTIVITY_LEGEND.some(e => e.color === p.fill)),
+  ).toBe(true)
+  // Colour is never the only channel. Each marker wears the ring that keeps
+  // it legible over the area fill, and the legend beside the chart carries
+  // the text labels — which is why that legend is not optional.
+  expect(
+    referenceDotProps.filter(p => p.r).every(p => p.stroke === MARKER_RING),
+  ).toBe(true)
 })

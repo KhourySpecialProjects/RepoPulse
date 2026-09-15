@@ -9,7 +9,7 @@ import type { CommitType, CommitTypeFilter } from '@/types'
 interface CommitTypeStyle {
   label: string
   /** Row background. Deliberately a -50 tint: it has to stay readable behind
-   *  body text and lose to the indigo highlight when a commit is linked to. */
+   *  body text and lose to the brand highlight when a commit is linked to. */
   rowClass: string
   chipIdle: string
   chipActive: string

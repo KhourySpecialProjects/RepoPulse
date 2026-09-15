@@ -21,7 +21,7 @@ from app.models.contributor import Contributor
 from app.models.user import User
 from app.models.contributor_alias import ContributorAlias
 from app.models.note import Note
-from app.models.notification import Notification, NotificationType
+from app.models.notification import NotificationType
 from app.models.repo import Repo
 from app.schemas.commits import CommitRead, CommitTypeFilter, PaginatedCommits
 from app.schemas.contributors import ContributorRead, AliasRead
@@ -36,8 +36,8 @@ from app.services.permission_service import (
 )
 
 from app.schemas.repos import RepoDeleteResponse
+from app.services import commit_snapshot_service
 from app.services.notification_service import (
-    deliver_emails,
     notify_health_change,
     notify_repo_event,
 )
@@ -208,6 +208,53 @@ async def _upsert_contributors(
     await db.flush()
 
 
+async def _measure_clone_size(repo: Repo) -> None:
+    """Record the clone's on-disk size on `repo`. Best-effort; never raises.
+
+    Called at the end of a successful index run, while the tree has just been
+    cloned or fetched and is still in page cache, so the walk costs far less
+    here than it would standalone. This is what keeps the admin dashboard's
+    storage figures current: `AdminStatsService.recalculate_repo_sizes` is the
+    only other writer of these columns and it runs only when an administrator
+    asks.
+
+    Mutates the repo without committing — the caller already commits, so the
+    size lands in the same transaction as the health and sync-state updates
+    rather than needing a session of its own.
+
+    Errors are contained rather than propagated. `_index_repo`'s except branch
+    marks the whole sync failed, and by this point health, contributors and
+    sync state are all computed; discarding them because one directory would
+    not stat is a bad trade. A size that stays stale is visible in the UI as
+    its own `size_computed_at`, which is the milder failure.
+    """
+    if not repo.local_path:
+        return
+
+    try:
+        size = await _git_service.get_repo_size(repo.local_path)
+    except Exception:
+        logger.warning(
+            "Could not measure clone size for %s (%s)",
+            repo.name,
+            repo.local_path,
+            exc_info=True,
+        )
+        return
+
+    if size is None:
+        # None is "the path is not there", never "zero bytes". Leaving the
+        # previous numbers in place matches the recalculate path: an unmounted
+        # volume must not wipe the fleet's measurement history.
+        return
+
+    repo.size_bytes = size["total"]
+    repo.git_size_bytes = size["git"]
+    # Aware, because the column is DateTime(timezone=True) — unlike
+    # last_synced_at below, which is naive by existing convention.
+    repo.size_computed_at = datetime.now(timezone.utc)
+
+
 async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: str | None = None) -> None:
     """Clone (or fetch) a repo, parse commits, upsert contributors, update health."""
     from app.db.database import async_session_maker
@@ -234,6 +281,9 @@ async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: s
             branches = await _git_service.get_active_branches(local_path)
 
             await _upsert_contributors(db, repo_id, commits)
+            # Kept so the Commits table and activity chart still have something
+            # to show if this clone is not readable next time.
+            await commit_snapshot_service.store(db, repo_id, commits)
             await db.refresh(repo)
             actual_count = len(repo.contributors)
 
@@ -255,6 +305,8 @@ async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: s
             if commits:
                 repo.last_commit_at = max(c["date"] for c in commits)
 
+            await _measure_clone_size(repo)
+
             raised = await notify_health_change(
                 db,
                 repo=repo,
@@ -263,7 +315,6 @@ async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: s
             )
             await _finish_sync(db, repo, error=None)
             await db.commit()
-            await deliver_emails(db, raised)
             logger.info("Indexed %s: %d commits, status=%s", repo.name, len(commits), health["status"])
         except Exception as exc:
             logger.exception("Failed to index repo %s (%s): %s", repo.name, repo.github_url, exc)
@@ -385,7 +436,6 @@ async def add_repos(
         )
 
     created_repos: list[RepoRead] = []
-    raised: list[Notification] = []
     for url in body.urls:
         name = _derive_repo_name(url)
         local_path = _git_service.clone_path(collection.local_folder_name, name)
@@ -401,7 +451,7 @@ async def add_repos(
         background_tasks.add_task(_clone_and_index, repo.id, user_record.github_token)
         created_repos.append(_repo_to_read(repo, contributor_count=0))
 
-        raised += await notify_repo_event(
+        await notify_repo_event(
             db,
             repo=repo,
             type=NotificationType.repo_added,
@@ -414,7 +464,6 @@ async def add_repos(
         )
 
     await db.commit()
-    await deliver_emails(db, raised)
     return created_repos
 
 
@@ -469,7 +518,7 @@ async def delete_repo(
     collection = await db.get(Collection, repo.collection_id)
     # Raised before the delete, while the repo and its collection are still
     # readable. link_repo=False keeps the rows out of the FK cascade.
-    raised = await notify_repo_event(
+    await notify_repo_event(
         db,
         repo=repo,
         type=NotificationType.repo_removed,
@@ -485,7 +534,6 @@ async def delete_repo(
     await db.flush()
 
     await remove_repo_records(db, repo.id)
-    await deliver_emails(db, raised)
     return RepoDeleteResponse(detail="Repo deleted")
 
 
@@ -702,25 +750,43 @@ async def get_repo_commits(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Repo not found",
         )
-    if not repo.local_path:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Repo has no local path. Add and sync the repo first.",
-        )
+    # The clone is the source of truth and is tried first. When it will not
+    # open — never cloned on this machine, recreated bind mount, corrupt
+    # checkout — the last sync's snapshot is served instead, flagged as stale.
+    # Only when there is no snapshot either does this stay an error: an empty
+    # table that looks normal hides the problem.
+    stale = False
+    all_commits: list[dict] = []
 
-    try:
-        t0 = time.perf_counter()
-        all_commits = await _git_service.parse_commits(repo.local_path)
-        logger.debug(
-            "get_repo_commits: parse_commits returned %d commits in %.2fs (limit=%d offset=%d branch=%s) — %s",
-            len(all_commits), time.perf_counter() - t0, limit, offset, branch, repo.name,
-        )
-    except Exception as exc:
-        logger.exception("parse_commits failed for repo %s: %s", repo.local_path, exc)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Could not read commits: {exc}",
-        )
+    if repo.local_path:
+        try:
+            t0 = time.perf_counter()
+            all_commits = await _git_service.parse_commits(repo.local_path)
+            logger.debug(
+                "get_repo_commits: parse_commits returned %d commits in %.2fs (limit=%d offset=%d branch=%s) — %s",
+                len(all_commits), time.perf_counter() - t0, limit, offset, branch, repo.name,
+            )
+        except Exception as exc:
+            logger.warning(
+                "parse_commits failed for repo %s (%s); falling back to the "
+                "last synced snapshot: %s",
+                repo.name, repo.local_path, exc,
+            )
+            all_commits = await commit_snapshot_service.load(db, repo_id)
+            stale = True
+            if not all_commits:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Could not read commits: {exc}",
+                )
+    else:
+        all_commits = await commit_snapshot_service.load(db, repo_id)
+        stale = True
+        if not all_commits:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Repo has no local path. Add and sync the repo first.",
+            )
 
     # Cached classifications for this repo, keyed by full SHA — which is
     # exactly what parse_commits puts in c["hash"], so no conversion is needed.
@@ -791,7 +857,9 @@ async def get_repo_commits(
         for c in page
     ]
 
-    return PaginatedCommits(items=items, total=total, limit=limit, offset=offset)
+    return PaginatedCommits(
+        items=items, total=total, limit=limit, offset=offset, stale=stale
+    )
 
 
 @router.get(

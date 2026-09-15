@@ -17,16 +17,14 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AdminOverviewTab } from '@/components/admin/AdminOverviewTab'
-import { LlmUsageTab } from '@/components/admin/LlmUsageTab'
-import { StorageTab } from '@/components/admin/StorageTab'
-import { SystemTab } from '@/components/admin/SystemTab'
+import { AiSettingsTab } from '@/components/admin/AiSettingsTab'
 import { toast } from 'sonner'
 import type { UserDetail, CreateUserData, UpdateUserData } from '@/types'
 import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
 
 const ROLE_BADGE: Record<UserDetail['role'], string> = {
-  instructor: 'bg-indigo-100 text-indigo-700',
-  ta: 'bg-violet-100 text-violet-700',
+  instructor: 'bg-brand-100 text-brand-700',
+  ta: 'bg-orchid-100 text-orchid-700',
   admin: 'bg-rose-100 text-rose-700',
 }
 
@@ -366,7 +364,7 @@ function UsersTab() {
             className="flex items-center justify-between rounded-lg border border-border px-4 py-3 bg-white"
           >
             <div className="flex items-center gap-3 min-w-0">
-              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold flex items-center justify-center">
+              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-brand-100 text-brand-700 text-xs font-semibold flex items-center justify-center">
                 {user.display_name.charAt(0).toUpperCase()}
               </div>
               <div className="min-w-0">
@@ -389,7 +387,7 @@ function UsersTab() {
                 type="button"
                 onClick={() => setEditingUser(user)}
                 title="Edit user"
-                className="p-1.5 rounded text-muted-foreground hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                className="p-1.5 rounded text-muted-foreground hover:text-brand-600 hover:bg-brand-50 transition-colors"
               >
                 <Pencil className="h-3.5 w-3.5" />
               </button>
@@ -435,7 +433,7 @@ function UsersTab() {
 }
 
 // ---- Admin Page ----
-type AdminTab = 'overview' | 'storage' | 'users' | 'llm' | 'system'
+type AdminTab = 'overview' | 'users' | 'ai'
 
 export function AdminPage() {
   const { user } = useAuth()
@@ -455,8 +453,15 @@ export function AdminPage() {
         <h1 className="text-xl font-semibold">Admin Panel</h1>
       </div>
 
-      {/* Wider than the old max-w-3xl: the storage tables need the room. */}
-      <div className={`${PAGE_BODY_CLASS} max-w-5xl`}>
+      {/* Overview takes the full width — it is a multi-column card layout
+          that packs more columns as the screen grows — while the other tabs
+          stay narrow so their label/value rows and tables do not stretch
+          into unreadably long lines. */}
+      <div
+        className={`${PAGE_BODY_CLASS} ${
+          activeTab === 'overview' ? 'max-w-none' : 'max-w-5xl'
+        }`}
+      >
 
       {/* Radix Tabs rather than hand-rolled buttons: keyboard navigation and
           correct tab/tabpanel ARIA come for free, and the component was
@@ -464,18 +469,20 @@ export function AdminPage() {
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as AdminTab)}>
         <TabsList className="mb-6">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="storage">Storage</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
-          <TabsTrigger value="llm">LLM Usage</TabsTrigger>
-          <TabsTrigger value="system">System</TabsTrigger>
+          {/* One AI tab, not two. The old LLM Usage tab reported call counts
+              and could only say token usage and cost were unrecorded; both
+              are recorded now, so that reporting lives at the bottom of the
+              tab that sets the rates it is priced at. Call volume over time
+              is still on Overview's LLM Volume card. */}
+          <TabsTrigger value="ai">AI Settings</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
-          <AdminOverviewTab />
-        </TabsContent>
-
-        <TabsContent value="storage">
-          <StorageTab />
+          {/* A fault chip on the dashboard opens the tab that can fix it. */}
+          <AdminOverviewTab
+            onNavigate={(tab) => setActiveTab(tab as AdminTab)}
+          />
         </TabsContent>
 
         <TabsContent value="users">
@@ -489,12 +496,8 @@ export function AdminPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="llm">
-          <LlmUsageTab />
-        </TabsContent>
-
-        <TabsContent value="system">
-          <SystemTab />
+        <TabsContent value="ai">
+          <AiSettingsTab />
         </TabsContent>
       </Tabs>
       </div>

@@ -9,13 +9,19 @@ from app.models.app_settings import AppSettings
 from app.models.collection_access import CollectionAccess, CollectionRole
 from app.models.note_comment import NoteComment
 from app.models.notification import Notification, NotificationType, REPO_EVENT_TYPES
-from app.models.notification_setting import (  # noqa: F401
+from app.models.notification_preference import (  # noqa: F401
     DEFAULT_SUBSCRIBED_EVENTS,
-    NotificationSetting,
+    NotificationPreference,
 )
+from app.models.commit import Commit  # noqa: F401
 from app.models.commit_classification import CommitClassification  # noqa: F401
 from app.models.pull_request import PullRequest  # noqa: F401
 from app.models.reminder_share import ReminderShare  # noqa: F401
+from app.models.llm_config import (  # noqa: F401
+    DEFAULT_MONTHLY_TOKEN_LIMIT,
+    LlmConfig,
+)
+from app.models.llm_token_usage import LlmTokenUsage  # noqa: F401
 
 __all__ = [
     "User",
@@ -31,7 +37,12 @@ __all__ = [
     "NoteComment",
     "Notification",
     "NotificationType",
+    "NotificationPreference",
+    "Commit",
     "CommitClassification",
     "PullRequest",
     "ReminderShare",
+    "LlmConfig",
+    "LlmTokenUsage",
+    "DEFAULT_MONTHLY_TOKEN_LIMIT",
 ]

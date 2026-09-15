@@ -26,8 +26,6 @@ class NotificationRead(BaseModel):
     # it from a note. NULL for mention/note_comment/reminder.
     subject: Optional[str] = None
     body: Optional[str] = None
-    # When the email relay delivered this, or NULL if it never did.
-    emailed_at: Optional[datetime] = None
 
 
 class NotificationListResponse(BaseModel):
