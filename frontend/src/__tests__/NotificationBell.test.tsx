@@ -105,7 +105,7 @@ function renderSidebar(width = 220) {
     <QueryClientProvider client={makeClient()}>
       <MemoryRouter initialEntries={['/collections']}>
         <SidebarContext.Provider
-          value={{ collapsed: false, setCollapsed: () => {}, width, setWidth: () => {} }}
+          value={{ collapsed: false, setCollapsed: () => {}, width, setWidth: () => {}, dragging: false, setDragging: () => {} }}
         >
           <AppSidebar />
           <LocationDisplay />

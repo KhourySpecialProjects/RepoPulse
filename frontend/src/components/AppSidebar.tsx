@@ -14,6 +14,7 @@ import {
   Shield,
   LogOut,
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { useAuth } from '@/hooks/useAuth'
 import { useBackState } from '@/hooks/useBackTarget'
 import { useCollections } from '@/hooks/useCollections'
@@ -214,7 +215,7 @@ const COLLAPSE_THRESHOLD = 120
 
 // ── Main sidebar ─────────────────────────────────────────────────────────────
 export function AppSidebar() {
-  const { collapsed, setCollapsed, width, setWidth } = useSidebar()
+  const { collapsed, setCollapsed, width, setWidth, dragging, setDragging } = useSidebar()
   const isDragging = useRef(false)
   const { user, logout } = useAuth()
   const navigate = useNavigate()
@@ -298,6 +299,7 @@ export function AppSidebar() {
   function handleDragStart(e: React.MouseEvent) {
     e.preventDefault()
     isDragging.current = true
+    setDragging(true)
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
 
@@ -319,6 +321,7 @@ export function AppSidebar() {
 
     function onMouseUp() {
       isDragging.current = false
+      setDragging(false)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
       document.removeEventListener('mousemove', onMouseMove)
@@ -339,31 +342,38 @@ export function AppSidebar() {
   // stopping short with a raw edge. The arrow keeps the same horizontal line as
   // the collapse arrow it replaces (h-14 header = 56px, so top-3 + h-8 centres
   // both at 28px).
+  // Both states render TooltipProvider > div, so React reuses the panel element
+  // instead of unmounting one and mounting the other. That reuse is what lets
+  // the width transition run at all — a fresh node has no previous width to
+  // animate from, and the panel would snap.
+  const shellClass = cn(
+    'fixed left-0 top-0 bottom-0 z-40 flex flex-col overflow-hidden border-r',
+    collapsed ? 'bg-gray-50 border-border' : 'bg-slate-900 border-slate-900',
+    !dragging && 'transition-[width,background-color] duration-300 ease-out',
+    'motion-reduce:transition-none'
+  )
+
   if (collapsed) {
     return (
-      <div
-        className="fixed left-0 top-0 bottom-0 z-40 bg-gray-50 border-r border-border"
-        style={{ width: COLLAPSED_GUTTER }}
-      >
-        <button
-          type="button"
-          onClick={toggleCollapsed}
-          title="Expand sidebar"
-          aria-label="Expand sidebar"
-          className="fixed left-3 top-3 z-50 flex h-8 w-8 items-center justify-center rounded-md bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 transition-colors"
-        >
-          <ChevronRight className="h-4 w-4" />
-        </button>
-      </div>
+      <TooltipProvider delayDuration={0}>
+        <div className={shellClass} style={{ width: COLLAPSED_GUTTER }}>
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            title="Expand sidebar"
+            aria-label="Expand sidebar"
+            className="fixed left-3 top-3 z-50 flex h-8 w-8 items-center justify-center rounded-md bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 transition-colors"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </TooltipProvider>
     )
   }
 
   return (
     <TooltipProvider delayDuration={0}>
-      <div
-        className="fixed left-0 top-0 bottom-0 z-40 bg-slate-900 flex flex-col overflow-hidden"
-        style={{ width }}
-      >
+      <div className={shellClass} style={{ width }}>
         {/* Drag handle */}
         <div
           onMouseDown={handleDragStart}

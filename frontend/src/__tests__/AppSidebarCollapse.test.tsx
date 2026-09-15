@@ -27,8 +27,11 @@ function makeClient() {
 function Harness() {
   const [collapsed, setCollapsed] = useState(false)
   const [width, setWidth] = useState(220)
+  const [dragging, setDragging] = useState(false)
   return (
-    <SidebarContext.Provider value={{ collapsed, setCollapsed, width, setWidth }}>
+    <SidebarContext.Provider
+      value={{ collapsed, setCollapsed, width, setWidth, dragging, setDragging }}
+    >
       <AppSidebar />
     </SidebarContext.Provider>
   )
