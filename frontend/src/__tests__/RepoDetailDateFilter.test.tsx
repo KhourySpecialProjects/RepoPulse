@@ -75,6 +75,10 @@ const mockRepo: Repo = {
   contributor_count: 1,
   active_reminder_count: 0,
   expected_contributor_count: null,
+  sync_status: 'idle',
+  sync_started_at: null,
+  sync_started_by_name: null,
+  sync_error: null,
 }
 
 function commit(hash: string, message: string, date: string): Commit {
@@ -135,8 +139,23 @@ describe('RepoDetailPage — commit date filter', () => {
     renderPage()
     await waitFor(() => expect(screen.getByText('feat: first on day one')).toBeInTheDocument())
 
-    expect(screen.getByText('Date:')).toBeInTheDocument()
+    // Its own collapsible sidebar section now, so the heading is the toggle.
+    expect(screen.getByRole('button', { name: 'Date' })).toHaveAttribute('aria-expanded', 'true')
     expect(dateInput()).toBeInTheDocument()
+  })
+
+  it('collapses and restores the date section', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('feat: first on day one')).toBeInTheDocument())
+    const toggle = screen.getByRole('button', { name: 'Date' })
+
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(document.getElementById('date-filter-content')).toHaveAttribute('hidden')
+
+    fireEvent.click(toggle)
+    expect(document.getElementById('date-filter-content')).not.toHaveAttribute('hidden')
   })
 
   it('shows every commit until a date is chosen', async () => {

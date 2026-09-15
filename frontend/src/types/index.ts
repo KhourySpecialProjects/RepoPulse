@@ -482,9 +482,15 @@ export interface PRSyncResponse {
   fetched_at: string
 }
 
+/** Why a day is marked on the activity graph. Drives the marker colour and the
+ *  graph's legend, so the reason is readable without opening a tooltip. */
+export type ActivityContextKind = 'burst-unusual' | 'burst-deadline' | 'quiet'
+
 export interface ContextActivityPoint extends CommitActivityPoint {
   ts: number
   context: string
+  /** null on an unremarkable day — no marker, no legend entry. */
+  kind: ActivityContextKind | null
 }
 export interface StudentActivity {
   id: string
