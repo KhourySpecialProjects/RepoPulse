@@ -725,12 +725,7 @@ export const handlers = [
   }),
 
   // Contributors
-  http.get(`${BASE}/contributors/:id`, ({ params }) => {
-    const contributor = mockContributors.find((c) => c.id === params.id)
-    if (!contributor) return HttpResponse.json({ detail: 'Not found' }, { status: 404 })
-    return HttpResponse.json(contributor)
-  }),
-  http.patch(`${BASE}/contributors/:id`, async ({ params, request }) => {
+  http.put(`${BASE}/contributors/:id`, async ({ params, request }) => {
     const contributor = mockContributors.find((c) => c.id === params.id)
     if (!contributor) return HttpResponse.json({ detail: 'Not found' }, { status: 404 })
     const body = (await request.json()) as { display_name: string }
@@ -750,11 +745,6 @@ export const handlers = [
       last_commit_at: null,
     }
     return HttpResponse.json(merged)
-  }),
-  http.get(`${BASE}/contributors/:id/aliases`, ({ params }) => {
-    const contributor = mockContributors.find((c) => c.id === params.id)
-    if (!contributor) return HttpResponse.json({ detail: 'Not found' }, { status: 404 })
-    return HttpResponse.json(contributor)
   }),
   http.get(`${BASE}/contributors/:id/summaries`, () => {
     return HttpResponse.json([])

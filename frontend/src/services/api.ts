@@ -15,7 +15,6 @@ import type {
   Collection,
   CollectionAccessEntry,
   CollectionCommitActivity,
-  Commit,
   CommitQualityResponse,
   CommitsResponse,
   Contributor,
@@ -31,7 +30,6 @@ import type {
   Notification,
   NotificationListResponse,
   NotificationPreferences,
-  NotificationSettings,
   PRListResponse,
   PRStats,
   PRSyncResponse,
@@ -41,13 +39,11 @@ import type {
   ReminderListResponse,
   Repo,
   Summary,
-  TestEmailResponse,
   TokenResponse,
   UnmergeContributorsResponse,
   UpdateCollectionData,
   UpdateNoteData,
   UpdateNotificationPreferencesData,
-  UpdateNotificationSettingsData,
   UpdateSettingsData,
   UpdateUserData,
   UserDetail,
@@ -189,11 +185,6 @@ export async function getRepoContributors(id: string): Promise<Contributor[]> {
 }
 
 // Contributors
-export async function getContributor(id: string): Promise<Contributor> {
-  const response = await apiClient.get<Contributor>(`/contributors/${id}`)
-  return response.data
-}
-
 export async function updateContributor(id: string, displayName: string): Promise<Contributor> {
   const response = await apiClient.put<Contributor>(`/contributors/${id}`, { display_name: displayName })
   return response.data
@@ -206,11 +197,6 @@ export async function mergeContributors(ids: string[], displayName: string): Pro
 
 export async function unmergeContributor(id: string): Promise<UnmergeContributorsResponse> {
   const response = await apiClient.post<UnmergeContributorsResponse>(`/contributors/${id}/unmerge`)
-  return response.data
-}
-
-export async function getContributorAliases(id: string): Promise<Contributor> {
-  const response = await apiClient.get<Contributor>(`/contributors/${id}/aliases`)
   return response.data
 }
 

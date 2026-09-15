@@ -40,7 +40,6 @@ interface Props {
   /** Omit to hide the toggle — a stat strip with no plot needs no table. */
   table?: { caption: string; columns: string[]; rows: Array<Array<string | number>> }
   className?: string
-  contentClassName?: string
   testId?: string
   children: ReactNode
 }
@@ -58,7 +57,6 @@ export function ChartCard({
   emptyMessage = 'No data yet.',
   table,
   className,
-  contentClassName,
   testId,
   children,
 }: Props) {
@@ -103,7 +101,7 @@ export function ChartCard({
           )}
         </CardHeader>
 
-        <CardContent className={cn('flex-1', contentClassName)}>
+        <CardContent className="flex-1">
           {isLoading ? (
             <div
               data-testid={testId ? `${testId}-loading` : undefined}

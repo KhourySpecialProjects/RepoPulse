@@ -4,7 +4,6 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AppSidebar } from '@/components/AppSidebar'
-import { HomePage } from '@/pages/HomePage'
 import { SidebarContext } from '@/contexts/SidebarContext'
 
 vi.mock('@/hooks/useAuth', () => ({
@@ -90,17 +89,3 @@ describe('AppSidebar — RepoPulse logo navigates to the home page', () => {
   })
 })
 
-describe('HomePage', () => {
-  it('renders an intentionally blank page', () => {
-    const { container } = render(
-      <MemoryRouter initialEntries={['/']}>
-        <HomePage />
-      </MemoryRouter>
-    )
-
-    const page = container.querySelector('[data-testid="home-page"]') as HTMLElement
-    expect(page).not.toBeNull()
-    // Blank for now — a placeholder to build on, with no content to assert
-    expect(page.textContent).toBe('')
-  })
-})

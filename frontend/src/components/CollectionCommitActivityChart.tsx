@@ -12,7 +12,7 @@ import {
 } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { CrosshairTooltip } from '@/components/charts'
-import { CHROME, MARKS, SERIES, TICK } from '@/lib/chartTheme'
+import { CHROME, MARKS, TICK } from '@/lib/chartTheme'
 import { useCollectionCommitActivity } from '@/hooks/useCollections'
 import { BRAND } from '@/lib/theme'
 import { cn } from '@/lib/utils'

@@ -30,7 +30,7 @@ export function RangeFilter({ days, onChange }: Props) {
           aria-label={`${option} days`}
           className={`rounded border px-1.5 py-0.5 text-xs transition-colors ${
             days === option
-              ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+              ? 'border-brand-200 bg-brand-50 text-brand-700'
               : 'border-border text-muted-foreground hover:bg-muted'
           }`}
         >

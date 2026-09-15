@@ -235,13 +235,6 @@ export interface UpdateNoteData {
   is_archived?: boolean
 }
 
-export interface UserSummary {
-  id: string
-  display_name: string
-  email: string
-  role: string
-}
-
 export interface UserDetail {
   id: string
   email: string
