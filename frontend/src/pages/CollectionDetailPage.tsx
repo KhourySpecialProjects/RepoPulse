@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowLeft, Plus, RefreshCw, GitBranch, LayoutGrid, Pencil, Archive, ArchiveRestore, Users } from 'lucide-react'
 import { useCollection, useSyncCollection, useUpdateCollection } from '@/hooks/useCollections'
 import { useRepos, useAddRepos } from '@/hooks/useRepos'
 import { useAuth } from '@/hooks/useAuth'
+import { useBackTarget } from '@/hooks/useBackTarget'
 import { useCurrentUser } from '@/hooks/useUsers'
 import { RepoCard } from '@/components/RepoCard'
 import { CollectionAccessPanel } from '@/components/CollectionAccessPanel'
@@ -32,7 +33,9 @@ const healthOrder: Record<HealthStatus, number> = { red: 0, yellow: 1, unknown: 
 
 export function CollectionDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
+  // The collection list is only the fallback; arriving from the dashboard or
+  // the sidebar returns there instead.
+  const backTarget = useBackTarget('/collections')
   const { data: collection, isLoading: collectionLoading } = useCollection(id ?? '')
   const { data: reposData, isLoading: reposLoading } = useRepos(id ?? '')
   const syncMutation = useSyncCollection()
@@ -157,7 +160,9 @@ export function CollectionDetailPage() {
         <div className="flex w-full items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <button
-              onClick={() => navigate('/collections')}
+              onClick={backTarget.goBack}
+              aria-label={backTarget.label}
+              title={backTarget.label}
               className="text-muted-foreground hover:text-indigo-600 transition-colors flex-shrink-0"
             >
               <ArrowLeft className="h-4 w-4" />

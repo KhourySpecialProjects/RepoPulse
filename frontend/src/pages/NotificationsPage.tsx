@@ -37,6 +37,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { feedTitleFor } from '@/lib/notificationEvents'
 import { notificationTarget } from '@/lib/notificationTarget'
+import { useBackState } from '@/hooks/useBackTarget'
 import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
 import type { Notification, RecentlyDeletedItem } from '@/types'
 
@@ -155,6 +156,7 @@ function RecentlyDeletedSection() {
 
 export function NotificationsPage() {
   const navigate = useNavigate()
+  const backState = useBackState()
   const { data: notificationsData, isLoading } = useNotifications({ limit: 50 })
   const { data: unreadData } = useUnreadCount()
   const { data: remindersData } = useReminders()
@@ -179,7 +181,7 @@ export function NotificationsPage() {
     // Resolves to the commit or note behind the notification, not just the
     // repo, so the reader arrives at what they were actually told about.
     const target = notificationTarget(notif)
-    if (target) navigate(target)
+    if (target) navigate(target, { state: backState })
   }
 
   return (

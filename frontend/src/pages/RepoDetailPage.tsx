@@ -10,6 +10,7 @@ import { useRepoSummaries, useContributorSummaries, useGenerateSummary, summaryK
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '@/hooks/useNotes'
 import { useUsers, useCurrentUser } from '@/hooks/useUsers'
 import { useAuth } from '@/hooks/useAuth'
+import { useBackTarget } from '@/hooks/useBackTarget'
 import { HealthBadge } from '@/components/HealthBadge'
 import { HealthSignalPills } from '@/components/HealthSignalPills'
 import { CommitScorePill } from '@/components/CommitScorePill'
@@ -879,6 +880,12 @@ export function RepoDetailPage() {
     )
   }
 
+  // The collection is only the fallback: whoever linked here records where
+  // they linked from, and that wins. See useBackTarget.
+  const backTarget = useBackTarget(
+    repo ? `/collections/${repo.collection_id}` : '/collections'
+  )
+
   if (repoLoading) {
     return (
       <div className="px-6 py-8">
@@ -941,8 +948,9 @@ export function RepoDetailPage() {
         <div className="grid w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <button
-              onClick={() => navigate(`/collections/${repo.collection_id}`)}
-              aria-label="Back to collection"
+              onClick={backTarget.goBack}
+              aria-label={backTarget.label}
+              title={backTarget.label}
               className="text-muted-foreground hover:text-indigo-600 transition-colors flex-shrink-0"
             >
               <ArrowLeft className="h-4 w-4" />

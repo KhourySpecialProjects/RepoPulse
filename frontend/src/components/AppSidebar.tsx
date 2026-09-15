@@ -15,6 +15,7 @@ import {
   LogOut,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
+import { useBackState } from '@/hooks/useBackTarget'
 import { useCollections } from '@/hooks/useCollections'
 import { useRepos, useRepo } from '@/hooks/useRepos'
 import { useUnreadCount, useReminders } from '@/hooks/useNotifications'
@@ -57,6 +58,7 @@ function CollectionTreeItem({
   collapsed: boolean
 }) {
   const navigate = useNavigate()
+  const backState = useBackState()
   const { data: reposData } = useRepos(collection.id, 50, 0)
   const repos = reposData?.items ?? []
 
@@ -86,7 +88,7 @@ function CollectionTreeItem({
       <div className={`w-full ${NAV_BASE} ${NAV_DEFAULT} justify-between pr-1`}>
         <button
           type="button"
-          onClick={() => navigate(`/collections/${collection.id}`)}
+          onClick={() => navigate(`/collections/${collection.id}`, { state: backState })}
           className="flex items-center gap-2.5 min-w-0 flex-1 text-left"
         >
           {expanded ? (
@@ -127,7 +129,7 @@ function CollectionTreeItem({
                   <button
                     key={repo.id}
                     type="button"
-                    onClick={() => navigate(`/repos/${repo.id}`)}
+                    onClick={() => navigate(`/repos/${repo.id}`, { state: backState })}
                     className={`w-full flex items-center gap-2 px-2 py-1.5 text-sm transition-colors rounded-md ${
                       isActive
                         ? 'bg-indigo-600/20 text-indigo-300 border-l-2 border-indigo-400 rounded-l-none pl-1.5'

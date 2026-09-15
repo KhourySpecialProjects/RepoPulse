@@ -9,6 +9,7 @@ import { HealthBadge } from '@/components/HealthBadge'
 import { SyncIndicator } from '@/components/SyncIndicator'
 import { useSyncRepo, useDeleteRepo } from '@/hooks/useRepos'
 import { useCurrentUser } from '@/hooks/useUsers'
+import { useBackState } from '@/hooks/useBackTarget'
 import type { Repo, HealthStatus } from '@/types'
 
 const healthBorderClass: Record<HealthStatus, string> = {
@@ -37,6 +38,7 @@ function formatDateTime(dateStr: string | null): string {
 
 export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
   const navigate = useNavigate()
+  const backState = useBackState()
   const syncMutation = useSyncRepo()
   const deleteRepoMutation = useDeleteRepo()
   const [syncing, setSyncing] = useState(false)
@@ -74,7 +76,7 @@ export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
   }
 
   function handleDetails() {
-    navigate(`/repos/${repo.id}`)
+    navigate(`/repos/${repo.id}`, { state: backState })
   }
 
   return (
