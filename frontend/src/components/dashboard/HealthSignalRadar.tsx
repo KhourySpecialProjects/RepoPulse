@@ -11,6 +11,30 @@ import { averageHealthSignals, SIGNAL_SCORE_MAX } from '@/lib/dashboardInsights'
 import { cn } from '@/lib/utils'
 import type { Repo } from '@/types'
 
+/** The shape Recharts hands a custom tooltip, narrowed to what is used. */
+interface SignalTooltipProps {
+  active?: boolean
+  payload?: Array<{ value?: number | string; payload?: { label?: string } }>
+}
+
+/**
+ * The radar's hover label.
+ *
+ * Extracted from an inline `content` render prop so the scale it prints can be
+ * asserted. It sat beside a `formatter` prop that Recharts silently ignores
+ * whenever `content` is set, which let the two disagree.
+ */
+export function SignalTooltip({ active, payload }: SignalTooltipProps) {
+  const point = payload?.[0]
+  if (!active || !point) return null
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg">
+      {point.payload?.label}: {point.value}/{SIGNAL_SCORE_MAX}
+    </div>
+  )
+}
+
 /**
  * The cohort's average shape across the six health signals.
  *
@@ -46,10 +70,7 @@ export function HealthSignalRadar({ repos, className, loading, failed }: { repos
               <PolarGrid stroke="#e5e7eb" />
               <PolarAngleAxis dataKey="label" tick={{ fontSize: 9, fill: '#6b7280' }} />
               <PolarRadiusAxis domain={[0, SIGNAL_SCORE_MAX]} tick={false} axisLine={false} />
-              <Tooltip
-                formatter={(value: number) => [`${value}/${SIGNAL_SCORE_MAX}`, 'average']}
-                content={({ active, payload }) => active && payload?.length ? <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg">{payload[0].payload.label}: {payload[0].value} / 2</div> : null}
-              />
+              <Tooltip content={<SignalTooltip />} />
               <Radar
                 dataKey="value"
                 stroke="#4f46e5"
