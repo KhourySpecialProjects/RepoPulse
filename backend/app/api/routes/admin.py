@@ -12,13 +12,16 @@ response. All aggregation lives in AdminStatsService.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db_session, require_admin
 from app.schemas.admin import (
+    AdminAttention,
     AdminOverview,
+    AdminPipeline,
     LlmUsage,
     RecalculateRequest,
     RecalculateResult,
@@ -124,6 +127,47 @@ async def get_admin_system(
     generic error page in place of the diagnostic.
     """
     return await service.system_status(db)
+
+
+@router.get("/pipeline", response_model=AdminPipeline, responses=_GATED)
+async def get_admin_pipeline(
+    db: AsyncSession = Depends(get_db_session),
+    service: AdminStatsService = Depends(get_admin_stats_service),
+) -> AdminPipeline:
+    """Ingestion health and data coverage, as of now.
+
+    Reports health data only as coverage — `unknown` status and a NULL
+    health_score, which both mean the scoring pipeline did not run. The
+    green/yellow/red spread is an instructor's question and is deliberately
+    not served here.
+
+    Takes no window: everything behind it is point-in-time.
+    """
+    return await service.pipeline(db)
+
+
+@router.get("/attention", response_model=AdminAttention, responses=_GATED)
+async def list_repos_needing_attention(
+    limit: int = Query(10, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    stale_after_days: int = Query(7, ge=1, le=365),
+    db: AsyncSession = Depends(get_db_session),
+    service: AdminStatsService = Depends(get_admin_stats_service),
+) -> AdminAttention:
+    """Repos with an operational fault, worst first.
+
+    Operational only: a repo whose students stopped committing is not here.
+    """
+    items, total = await service.attention(
+        db, limit=limit, offset=offset, stale_after_days=stale_after_days
+    )
+    return AdminAttention(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+        generated_at=datetime.now(timezone.utc),
+    )
 
 
 @router.post(

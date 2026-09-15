@@ -122,7 +122,7 @@ export function LlmUsageTab() {
           <strong>Models other than the current default are in use:</strong>{' '}
           {data.retired_models_in_use.join(', ')}. The default is{' '}
           <code className="font-mono">{data.current_default_model}</code>. A
-          retired model id starts returning 404s rather than failing loudly.
+          retired model id will return 404.
         </div>
       )}
 

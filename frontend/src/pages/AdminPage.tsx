@@ -18,8 +18,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AdminOverviewTab } from '@/components/admin/AdminOverviewTab'
 import { LlmUsageTab } from '@/components/admin/LlmUsageTab'
-import { StorageTab } from '@/components/admin/StorageTab'
-import { SystemTab } from '@/components/admin/SystemTab'
 import { toast } from 'sonner'
 import type { UserDetail, CreateUserData, UpdateUserData } from '@/types'
 import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
@@ -435,7 +433,7 @@ function UsersTab() {
 }
 
 // ---- Admin Page ----
-type AdminTab = 'overview' | 'storage' | 'users' | 'llm' | 'system'
+type AdminTab = 'overview' | 'users' | 'llm'
 
 export function AdminPage() {
   const { user } = useAuth()
@@ -455,8 +453,15 @@ export function AdminPage() {
         <h1 className="text-xl font-semibold">Admin Panel</h1>
       </div>
 
-      {/* Wider than the old max-w-3xl: the storage tables need the room. */}
-      <div className={`${PAGE_BODY_CLASS} max-w-5xl`}>
+      {/* Overview takes the full width — it is a multi-column card layout
+          that packs more columns as the screen grows — while the other tabs
+          stay narrow so their label/value rows and tables do not stretch
+          into unreadably long lines. */}
+      <div
+        className={`${PAGE_BODY_CLASS} ${
+          activeTab === 'overview' ? 'max-w-none' : 'max-w-5xl'
+        }`}
+      >
 
       {/* Radix Tabs rather than hand-rolled buttons: keyboard navigation and
           correct tab/tabpanel ARIA come for free, and the component was
@@ -464,18 +469,15 @@ export function AdminPage() {
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as AdminTab)}>
         <TabsList className="mb-6">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="storage">Storage</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="llm">LLM Usage</TabsTrigger>
-          <TabsTrigger value="system">System</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
-          <AdminOverviewTab />
-        </TabsContent>
-
-        <TabsContent value="storage">
-          <StorageTab />
+          {/* A fault chip on the dashboard opens the tab that can fix it. */}
+          <AdminOverviewTab
+            onNavigate={(tab) => setActiveTab(tab as AdminTab)}
+          />
         </TabsContent>
 
         <TabsContent value="users">
@@ -491,10 +493,6 @@ export function AdminPage() {
 
         <TabsContent value="llm">
           <LlmUsageTab />
-        </TabsContent>
-
-        <TabsContent value="system">
-          <SystemTab />
         </TabsContent>
       </Tabs>
       </div>

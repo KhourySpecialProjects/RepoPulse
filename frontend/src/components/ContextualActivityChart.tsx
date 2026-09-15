@@ -4,6 +4,8 @@ import { Area, AreaChart, CartesianGrid, ReferenceDot, ResponsiveContainer, Tool
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { TrickleProgress } from '@/components/ui/trickle-progress'
 import { useContextualActivity } from '@/hooks/useContextualActivity'
+import { contextualizeActivity } from '@/lib/activityContext'
+import { CHROME, MARKS, SERIES, STATUS, TICK } from '@/lib/chartTheme'
 import { ACTIVITY_LEGEND, GOOD_HISTORY_COLOR, MARKER_RING, activityContextColor, contextualizeActivity } from '@/lib/activityContext'
 import { BRAND } from '@/lib/theme'
 import type { ActivityContextKind, ContextActivityPoint } from '@/types'
@@ -76,9 +78,9 @@ export function ContextualActivityChart({ collectionId, repoId, children, action
                     <stop offset="95%" stopColor={BRAND.violet} stopOpacity={0.05} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={35} />
-                <YAxis allowDecimals={false} />
+                <CartesianGrid vertical={false} stroke={CHROME.grid} strokeDasharray="0" />
+                <XAxis dataKey="date" tick={TICK} minTickGap={35} axisLine={{ stroke: CHROME.axis }} tickLine={false} />
+                <YAxis allowDecimals={false} tick={TICK} axisLine={false} tickLine={false} />
                 <Tooltip content={<ActivityTooltip />} />
                 {/* Series colour is brand; marker colours stay semantic, since
                     they encode what kind of day it was. */}

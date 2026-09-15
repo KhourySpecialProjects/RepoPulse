@@ -11,6 +11,8 @@ import {
   LabelList,
 } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { CrosshairTooltip } from '@/components/charts'
+import { CHROME, MARKS, SERIES, TICK } from '@/lib/chartTheme'
 import { useCollectionCommitActivity } from '@/hooks/useCollections'
 import { BRAND } from '@/lib/theme'
 import { cn } from '@/lib/utils'
@@ -35,12 +37,26 @@ export function CollectionCommitActivityChart({ collectionId }: Props) {
       : null
 
     const notNull = cutoff
-    return data.activity
+    const points = data.activity
       .filter((p) => {
         if (notNull === null) return true
         return new Date(p.date).getTime() >= notNull
       })
-      .map((p) => ({ ...p, ts: new Date(p.date + 'T12:00:00Z').getTime() }))
+      .map((p) => ({
+        ...p,
+        ts: new Date(p.date + 'T12:00:00Z').getTime(),
+        pointLabel: '',
+      }))
+
+    if (points.length > 0) {
+      const peak = points.reduce((best, p) => (p.count > best.count ? p : best))
+      const last = points[points.length - 1]
+      // The peak is the point worth naming; the endpoint is where the eye
+      // lands. If they coincide, one label rather than two on one mark.
+      if (peak.count > 0) peak.pointLabel = String(peak.count)
+      if (last.count > 0) last.pointLabel = String(last.count)
+    }
+    return points
   }, [data, range])
 
   const hasData = chartData.some((p) => p.count > 0)
@@ -93,38 +109,53 @@ export function CollectionCommitActivityChart({ collectionId }: Props) {
                       <stop offset="95%" stopColor={BRAND.violet} stopOpacity={0.05} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                  <CartesianGrid vertical={false} stroke={CHROME.grid} strokeDasharray="0" />
                   <XAxis
                     type="number"
                     dataKey="ts"
                     scale="time"
                     domain={['dataMin', 'dataMax']}
                     tickCount={6}
-                    tick={{ fontSize: 11 }}
+                    tick={TICK}
+                    axisLine={{ stroke: CHROME.axis }}
+                    tickLine={false}
                     tickFormatter={(ts: number) =>
                       new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                     }
                   />
-                  <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                  <YAxis tick={TICK} allowDecimals={false} axisLine={false} tickLine={false} />
                   <Tooltip
-                    labelFormatter={(ts: number) =>
-                      new Date(ts).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                      })
+                    cursor={{ stroke: CHROME.axis, strokeWidth: 1 }}
+                    content={
+                      <CrosshairTooltip
+                        labelFormatter={(ts) =>
+                          new Date(Number(ts)).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                          })
+                        }
+                      />
                     }
-                    formatter={(v: number) => [v, 'Commits']}
                   />
                   <Area
                     type="monotone"
                     dataKey="count"
+                    name="Commits"
                     stroke={BRAND.violet}
                     fill="url(#collectionActivityGradient)"
-                    strokeWidth={2}
+                    strokeWidth={MARKS.strokeWidth}
+                    activeDot={{
+                      r: MARKS.dotRadius,
+                      stroke: CHROME.surface,
+                      strokeWidth: MARKS.surfaceRing,
+                    }}
                   >
+                    {/* Peak and endpoint only, and in a text token rather
+                        than the series colour — a light hue is illegible as
+                        type against the surface. */}
                     <LabelList
-                      dataKey="count"
+                      dataKey="pointLabel"
                       position="top"
                       style={{ fontSize: 13, fill: BRAND.violet, fontWeight: 600 }}
                     />

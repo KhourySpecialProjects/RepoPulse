@@ -99,7 +99,7 @@ async def test_system_reports_the_real_repo_root_with_exists_and_writable(
 ) -> None:
     """The config value, not the per-user AppSettings one.
 
-    The System tab used to render AppSettings.repo_root_directory, which is
+    The admin UI used to render AppSettings.repo_root_directory, which is
     per-user, display-only, and never consulted when building clone paths —
     so an admin could be shown a path clones are not in.
     """
