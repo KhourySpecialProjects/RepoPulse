@@ -209,12 +209,96 @@ describe('RepoDetailPage - multi-branch commit schema (branches: string[])', () 
     setupHandlers()
     renderPage()
     await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
-    // Chip rows replaced the old <Select>, so there is no "All branches"
-    // trigger any more: the row is a "Branch:" label, an "All" reset, and one
-    // toggle per branch. "All" is not unique — the Author row has one too.
-    expect(screen.getByText('Branch:')).toBeInTheDocument()
+    // The chips live in their own collapsible sidebar section now, so the
+    // heading is the panel's toggle rather than an inline "Branch:" label.
+    // Queried by role because the commits table also has a "Branch" column.
+    expect(screen.getByRole('button', { name: 'Branch' })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getAllByText('All').length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'feature/auth' }).length).toBeGreaterThan(0)
+  })
+
+  it('keeps the filter sections in view as the commit list scrolls', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+
+    // One sticky wrapper holds all four, so they travel together rather than
+    // piling up on each other at the same offset.
+    const wrapper = document.getElementById('branch-filter-content')?.closest('.sticky')
+    expect(wrapper).not.toBeNull()
+    expect(wrapper).toContainElement(document.getElementById('type-filter-content')!)
+    expect(wrapper).toContainElement(document.getElementById('date-filter-content')!)
+    expect(wrapper).toContainElement(document.getElementById('contributors-content')!)
+  })
+
+  it('remembers a collapsed section across remounts', async () => {
+    setupHandlers()
+    const first = renderPage()
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Branch' }))
+    expect(localStorage.getItem('repo-branch-filter-expanded-repo-1')).toBe('false')
+
+    first.unmount()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+
+    // Navigating away and back must not quietly reopen what the user closed.
+    expect(screen.getByRole('button', { name: 'Branch' })).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('remembers a reopened section too', async () => {
+    localStorage.setItem('repo-branch-filter-expanded-repo-1', 'false')
+    setupHandlers()
+    const first = renderPage()
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Branch' }))
+    first.unmount()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+
+    expect(screen.getByRole('button', { name: 'Branch' })).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('keeps each panel and each repo on its own key', async () => {
+    localStorage.setItem('repo-branch-filter-expanded-repo-1', 'false')
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+
+    // Closing Branch on this repo must not close Type, or Branch elsewhere.
+    expect(screen.getByRole('button', { name: 'Branch' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: 'Type' })).toHaveAttribute('aria-expanded', 'true')
+    expect(localStorage.getItem('repo-branch-filter-expanded-repo-2')).toBeNull()
+  })
+
+  it('collapses and restores the branch section', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+    const toggle = screen.getByRole('button', { name: 'Branch' })
+
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(document.getElementById('branch-filter-content')).toHaveAttribute('hidden')
+
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(document.getElementById('branch-filter-content')).not.toHaveAttribute('hidden')
+  })
+
+  it('keeps filtering while its section is collapsed', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('feat: main branch commit')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'feature/auth' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Branch' }))
+
+    // Hiding the controls must not reset the filter they set.
+    expect(screen.getByText('feat: feature branch commit')).toBeInTheDocument()
+    expect(screen.queryByText('feat: main branch commit')).not.toBeInTheDocument()
   })
 
   it('shows all commits when no branch filter is selected', async () => {
