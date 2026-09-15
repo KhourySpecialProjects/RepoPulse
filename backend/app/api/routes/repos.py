@@ -21,7 +21,7 @@ from app.models.contributor import Contributor
 from app.models.user import User
 from app.models.contributor_alias import ContributorAlias
 from app.models.note import Note
-from app.models.notification import Notification, NotificationType
+from app.models.notification import NotificationType
 from app.models.repo import Repo
 from app.schemas.commits import CommitRead, CommitTypeFilter, PaginatedCommits
 from app.schemas.contributors import ContributorRead, AliasRead
@@ -37,7 +37,6 @@ from app.services.permission_service import (
 
 from app.schemas.repos import RepoDeleteResponse
 from app.services.notification_service import (
-    deliver_emails,
     notify_health_change,
     notify_repo_event,
 )
@@ -255,7 +254,7 @@ async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: s
             if commits:
                 repo.last_commit_at = max(c["date"] for c in commits)
 
-            raised = await notify_health_change(
+            await notify_health_change(
                 db,
                 repo=repo,
                 previous_status=previous_status,
@@ -263,7 +262,6 @@ async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: s
             )
             await _finish_sync(db, repo, error=None)
             await db.commit()
-            await deliver_emails(db, raised)
             logger.info("Indexed %s: %d commits, status=%s", repo.name, len(commits), health["status"])
         except Exception as exc:
             logger.exception("Failed to index repo %s (%s): %s", repo.name, repo.github_url, exc)
@@ -385,7 +383,6 @@ async def add_repos(
         )
 
     created_repos: list[RepoRead] = []
-    raised: list[Notification] = []
     for url in body.urls:
         name = _derive_repo_name(url)
         local_path = _git_service.clone_path(collection.local_folder_name, name)
@@ -401,7 +398,7 @@ async def add_repos(
         background_tasks.add_task(_clone_and_index, repo.id, user_record.github_token)
         created_repos.append(_repo_to_read(repo, contributor_count=0))
 
-        raised += await notify_repo_event(
+        await notify_repo_event(
             db,
             repo=repo,
             type=NotificationType.repo_added,
@@ -414,7 +411,6 @@ async def add_repos(
         )
 
     await db.commit()
-    await deliver_emails(db, raised)
     return created_repos
 
 
@@ -469,7 +465,7 @@ async def delete_repo(
     collection = await db.get(Collection, repo.collection_id)
     # Raised before the delete, while the repo and its collection are still
     # readable. link_repo=False keeps the rows out of the FK cascade.
-    raised = await notify_repo_event(
+    await notify_repo_event(
         db,
         repo=repo,
         type=NotificationType.repo_removed,
@@ -485,7 +481,6 @@ async def delete_repo(
     await db.flush()
 
     await remove_repo_records(db, repo.id)
-    await deliver_emails(db, raised)
     return RepoDeleteResponse(detail="Repo deleted")
 
 

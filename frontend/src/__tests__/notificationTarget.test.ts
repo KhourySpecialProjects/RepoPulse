@@ -23,7 +23,6 @@ const base: Notification = {
   commit_hash: null,
   subject: null,
   body: null,
-  emailed_at: null,
 }
 
 describe('notificationTarget', () => {
