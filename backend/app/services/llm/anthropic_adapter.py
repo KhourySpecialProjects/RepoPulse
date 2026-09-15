@@ -32,6 +32,18 @@ class AnthropicAdapter(LLMService):
 
         message = await self._client.messages.create(**kwargs)
 
+        # Recorded before the content is unwrapped: a thinking-only answer
+        # returns "" to the caller and is billed all the same, and the quota
+        # has to charge for what the API charged for. getattr because a
+        # response object is not contractually required to carry usage —
+        # an unreported call is charged zero rather than an invented average.
+        reported = getattr(message, "usage", None)
+        if reported is not None:
+            self.usage.add(
+                int(getattr(reported, "input_tokens", 0) or 0),
+                int(getattr(reported, "output_tokens", 0) or 0),
+            )
+
         # Not content[0].text: newer models can return a ThinkingBlock first,
         # which has no .text at all. Collect the text blocks and leave the rest
         # alone. An answer with no text block yields "", which every caller

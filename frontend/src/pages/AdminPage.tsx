@@ -17,7 +17,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AdminOverviewTab } from '@/components/admin/AdminOverviewTab'
-import { LlmUsageTab } from '@/components/admin/LlmUsageTab'
+import { AiSettingsTab } from '@/components/admin/AiSettingsTab'
 import { toast } from 'sonner'
 import type { UserDetail, CreateUserData, UpdateUserData } from '@/types'
 import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
@@ -433,7 +433,7 @@ function UsersTab() {
 }
 
 // ---- Admin Page ----
-type AdminTab = 'overview' | 'users' | 'llm'
+type AdminTab = 'overview' | 'users' | 'ai'
 
 export function AdminPage() {
   const { user } = useAuth()
@@ -470,7 +470,12 @@ export function AdminPage() {
         <TabsList className="mb-6">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
-          <TabsTrigger value="llm">LLM Usage</TabsTrigger>
+          {/* One AI tab, not two. The old LLM Usage tab reported call counts
+              and could only say token usage and cost were unrecorded; both
+              are recorded now, so that reporting lives at the bottom of the
+              tab that sets the rates it is priced at. Call volume over time
+              is still on Overview's LLM Volume card. */}
+          <TabsTrigger value="ai">AI Settings</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -491,8 +496,8 @@ export function AdminPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="llm">
-          <LlmUsageTab />
+        <TabsContent value="ai">
+          <AiSettingsTab />
         </TabsContent>
       </Tabs>
       </div>

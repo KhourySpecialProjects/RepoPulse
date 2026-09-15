@@ -14,10 +14,19 @@ import {
   getAdminSystem,
   getAdminRepoStorage,
   getAdminStorage,
+  getLlmConfig,
+  getTokenUsage,
+  getTokenUsageSummary,
   recalculateAdminStorage,
+  setUserTokenLimit,
+  updateLlmConfig,
 } from '@/services/api'
 import { formatBytes } from '@/lib/formatBytes'
-import type { AdminRecalculateResult, AdminRepoSizeSort } from '@/types'
+import type {
+  AdminRecalculateResult,
+  AdminRepoSizeSort,
+  UpdateLlmConfigData,
+} from '@/types'
 
 /**
  * Query keys for the admin dashboard.
@@ -46,6 +55,14 @@ export const adminKeys = {
     offset?: number
     stale_after_days?: number
   }) => ['admin', 'attention', params ?? {}] as const,
+  llmConfig: () => ['admin', 'llm-config'] as const,
+  // Prefix and full key are separate entries because invalidateQueries
+  // matches on prefix: passing the full key (which ends in a params object)
+  // would only ever invalidate the one page whose params match exactly.
+  tokenUsageAll: () => ['admin', 'token-usage'] as const,
+  tokenUsage: (params?: { limit?: number; offset?: number }) =>
+    ['admin', 'token-usage', params ?? {}] as const,
+  tokenUsageSummary: () => ['admin', 'token-usage', 'summary'] as const,
 }
 
 export function useAdminOverview(staleAfterDays = 7) {
@@ -165,5 +182,83 @@ export function useAdminAttention(params?: {
     queryKey: adminKeys.attention(params),
     queryFn: () => getAdminAttention(params),
     placeholderData: keepPreviousData,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Shared LLM config and token limits
+// ---------------------------------------------------------------------------
+
+export function useLlmConfig() {
+  return useQuery({
+    queryKey: adminKeys.llmConfig(),
+    queryFn: getLlmConfig,
+  })
+}
+
+export function useUpdateLlmConfig() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: UpdateLlmConfigData) => updateLlmConfig(data),
+    onSuccess: () => {
+      // Invalidates the whole admin tree, not just the config: changing the
+      // default limit changes every row of the token-usage table that had no
+      // override, and those are resolved server-side.
+      queryClient.invalidateQueries({ queryKey: adminKeys.all })
+      // The Settings page shows the model this picks, and any user's own
+      // quota readout is now stale too.
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      toast.success('AI settings saved')
+    },
+    onError: () => toast.error('Could not save AI settings. Please try again.'),
+  })
+}
+
+/**
+ * Instance-wide token spend and cost for the current month.
+ *
+ * Shares the `['admin', 'token-usage']` prefix with the per-user list, so
+ * saving a rate or a limit invalidates both with one call.
+ */
+export function useAdminTokenUsageSummary() {
+  return useQuery({
+    queryKey: adminKeys.tokenUsageSummary(),
+    queryFn: getTokenUsageSummary,
+  })
+}
+
+export function useAdminTokenUsage(params?: {
+  limit?: number
+  offset?: number
+}) {
+  return useQuery({
+    queryKey: adminKeys.tokenUsage(params),
+    queryFn: () => getTokenUsage(params),
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useSetUserTokenLimit() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      userId,
+      monthlyTokenLimit,
+    }: {
+      userId: string
+      monthlyTokenLimit: number | null
+    }) => setUserTokenLimit(userId, monthlyTokenLimit),
+    onSuccess: (row) => {
+      queryClient.invalidateQueries({ queryKey: adminKeys.tokenUsageAll() })
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      toast.success(
+        row.unlimited
+          ? `${row.display_name} is not metered`
+          : row.override === null
+            ? `${row.display_name} now follows the instance default`
+            : `${row.display_name}: ${row.override.toLocaleString()} tokens/month`,
+      )
+    },
+    onError: () => toast.error('Could not update the limit. Please try again.'),
   })
 }

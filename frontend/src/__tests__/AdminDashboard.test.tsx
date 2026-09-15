@@ -66,7 +66,10 @@ describe('AdminPage shell', () => {
     renderAdmin()
 
     const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent)
-    expect(tabs).toEqual(['Overview', 'Users', 'LLM Usage'])
+    // One AI tab. The LLM Usage tab is gone: its token-and-cost card now sits
+    // at the bottom of AI Settings, beside the rates it is priced at, and
+    // call volume over time is on Overview's LLM Volume card.
+    expect(tabs).toEqual(['Overview', 'Users', 'AI Settings'])
   })
 
   it('opens on the Overview tab', () => {
@@ -423,128 +426,3 @@ const overviewFixture = {
   },
   generated_at: '2026-09-14T10:00:00Z',
 }
-
-describe('LLM usage tab', () => {
-  async function renderLlmTab() {
-    const user = userEvent.setup()
-    renderAdmin()
-    await user.click(screen.getByRole('tab', { name: 'LLM Usage' }))
-  }
-
-  it('shows total calls and a per-model breakdown', async () => {
-    await renderLlmTab()
-
-    expect(await screen.findByTestId('llm-total')).toHaveTextContent('14')
-    expect(screen.getByText('claude-sonnet-4-20250514')).toBeInTheDocument()
-    expect(screen.getAllByText('claude-sonnet-5').length).toBeGreaterThan(0)
-  })
-
-  it('distinguishes summaries from commit classification', async () => {
-    await renderLlmTab()
-
-    await screen.findByTestId('llm-total')
-    expect(screen.getByText('Commit classification')).toBeInTheDocument()
-    // Two summary rows in the fixture — one per model.
-    expect(screen.getAllByText('Summaries')).toHaveLength(2)
-  })
-
-  it('flags models that are not the current default', async () => {
-    await renderLlmTab()
-
-    expect(await screen.findByTestId('retired-models')).toHaveTextContent(
-      'claude-sonnet-4-20250514',
-    )
-  })
-
-  it('attributes usage to collection owners, labelled as such', async () => {
-    await renderLlmTab()
-
-    expect(await screen.findByTestId('llm-by-owner')).toHaveTextContent(
-      'Instructor Mark',
-    )
-    expect(
-      screen.getByText(/credits the collection owner, not/i),
-    ).toBeInTheDocument()
-  })
-
-  it('reports summaries that cannot be attributed', async () => {
-    await renderLlmTab()
-
-    expect(await screen.findByTestId('unattributed')).toHaveTextContent('1')
-  })
-
-  it('shows no cost figure anywhere, and explains why', async () => {
-    await renderLlmTab()
-
-    const explainer = await screen.findByTestId('cost-explainer')
-    expect(explainer).toHaveTextContent(/not recorded/i)
-    expect(screen.queryByText(/\$/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/\busd\b/i)).not.toBeInTheDocument()
-  })
-
-  it('links out to Phoenix for real token usage', async () => {
-    await renderLlmTab()
-
-    const link = await screen.findByTestId('phoenix-link')
-    expect(link).toHaveAttribute('href', 'http://localhost:6006')
-    expect(link).toHaveAttribute('target', '_blank')
-  })
-
-  it('shows no failure count, because failures write no row', async () => {
-    await renderLlmTab()
-
-    await screen.findByTestId('llm-total')
-    expect(screen.queryByText(/failure/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/\bfailed\b/i)).not.toBeInTheDocument()
-  })
-
-  it('switches the reporting window', async () => {
-    const user = userEvent.setup()
-    await renderLlmTab()
-    await screen.findByTestId('llm-total')
-
-    await user.click(screen.getByRole('button', { name: '7d' }))
-
-    expect(screen.getByRole('button', { name: '7d' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
-  })
-
-  it('handles a window with no calls', async () => {
-    server.use(
-      http.get('/api/v1/admin/llm-usage', () =>
-        HttpResponse.json({
-          window_days: 30,
-          total_calls: 0,
-          by_model: [],
-          daily: [],
-          by_collection_owner: [],
-          unattributed_summaries: 0,
-          models_in_use: [],
-          retired_models_in_use: [],
-          current_default_model: 'claude-sonnet-5',
-          generated_at: '2026-09-14T10:00:00Z',
-        }),
-      ),
-    )
-
-    await renderLlmTab()
-
-    expect(await screen.findByText(/no llm calls in this window/i)).toBeInTheDocument()
-  })
-
-  it('shows an error state with a retry', async () => {
-    server.use(
-      http.get('/api/v1/admin/llm-usage', () =>
-        HttpResponse.json({ detail: 'boom' }, { status: 500 }),
-      ),
-    )
-
-    await renderLlmTab()
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      /could not load llm usage/i,
-    )
-  })
-})

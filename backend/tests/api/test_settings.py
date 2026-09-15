@@ -105,7 +105,7 @@ async def test_omitting_criteria_leaves_it_untouched(
     response = await test_client.patch(
         "/api/v1/settings",
         headers=auth_headers,
-        json={"llm_provider": "anthropic"},
+        json={"repo_root_directory": "/repos"},
     )
 
     assert response.status_code == 200

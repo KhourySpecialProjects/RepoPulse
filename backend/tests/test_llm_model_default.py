@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 from app.core.config import settings
-from app.models.app_settings import AppSettings
+from app.models.llm_config import LlmConfig
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
@@ -35,9 +35,14 @@ def test_default_model_is_configured() -> None:
     assert settings.DEFAULT_LLM_PROVIDER == "anthropic"
 
 
-def test_app_settings_default_tracks_the_constant() -> None:
-    """A new user's settings row must not be born pinned to a stale model."""
-    column_default = AppSettings.__table__.c.llm_model.default
+def test_llm_config_default_tracks_the_constant() -> None:
+    """A fresh instance's config row must not be born pinned to a stale model.
+
+    Moved here from AppSettings by migration 0010: the model is now one
+    instance-wide value rather than a per-user column, so this is the only
+    row whose default can go stale.
+    """
+    column_default = LlmConfig.__table__.c.llm_model.default
     assert column_default.arg == settings.DEFAULT_LLM_MODEL
 
 

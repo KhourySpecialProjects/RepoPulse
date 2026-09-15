@@ -412,20 +412,21 @@ describe('LLM call volume', () => {
     expect(card).toHaveTextContent('Commit classifications')
   })
 
-  it('still shows no cost anywhere', async () => {
+  it('shows no cost figure, and points at where the real one lives', async () => {
     /**
-     * No token counts are persisted, so any spend figure would be
-     * rows x assumed-tokens x assumed-price. Mirrors the negative assertion
-     * the LLM tab already carries, because a chart is exactly where a
-     * plausible-looking cost line would get added.
+     * Token counts are persisted now, so a cost figure is computable — but
+     * only against rates an admin enters, and only this card's call counts
+     * are in scope here. A chart is exactly where a plausible-looking cost
+     * line gets added, so the negative assertion stays; what changed is that
+     * the card now names the screen that has the real number instead of
+     * saying it does not exist.
      */
     renderAdmin()
 
     const card = await screen.findByTestId('llm-volume')
     expect(card).not.toHaveTextContent('$')
     expect(card).not.toHaveTextContent(/\busd\b/i)
-    expect(card).toHaveTextContent(/no cost shown/i)
-    expect(card).toHaveTextContent(/tokens are not persisted/i)
+    expect(card).toHaveTextContent(/tokens and cost are on the AI Settings tab/i)
   })
 
   it('flags retired models still in use', async () => {

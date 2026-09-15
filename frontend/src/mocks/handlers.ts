@@ -20,6 +20,10 @@ import type {
   PRStats,
   PRListResponse,
   PRSyncResponse,
+  LlmConfig,
+  TokenQuota,
+  TokenUsageSummary,
+  UserTokenUsage,
 } from '@/types'
 
 const BASE = '/api/v1'
@@ -320,13 +324,86 @@ const mockSettings: AppSettings = {
   id: 'settings-1',
   user_id: mockUser.id,
   repo_root_directory: '/Users/instructor/repos',
-  llm_provider: 'anthropic',
-  llm_model: 'claude-3-5-sonnet-20241022',
-  anthropic_api_key_configured: false,
-  ollama_base_url: null,
   health_thresholds: null,
   commit_evaluation_criteria: '',
+  // Read-only here: the model is one instance-wide, admin-owned setting.
+  llm_model: 'claude-sonnet-5',
 }
+
+const mockTokenQuota: TokenQuota = {
+  period: '2026-09',
+  used: 120_000,
+  limit: 500_000,
+  remaining: 380_000,
+  unlimited: false,
+  exceeded: false,
+}
+
+const mockLlmConfig: LlmConfig = {
+  id: 'llm-config-1',
+  llm_provider: 'anthropic',
+  llm_model: 'claude-sonnet-5',
+  anthropic_api_key_configured: true,
+  anthropic_api_key_from_env: true,
+  ollama_base_url: null,
+  default_monthly_token_limit: 500_000,
+  input_price_per_mtok: '3.0000',
+  output_price_per_mtok: '15.0000',
+  updated_at: '2026-09-01T00:00:00Z',
+}
+
+const mockTokenUsageSummary: TokenUsageSummary = {
+  period: '2026-09',
+  input_tokens: 8_420_000,
+  output_tokens: 1_190_000,
+  total_tokens: 9_610_000,
+  calls: 412,
+  models: ['claude-sonnet-5'],
+  input_price_per_mtok: '3.0000',
+  output_price_per_mtok: '15.0000',
+  // 8.42 x 3 + 1.19 x 15
+  estimated_cost_usd: '43.1100',
+  mixed_models: false,
+}
+
+const mockTokenUsageRows: UserTokenUsage[] = [
+  {
+    user_id: mockUser.id,
+    display_name: 'Instructor Mark',
+    email: 'mark@example.com',
+    role: 'instructor',
+    used: 420_000,
+    limit: 500_000,
+    remaining: 80_000,
+    unlimited: false,
+    exceeded: false,
+    override: null,
+  },
+  {
+    user_id: 'user-ta-1',
+    display_name: 'TA Sarah',
+    email: 'sarah@example.com',
+    role: 'ta',
+    used: 250_000,
+    limit: 250_000,
+    remaining: 0,
+    unlimited: false,
+    exceeded: true,
+    override: 250_000,
+  },
+  {
+    user_id: 'user-admin-1',
+    display_name: 'Admin Alex',
+    email: 'alex@example.com',
+    role: 'admin',
+    used: 15_000,
+    limit: null,
+    remaining: null,
+    unlimited: true,
+    exceeded: false,
+    override: null,
+  },
+]
 
 const mockAdminOverview = {
   counts: {
@@ -807,6 +884,52 @@ export const handlers = [
   http.patch(`${BASE}/settings`, async ({ request }) => {
     const body = (await request.json()) as Partial<AppSettings>
     return HttpResponse.json({ ...mockSettings, ...body })
+  }),
+  http.get(`${BASE}/settings/token-usage`, () => {
+    return HttpResponse.json(mockTokenQuota)
+  }),
+
+  // Shared LLM config and token limits (admin)
+  http.get(`${BASE}/admin/llm-config`, () => {
+    return HttpResponse.json(mockLlmConfig)
+  }),
+  http.patch(`${BASE}/admin/llm-config`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>
+    // Mirrors the server: the key is stored but never echoed back, so a
+    // component that tries to read it out of the response gets a boolean.
+    const { anthropic_api_key: key, ...rest } = body
+    return HttpResponse.json({
+      ...mockLlmConfig,
+      ...rest,
+      anthropic_api_key_configured: key !== null,
+      anthropic_api_key_from_env: key === null,
+    })
+  }),
+  http.get(`${BASE}/admin/token-usage/summary`, () => {
+    return HttpResponse.json(mockTokenUsageSummary)
+  }),
+  http.get(`${BASE}/admin/token-usage`, () => {
+    return HttpResponse.json({
+      items: mockTokenUsageRows,
+      total: mockTokenUsageRows.length,
+      limit: 50,
+      offset: 0,
+      period: '2026-09',
+    })
+  }),
+  http.patch(`${BASE}/admin/users/:userId/token-limit`, async ({ params, request }) => {
+    const body = (await request.json()) as { monthly_token_limit: number | null }
+    const existing =
+      mockTokenUsageRows.find((r) => r.user_id === params.userId) ??
+      mockTokenUsageRows[0]
+    const limit = body.monthly_token_limit ?? mockLlmConfig.default_monthly_token_limit
+    return HttpResponse.json({
+      ...existing,
+      override: body.monthly_token_limit,
+      limit,
+      remaining: Math.max(limit - existing.used, 0),
+      exceeded: existing.used >= limit,
+    })
   }),
 
   // Admin

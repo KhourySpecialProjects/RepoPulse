@@ -165,13 +165,116 @@ export interface AppSettings {
   id: string
   user_id: string
   repo_root_directory: string
-  llm_provider: string
-  llm_model: string
-  anthropic_api_key_configured: boolean
-  ollama_base_url: string | null
   health_thresholds: Record<string, unknown> | null
   /** Instructor rubric added to the built-in criteria. '' means no addendum. */
   commit_evaluation_criteria: string
+  /**
+   * The model the instance is configured to use. Read-only here — the
+   * provider, the model and the API key are one instance-wide setting only an
+   * administrator can change (see LlmConfig). Shown so a user knows what will
+   * run without needing admin rights.
+   */
+  llm_model: string
+}
+
+/**
+ * One user's AI token allowance for the current calendar month.
+ *
+ * `limit` and `remaining` are null together, and only for an administrator,
+ * who is never metered. Branch on `unlimited` rather than on null.
+ */
+export interface TokenQuota {
+  /** Calendar month the usage counts against, e.g. '2026-09'. */
+  period: string
+  used: number
+  limit: number | null
+  remaining: number | null
+  unlimited: boolean
+  exceeded: boolean
+}
+
+/** The instance-wide LLM configuration. Admin-only. */
+export interface LlmConfig {
+  id: string
+  llm_provider: 'anthropic' | 'ollama'
+  llm_model: string
+  /** True when a key is available, from the database or the environment. */
+  anthropic_api_key_configured: boolean
+  /** True when the working key comes from ANTHROPIC_API_KEY, not the panel. */
+  anthropic_api_key_from_env: boolean
+  ollama_base_url: string | null
+  default_monthly_token_limit: number
+  /**
+   * USD per million tokens, set by an administrator. Serialised as a decimal
+   * string so no precision is lost in transit. Null means no rate is set,
+   * which is reported as cost unavailable rather than as zero.
+   */
+  input_price_per_mtok: string | null
+  output_price_per_mtok: string | null
+  updated_at: string | null
+}
+
+export interface UpdateLlmConfigData {
+  llm_provider?: 'anthropic' | 'ollama'
+  llm_model?: string
+  /** null clears the stored key and falls back to ANTHROPIC_API_KEY. */
+  anthropic_api_key?: string | null
+  ollama_base_url?: string | null
+  default_monthly_token_limit?: number
+  /** null clears the rate, which stops a cost being reported at all. */
+  input_price_per_mtok?: string | null
+  output_price_per_mtok?: string | null
+}
+
+/**
+ * Instance-wide token spend for a month, and what it cost.
+ *
+ * Everything but the rates is measured: the token counts come from what the
+ * provider reported per call. Replaces the old LLM Usage tab's "Token usage
+ * and cost" card, which could only report that nothing was recorded.
+ */
+export interface TokenUsageSummary {
+  period: string
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  /** Successful calls. A failed call writes no usage row. */
+  calls: number
+  models: string[]
+  input_price_per_mtok: string | null
+  output_price_per_mtok: string | null
+  /** Null when either rate is unset — an unknown cost, not a free one. */
+  estimated_cost_usd: string | null
+  /**
+   * True when more than one model spent tokens this period. One
+   * instance-wide rate pair cannot price two models, so the total is
+   * approximate and has to be labelled as such.
+   */
+  mixed_models: boolean
+}
+
+/** A row of the admin token-usage table. */
+export interface UserTokenUsage {
+  user_id: string
+  display_name: string
+  email: string
+  role: UserRole
+  used: number
+  limit: number | null
+  remaining: number | null
+  unlimited: boolean
+  exceeded: boolean
+  /**
+   * This user's own override, or null when they follow the instance default.
+   * Distinct from `limit`, the resolved effective number — both are needed to
+   * tell "500,000 (default)" from "500,000 (set for this user)".
+   */
+  override: number | null
+}
+
+export interface UserTokenUsageListResponse
+  extends PaginatedResponse<UserTokenUsage> {
+  period: string
 }
 
 export interface PaginatedResponse<T> {
@@ -364,12 +467,15 @@ export interface GenerateSummaryData {
   summary_type: SummaryType
 }
 
+/**
+ * What a user may change about their own settings.
+ *
+ * No provider, model or API key: those moved to the admin-only LlmConfig.
+ * The backend ignores them if sent, so their absence here is the type
+ * catching it at compile time instead.
+ */
 export interface UpdateSettingsData {
   repo_root_directory?: string
-  llm_provider?: string
-  llm_model?: string
-  anthropic_api_key?: string
-  ollama_base_url?: string | null
   health_thresholds?: Record<string, unknown> | null
   commit_evaluation_criteria?: string
 }

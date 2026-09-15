@@ -25,6 +25,7 @@ import type {
   GetCommitsParams,
   GetNotesParams,
   HealthScore,
+  LlmConfig,
   Note,
   NoteComment,
   Notification,
@@ -39,14 +40,19 @@ import type {
   ReminderListResponse,
   Repo,
   Summary,
+  TokenQuota,
   TokenResponse,
+  TokenUsageSummary,
   UnmergeContributorsResponse,
   UpdateCollectionData,
+  UpdateLlmConfigData,
   UpdateNoteData,
   UpdateNotificationPreferencesData,
   UpdateSettingsData,
   UpdateUserData,
   UserDetail,
+  UserTokenUsage,
+  UserTokenUsageListResponse,
 } from '@/types'
 
 const apiClient = axios.create({
@@ -251,6 +257,59 @@ export async function getOllamaModels(baseUrl: string): Promise<string[]> {
 
 export async function updateSettings(data: UpdateSettingsData): Promise<AppSettings> {
   const response = await apiClient.patch<AppSettings>('/settings', data)
+  return response.data
+}
+
+/** The signed-in user's own AI token usage. Any role may read this. */
+export async function getMyTokenUsage(): Promise<TokenQuota> {
+  const response = await apiClient.get<TokenQuota>('/settings/token-usage')
+  return response.data
+}
+
+// Shared LLM configuration and token limits (admin only)
+export async function getLlmConfig(): Promise<LlmConfig> {
+  const response = await apiClient.get<LlmConfig>('/admin/llm-config')
+  return response.data
+}
+
+export async function updateLlmConfig(data: UpdateLlmConfigData): Promise<LlmConfig> {
+  const response = await apiClient.patch<LlmConfig>('/admin/llm-config', data)
+  return response.data
+}
+
+export async function getTokenUsageSummary(): Promise<TokenUsageSummary> {
+  const response = await apiClient.get<TokenUsageSummary>(
+    '/admin/token-usage/summary'
+  )
+  return response.data
+}
+
+export async function getTokenUsage(params?: {
+  limit?: number
+  offset?: number
+}): Promise<UserTokenUsageListResponse> {
+  const response = await apiClient.get<UserTokenUsageListResponse>(
+    '/admin/token-usage',
+    { params }
+  )
+  return response.data
+}
+
+/**
+ * Set or clear one user's monthly allowance.
+ *
+ * `null` clears the override so the user follows the instance default; `0`
+ * revokes their AI access. The parameter is required so those two cannot be
+ * confused with an accidental omission.
+ */
+export async function setUserTokenLimit(
+  userId: string,
+  monthlyTokenLimit: number | null
+): Promise<UserTokenUsage> {
+  const response = await apiClient.patch<UserTokenUsage>(
+    `/admin/users/${userId}/token-limit`,
+    { monthly_token_limit: monthlyTokenLimit }
+  )
   return response.data
 }
 
