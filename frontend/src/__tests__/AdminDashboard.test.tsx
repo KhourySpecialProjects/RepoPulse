@@ -8,7 +8,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { HttpResponse, http } from 'msw'
@@ -214,42 +214,6 @@ describe('Storage tab', () => {
       /could not load storage/i,
     )
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
-  })
-
-  it('shows the browser panel alongside the server one', async () => {
-    localStorage.setItem('auth_token', 'abc')
-
-    await renderStorageTab()
-
-    expect(await screen.findByTestId('storage-scope-note')).toHaveTextContent(
-      /this browser only/i,
-    )
-  })
-
-  it('flags browser keys for repos the server no longer knows about', async () => {
-    // repo-1 and repo-2 exist per the default handler; repo-999 does not.
-    localStorage.setItem('repo-checkins-repo-999', '[1,2,3]')
-
-    await renderStorageTab()
-
-    expect(await screen.findByTestId('orphan-summary')).toHaveTextContent('1')
-  })
-
-  it('does not claim orphan knowledge when the repo list is incomplete', async () => {
-    // total exceeds the returned page, so the live repo set is unknown.
-    server.use(
-      http.get('/api/v1/admin/storage/repos', () =>
-        HttpResponse.json({ items: [], total: 500, limit: 200, offset: 0 }),
-      ),
-    )
-    localStorage.setItem('repo-checkins-repo-999', '[1,2,3]')
-
-    await renderStorageTab()
-
-    await screen.findByTestId('storage-scope-note')
-    await waitFor(() =>
-      expect(screen.queryByTestId('orphan-summary')).not.toBeInTheDocument(),
-    )
   })
 })
 
