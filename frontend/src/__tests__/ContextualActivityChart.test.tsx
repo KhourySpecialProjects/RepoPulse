@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { vi, it, expect, afterEach } from 'vitest'
 import type { ReactNode } from 'react'
 import { ContextualActivityChart } from '@/components/ContextualActivityChart'
@@ -37,6 +37,26 @@ it('follows contributor IDs and restores the full graph', () => {
   expect(screen.getByText('All students — commits per day')).toBeInTheDocument()
   rerender(<ContextualActivityChart collectionId="collection" repoId="repo" selectedContributorIds={['alice', 'bob']} />)
   expect(screen.getByText('All students — commits per day')).toBeInTheDocument()
+})
+// The controls used to sit on their own line under the title, which left a
+// band of empty card to the right of "Commit Activity" and pushed the graph
+// down. They belong on the title's line.
+it('puts the title and the controls on one row', () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-09-10T12:00:00Z'))
+  render(
+    <ContextualActivityChart
+      collectionId="collection"
+      repoId="repo"
+      actions={<button type="button">Check In</button>}
+    />
+  )
+  const controls = screen.getByLabelText('Activity range').parentElement as HTMLElement
+  const titleRow = controls.parentElement as HTMLElement
+  expect(titleRow.className).toContain('justify-between')
+  expect(within(titleRow).getByText('Commit Activity')).toBeInTheDocument()
+  // The caller's own buttons ride along, rather than needing their own line.
+  expect(within(controls).getByRole('button', { name: 'Check In' })).toBeInTheDocument()
 })
 it('draws a smoothed curve while keeping the contextual markers', () => {
   vi.useFakeTimers({ toFake: ['Date'] })

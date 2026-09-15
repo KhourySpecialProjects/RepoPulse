@@ -1041,16 +1041,13 @@ export function RepoDetailPage() {
 
         {/* Main sections column */}
         <div className="flex min-w-0 flex-1 flex-col gap-3">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <BarChart2 className="h-4 w-4 text-muted-foreground" />
-                Overview
-              </h2>
+        {/* No "Overview" heading — the cards below are self-labelling. */}
 
         {/* AI Summary — spans the full width above the two columns */}
         <motion.div variants={sectionVariants} initial="hidden" animate="visible">
           <Card className="relative overflow-hidden">
             <SummaryLiquidBackground generating={generateSummaryMutation.isPending} />
-            <CardHeader className="relative z-10 pb-2">
+            <CardHeader className="relative z-10 pt-4 pb-2">
               <div className="flex items-center justify-between">
                 <button
                   className="flex items-center gap-1.5 text-base font-semibold hover:text-indigo-600 transition-colors"

@@ -25,7 +25,8 @@ function signalsFor(health: HealthScore): Signal[] {
   return [
     {
       label: 'Frequency',
-      value: health.commit_frequency,
+      value: health.commit_fre
+      quency,
       tip: 'Avg commits/week over the last 4 weeks. Green ≥10/wk, yellow 4–9/wk, red ≤3/wk.',
     },
     {
