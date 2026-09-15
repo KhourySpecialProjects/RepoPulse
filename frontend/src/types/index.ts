@@ -725,3 +725,115 @@ export interface AdminLlmUsage {
   current_default_model: string
   generated_at: string
 }
+
+// ---------------------------------------------------------------------------
+// Admin pipeline health
+//
+// This block answers "is the application working", not "how are the students
+// doing". Health data appears only as coverage — unknown status and a null
+// health_score both mean the scoring pipeline did not run. The
+// green/yellow/red spread is an instructor concern and is not served here.
+// ---------------------------------------------------------------------------
+
+/** All three states always present, zero-filled. */
+export interface AdminSyncStateCounts {
+  idle: number
+  syncing: number
+  failed: number
+}
+
+/**
+ * Repos grouped by identical sync_error.
+ *
+ * Grouped because the shape of the failure is the diagnosis: twelve repos
+ * failing on one credential is one problem, not twelve.
+ */
+export interface AdminSyncErrorGroup {
+  error: string
+  repos: number
+  example_repo_name: string
+  last_seen: string | null
+}
+
+export type AdminAgeBucketKey =
+  | 'lt1d'
+  | '1to3d'
+  | '3to7d'
+  | '7to30d'
+  | 'gt30d'
+  | 'never'
+
+/** `never` is its own bucket, not an infinite age — it sits off the ramp. */
+export interface AdminAgeBucket {
+  key: AdminAgeBucketKey
+  label: string
+  repos: number
+}
+
+export type AdminCoverageGapKey =
+  | 'no_health_score'
+  | 'unknown_health'
+  | 'unmeasured_clone'
+  | 'missing_clone'
+  | 'orphan_directory'
+  | 'unattributed_summary'
+
+/** Always carries its own `total`: the denominators genuinely differ per gap. */
+export interface AdminCoverageGap {
+  key: AdminCoverageGapKey
+  label: string
+  affected: number
+  total: number
+}
+
+export interface AdminPipeline {
+  sync_state: AdminSyncStateCounts
+  sync_errors: AdminSyncErrorGroup[]
+  /** Over last_synced_at (when we pulled), never last_commit_at. */
+  sync_age: AdminAgeBucket[]
+  coverage: AdminCoverageGap[]
+  generated_at: string
+}
+
+// ---------------------------------------------------------------------------
+// Admin attention
+// ---------------------------------------------------------------------------
+
+/**
+ * Operational codes only. There is deliberately no `health_red`: a failing
+ * student project is an instructor's problem, and listing it here would bury
+ * the faults only an admin can fix.
+ */
+export type AdminAttentionCode =
+  | 'sync_failed'
+  | 'never_synced'
+  | 'stale_sync'
+  | 'clone_missing'
+  | 'unmeasured'
+  | 'no_health_data'
+
+export interface AdminAttentionReason {
+  code: AdminAttentionCode
+  label: string
+}
+
+export interface AdminAttentionRepo {
+  id: string
+  name: string
+  collection_id: string
+  collection_name: string
+  sync_status: string
+  sync_error: string | null
+  last_synced_at: string | null
+  local_path: string | null
+  reasons: AdminAttentionReason[]
+  severity: number
+}
+
+export interface AdminAttention {
+  items: AdminAttentionRepo[]
+  total: number
+  limit: number
+  offset: number
+  generated_at: string
+}

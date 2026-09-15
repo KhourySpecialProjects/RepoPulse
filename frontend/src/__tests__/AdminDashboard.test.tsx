@@ -1,5 +1,5 @@
 /**
- * The admin dashboard shell: role guard, tab structure, and the Storage tab.
+ * The admin dashboard shell: role guard, tab structure, and the tabs' content.
  *
  * vi.mock is hoisted to module scope by Vitest regardless of where it is
  * written, so useAuth is mocked deliberately at the top here rather than
@@ -8,7 +8,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { HttpResponse, delay, http } from 'msw'
@@ -45,16 +45,6 @@ function renderAdmin() {
   )
 }
 
-/**
- * Radix unmounts inactive tab panels, so Storage content does not exist
- * until its trigger is clicked.
- */
-async function renderStorageTab() {
-  const user = userEvent.setup()
-  renderAdmin()
-  await user.click(screen.getByRole('tab', { name: 'Storage' }))
-}
-
 beforeEach(() => {
   localStorage.clear()
   mockUser.role = 'admin'
@@ -69,14 +59,14 @@ describe('AdminPage shell', () => {
 
     renderAdmin()
 
-    expect(screen.queryByRole('tab', { name: /storage/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /overview/i })).not.toBeInTheDocument()
   })
 
   it('exposes its tabs with proper ARIA rather than plain buttons', () => {
     renderAdmin()
 
     const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent)
-    expect(tabs).toEqual(['Overview', 'Storage', 'Users', 'LLM Usage', 'System'])
+    expect(tabs).toEqual(['Overview', 'Users', 'LLM Usage'])
   })
 
   it('opens on the Overview tab', () => {
@@ -101,185 +91,18 @@ describe('AdminPage shell', () => {
   })
 })
 
-describe('Storage tab', () => {
-  it('renders server storage figures from the API', async () => {
-    await renderStorageTab()
-
-    expect(await screen.findByTestId('database-total')).toHaveTextContent('12 MB')
-    expect(screen.getByTestId('clone-total')).toHaveTextContent('3 MB')
-  })
-
-  it('reports free disk space', async () => {
-    await renderStorageTab()
-
-    const disk = await screen.findByTestId('disk-usage')
-    expect(disk).toHaveTextContent('300 GB free')
-    expect(disk).toHaveTextContent('40% used')
-  })
-
-  it('shows the real repo root from the server, not a per-user setting', async () => {
-    await renderStorageTab()
-
-    expect(await screen.findByText('/repos')).toBeInTheDocument()
-  })
-
-  it('keeps the per-table breakdown collapsed until it is asked for', async () => {
-    // Per-table bytes are a drill-down, not a headline. Left open it pushes
-    // the numbers an administrator actually opens this tab for — free disk,
-    // clone total, drift — off the top of the card.
-    await renderStorageTab()
-    await screen.findByTestId('database-total')
-
-    expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /database tables/i })).toHaveAttribute(
-      'aria-expanded',
-      'false',
-    )
-  })
-
-  it('lists the largest tables with exact row counts once opened', async () => {
-    const user = userEvent.setup()
-    await renderStorageTab()
-    await screen.findByTestId('database-total')
-
-    await user.click(screen.getByRole('button', { name: /database tables/i }))
-
-    const table = screen.getAllByRole('table')[0]
-    expect(within(table).getByText('commit_classifications')).toBeInTheDocument()
-    // repos reports row_estimate 0 but row_count 3; the exact count wins.
-    expect(within(table).getByText('3')).toBeInTheDocument()
-  })
-
-  it('closes the breakdown again on a second press', async () => {
-    const user = userEvent.setup()
-    await renderStorageTab()
-    await screen.findByTestId('database-total')
-    const toggle = screen.getByRole('button', { name: /database tables/i })
-
-    await user.click(toggle)
-    expect(screen.getByRole('table')).toBeInTheDocument()
-
-    await user.click(toggle)
-
-    expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    expect(toggle).toHaveAttribute('aria-expanded', 'false')
-  })
-
-  it('says how many tables are behind the toggle while it is shut', async () => {
-    await renderStorageTab()
-    await screen.findByTestId('database-total')
-
-    // The fixture carries two tables; a count is the one thing a collapsed
-    // section can still tell you about its contents.
-    expect(
-      screen.getByRole('button', { name: /database tables/i }),
-    ).toHaveTextContent('2')
-  })
-
-  it('surfaces drift in both directions', async () => {
-    server.use(
-      http.get('/api/v1/admin/storage', () =>
-        HttpResponse.json({
-          disk: {
-            root: '/repos',
-            exists: true,
-            total_bytes: 100,
-            used_bytes: 50,
-            free_bytes: 50,
-            percent_used: 50,
-          },
-          clones: {
-            measured_repos: 0,
-            unmeasured_repos: 0,
-            total_bytes: 0,
-            git_bytes: 0,
-            oldest_measurement: null,
-            newest_measurement: null,
-          },
-          database_bytes: 1024,
-          tables: [],
-          drift: {
-            orphan_directories: [{ path: '/repos/c/ghost', repo_id: null, repo_name: null, collection_name: null }],
-            missing_clones: [{ path: '/repos/c/gone', repo_id: 'r1', repo_name: 'gone', collection_name: 'CS101' }],
-            orphan_bytes: null,
-          },
-          repo_root_dir: '/repos',
-          generated_at: '2026-09-14T10:00:00Z',
-        }),
-      ),
-    )
-
-    await renderStorageTab()
-
-    const drift = await screen.findByTestId('drift')
-    expect(drift).toHaveTextContent('1 clone on disk with no database rows')
-    // Says what the administrator can see for themselves — no files where the
-    // app expects them — rather than naming the mechanism. It stops short of
-    // "never downloaded" or "deleted" because this one number cannot tell
-    // those apart.
-    expect(drift).toHaveTextContent('1 repo with no files on disk')
-  })
-
-  it('reports an unmounted repo root rather than showing an empty disk', async () => {
-    server.use(
-      http.get('/api/v1/admin/storage', () =>
-        HttpResponse.json({
-          disk: {
-            root: '/repos',
-            exists: false,
-            total_bytes: 0,
-            used_bytes: 0,
-            free_bytes: 0,
-            percent_used: 0,
-          },
-          clones: {
-            measured_repos: 0,
-            unmeasured_repos: 0,
-            total_bytes: 0,
-            git_bytes: 0,
-            oldest_measurement: null,
-            newest_measurement: null,
-          },
-          database_bytes: 1024,
-          tables: [],
-          drift: { orphan_directories: [], missing_clones: [], orphan_bytes: null },
-          repo_root_dir: '/repos',
-          generated_at: '2026-09-14T10:00:00Z',
-        }),
-      ),
-    )
-
-    await renderStorageTab()
-
-    expect(await screen.findByTestId('disk-missing')).toHaveTextContent(
-      /not mounted/i,
-    )
-  })
-
-  it('shows an error state with a retry rather than a blank panel', async () => {
-    server.use(
-      http.get('/api/v1/admin/storage', () =>
-        HttpResponse.json({ detail: 'boom' }, { status: 500 }),
-      ),
-    )
-
-    await renderStorageTab()
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      /could not load storage/i,
-    )
-    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
-  })
-})
-
 /**
  * The recalculate control.
  *
  * `POST /admin/storage/recalculate` and `useRecalculateAdminStorage` both
  * existed and were both tested, but no component ever called the hook — so
- * `AdminStatsService` never ran, `repos.size_bytes` stayed NULL, and the tab
- * read "0 repos measured / 0 B" with no way to clear it from the UI. These
- * tests cover the wiring that was missing, not the endpoint behind it.
+ * `AdminStatsService` never ran, `repos.size_bytes` stayed NULL, and the
+ * figures read "0 B" with no way to clear it from the UI. These tests cover
+ * the wiring that was missing, not the endpoint behind it.
+ *
+ * It sits in the Overview storage card now that the Storage tab is gone: that
+ * card is the only place clone sizes are reported, so it is the only place the
+ * staleness this button answers is visible.
  */
 describe('Storage recalculate', () => {
   /** A storage response with the clone figures overridden. */
@@ -318,16 +141,16 @@ describe('Storage recalculate', () => {
     }
   }
 
-  async function openStorageTab() {
+  /** Overview is the default tab, so the card only has to be waited for. */
+  async function openStorageCard() {
     const user = userEvent.setup()
     renderAdmin()
-    await user.click(screen.getByRole('tab', { name: 'Storage' }))
-    await screen.findByTestId('clone-total')
+    await screen.findByTestId('capacity-clones')
     return user
   }
 
   it('offers a recalculate control, since nothing else ever measures a clone', async () => {
-    await openStorageTab()
+    await openStorageCard()
 
     expect(
       screen.getByRole('button', { name: /recalculate/i }),
@@ -335,27 +158,41 @@ describe('Storage recalculate', () => {
   })
 
   it('replaces the stale figures with the freshly measured ones', async () => {
-    let reads = 0
+    // Keyed on whether the recalculate has actually run, not on how many
+    // times the GET was called: several cards read /admin/storage, so a read
+    // counter would be measuring the dashboard's fan-out rather than the
+    // refresh this test is about.
+    let measured = false
     server.use(
-      http.get('/api/v1/admin/storage', () => {
-        reads += 1
-        return HttpResponse.json(
-          reads === 1
-            ? storageWith({})
-            : storageWith({ measured_repos: 2, total_bytes: 3 * 1024 * 1024 }),
-        )
+      http.get('/api/v1/admin/storage', () =>
+        HttpResponse.json(
+          measured
+            ? storageWith({ measured_repos: 2, total_bytes: 3 * 1024 * 1024 })
+            : storageWith({}),
+        ),
+      ),
+      http.post('/api/v1/admin/storage/recalculate', () => {
+        measured = true
+        return HttpResponse.json({
+          requested: 2,
+          measured: 2,
+          skipped_missing: 0,
+          failed: 0,
+          total_bytes: 3 * 1024 * 1024,
+          duration_ms: 5,
+          computed_at: '2026-09-14T10:05:00Z',
+        })
       }),
     )
 
-    const user = await openStorageTab()
-    expect(screen.getByTestId('measured-repos')).toHaveTextContent('0')
+    const user = await openStorageCard()
+    expect(screen.getByTestId('capacity-clones')).toHaveTextContent('0 B')
 
     await user.click(screen.getByRole('button', { name: /recalculate/i }))
 
     await waitFor(() =>
-      expect(screen.getByTestId('measured-repos')).toHaveTextContent('2'),
+      expect(screen.getByTestId('capacity-clones')).toHaveTextContent('3 MB'),
     )
-    expect(screen.getByTestId('clone-total')).toHaveTextContent('3 MB')
   })
 
   it('disables the control while the measurement is running', async () => {
@@ -374,7 +211,7 @@ describe('Storage recalculate', () => {
       }),
     )
 
-    const user = await openStorageTab()
+    const user = await openStorageCard()
     await user.click(screen.getByRole('button', { name: /recalculate/i }))
 
     // The endpoint is synchronous and walks every clone on the volume, so a
@@ -404,7 +241,7 @@ describe('Storage recalculate', () => {
       ),
     )
 
-    const user = await openStorageTab()
+    const user = await openStorageCard()
     await user.click(screen.getByRole('button', { name: /recalculate/i }))
 
     await waitFor(() => expect(toast.success).toHaveBeenCalled())
@@ -418,7 +255,7 @@ describe('Storage recalculate', () => {
   })
 
   it('does not mention skipped or failed when there were none', async () => {
-    const user = await openStorageTab()
+    const user = await openStorageCard()
 
     await user.click(screen.getByRole('button', { name: /recalculate/i }))
 
@@ -435,7 +272,7 @@ describe('Storage recalculate', () => {
       ),
     )
 
-    const user = await openStorageTab()
+    const user = await openStorageCard()
     await user.click(screen.getByRole('button', { name: /recalculate/i }))
 
     await waitFor(() => expect(toast.error).toHaveBeenCalled())
@@ -444,42 +281,6 @@ describe('Storage recalculate', () => {
 })
 
 describe('Overview tab', () => {
-  it('shows instance-wide entity counts', async () => {
-    renderAdmin()
-
-    expect(await screen.findByTestId('metric-repos')).toHaveTextContent('4')
-    expect(screen.getByTestId('metric-collections')).toHaveTextContent('2')
-    expect(screen.getByTestId('metric-users')).toHaveTextContent('3')
-    expect(screen.getByTestId('metric-contributors')).toHaveTextContent('7')
-  })
-
-  it('breaks users down by role', async () => {
-    renderAdmin()
-
-    expect(await screen.findByTestId('metric-users')).toHaveTextContent(
-      '2 admin · 1 instructor · 0 TA',
-    )
-  })
-
-  it('notes archived collections rather than hiding them in the total', async () => {
-    renderAdmin()
-
-    expect(await screen.findByTestId('metric-collections')).toHaveTextContent(
-      '1 archived',
-    )
-  })
-
-  it('renders all four health statuses including the zeros', async () => {
-    renderAdmin()
-
-    // unknown is 0 in the fixture and must still render — a chart that omits
-    // a status when its count is zero misleads.
-    expect(await screen.findByTestId('health-green')).toHaveTextContent('2')
-    expect(screen.getByTestId('health-yellow')).toHaveTextContent('1')
-    expect(screen.getByTestId('health-red')).toHaveTextContent('1')
-    expect(screen.getByTestId('health-unknown')).toHaveTextContent('0')
-  })
-
   it('splits sync freshness three ways', async () => {
     renderAdmin()
 
@@ -534,7 +335,7 @@ describe('Overview tab', () => {
   it('stays quiet when there is more than one administrator', async () => {
     renderAdmin()
 
-    await screen.findByTestId('metric-repos')
+    await screen.findByTestId('sync-summary')
     expect(screen.queryByTestId('admin-count-warning')).not.toBeInTheDocument()
   })
 
@@ -554,6 +355,9 @@ describe('Overview tab', () => {
   })
 
   it('handles an instance with no repositories', async () => {
+    // Both endpoints, so the fixture is self-consistent: overriding only the
+    // overview used to leave the pipeline still reporting four repos, which
+    // is a state the backend cannot produce.
     server.use(
       http.get('/api/v1/admin/overview', () =>
         HttpResponse.json({
@@ -562,11 +366,29 @@ describe('Overview tab', () => {
           health: { green: 0, yellow: 0, red: 0, unknown: 0 },
         }),
       ),
+      http.get('/api/v1/admin/pipeline', () =>
+        HttpResponse.json({
+          sync_state: { idle: 0, syncing: 0, failed: 0 },
+          sync_errors: [],
+          sync_age: [
+            { key: 'lt1d', label: 'Under a day', repos: 0 },
+            { key: '1to3d', label: '1-3 days', repos: 0 },
+            { key: '3to7d', label: '3-7 days', repos: 0 },
+            { key: '7to30d', label: '7-30 days', repos: 0 },
+            { key: 'gt30d', label: 'Over 30 days', repos: 0 },
+            { key: 'never', label: 'Never synced', repos: 0 },
+          ],
+          coverage: [],
+          generated_at: '2026-09-14T10:00:00Z',
+        }),
+      ),
     )
 
     renderAdmin()
 
+    // An empty state, not an axis drawn around no data.
     expect(await screen.findByText(/no repositories yet/i)).toBeInTheDocument()
+    expect(screen.queryByTestId('sync-age-chart')).not.toBeInTheDocument()
   })
 })
 
@@ -600,156 +422,6 @@ const overviewFixture = {
     oldest_sync: '2026-08-01T09:00:00Z',
   },
   generated_at: '2026-09-14T10:00:00Z',
-}
-
-describe('System tab', () => {
-  async function renderSystemTab() {
-    const user = userEvent.setup()
-    renderAdmin()
-    await user.click(screen.getByRole('tab', { name: 'System' }))
-  }
-
-  it('shows the real REPO_ROOT_DIR from the server', async () => {
-    await renderSystemTab()
-
-    // Not AppSettings.repo_root_directory, which is per-user and never used
-    // to build clone paths — the bug this tab used to have.
-    expect(await screen.findByTestId('repo-root')).toHaveTextContent('/repos')
-    expect(screen.getByTestId('repo-root-exists')).toHaveTextContent('Yes')
-    expect(screen.getByTestId('repo-root-writable')).toHaveTextContent('Yes')
-  })
-
-  it('reports credentials as configured-or-not, never as values', async () => {
-    await renderSystemTab()
-
-    expect(await screen.findByTestId('anthropic-configured')).toHaveTextContent(
-      'Configured',
-    )
-    expect(screen.getByTestId('github-configured')).toHaveTextContent(
-      'Not configured',
-    )
-  })
-
-  it('shows the applied and latest migration revisions', async () => {
-    await renderSystemTab()
-
-    expect(await screen.findByTestId('schema-revision')).toHaveTextContent('0005')
-    expect(screen.getByTestId('schema-up-to-date')).toHaveTextContent('Yes')
-  })
-
-  it('warns when the schema is behind the latest migration', async () => {
-    server.use(
-      http.get('/api/v1/admin/system', () =>
-        HttpResponse.json({
-          ...systemFixture,
-          schema_revision: '0002',
-          schema_up_to_date: false,
-          status: 'degraded',
-        }),
-      ),
-    )
-
-    await renderSystemTab()
-
-    expect(await screen.findByTestId('schema-up-to-date')).toHaveTextContent(
-      /alembic upgrade head/i,
-    )
-  })
-
-  it('renders unknown rather than guessing when the revision cannot be read', async () => {
-    server.use(
-      http.get('/api/v1/admin/system', () =>
-        HttpResponse.json({
-          ...systemFixture,
-          schema_revision: null,
-          schema_up_to_date: null,
-        }),
-      ),
-    )
-
-    await renderSystemTab()
-
-    expect(await screen.findByTestId('schema-up-to-date')).toHaveTextContent(
-      'unknown',
-    )
-  })
-
-  it('raises a loud banner when dev authentication is enabled', async () => {
-    server.use(
-      http.get('/api/v1/admin/system', () =>
-        HttpResponse.json({
-          ...systemFixture,
-          auth_mode: 'dev',
-          dev_login_enabled: true,
-        }),
-      ),
-    )
-
-    await renderSystemTab()
-
-    const banner = await screen.findByTestId('dev-mode-banner')
-    expect(banner).toHaveAttribute('role', 'alert')
-    expect(banner).toHaveTextContent(/no password/i)
-  })
-
-  it('shows no dev banner in prod mode', async () => {
-    await renderSystemTab()
-
-    await screen.findByTestId('repo-root')
-    expect(screen.queryByTestId('dev-mode-banner')).not.toBeInTheDocument()
-  })
-
-  it('flags a missing repo root', async () => {
-    server.use(
-      http.get('/api/v1/admin/system', () =>
-        HttpResponse.json({
-          ...systemFixture,
-          repo_root_exists: false,
-          repo_root_writable: false,
-          status: 'degraded',
-        }),
-      ),
-    )
-
-    await renderSystemTab()
-
-    expect(await screen.findByTestId('repo-root-exists')).toHaveTextContent('No')
-  })
-
-  it('shows an error state with a retry', async () => {
-    server.use(
-      http.get('/api/v1/admin/system', () =>
-        HttpResponse.json({ detail: 'boom' }, { status: 500 }),
-      ),
-    )
-
-    await renderSystemTab()
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      /could not load system status/i,
-    )
-  })
-})
-
-/** Mirrors the default MSW handler so overrides can vary one field. */
-const systemFixture = {
-  status: 'ok',
-  server_time: '2026-09-14T10:00:00Z',
-  database: 'ok',
-  schema_revision: '0005',
-  schema_head: '0005',
-  schema_up_to_date: true,
-  auth_mode: 'prod',
-  dev_login_enabled: false,
-  admin_count: 2,
-  repo_root_dir: '/repos',
-  repo_root_exists: true,
-  repo_root_writable: true,
-  anthropic_api_key_configured: true,
-  github_token_configured: false,
-  default_llm_provider: 'anthropic',
-  default_llm_model: 'claude-sonnet-5',
-  git_version: '2.43.0',
 }
 
 describe('LLM usage tab', () => {

@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { TrickleProgress } from '@/components/ui/trickle-progress'
 import { useContextualActivity } from '@/hooks/useContextualActivity'
 import { contextualizeActivity } from '@/lib/activityContext'
+import { CHROME, MARKS, SERIES, STATUS, TICK } from '@/lib/chartTheme'
 import type { ContextActivityPoint } from '@/types'
 
 function ActivityTooltip({ active, payload }: { active?: boolean; payload?: { payload?: ContextActivityPoint }[] }) {
@@ -64,17 +65,17 @@ export function ContextualActivityChart({ collectionId, repoId, children, action
               <AreaChart data={points} margin={{ top: 12, right: 16, bottom: 0, left: 0 }}>
                 <defs>
                   <linearGradient id="contextualActivityGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0.05} />
+                    <stop offset="5%" stopColor={SERIES[0]} stopOpacity={0.25} />
+                    <stop offset="95%" stopColor={SERIES[0]} stopOpacity={0.04} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={35} />
-                <YAxis allowDecimals={false} />
+                <CartesianGrid vertical={false} stroke={CHROME.grid} strokeDasharray="0" />
+                <XAxis dataKey="date" tick={TICK} minTickGap={35} axisLine={{ stroke: CHROME.axis }} tickLine={false} />
+                <YAxis allowDecimals={false} tick={TICK} axisLine={false} tickLine={false} />
                 <Tooltip content={<ActivityTooltip />} />
-                <Area dataKey="count" type="monotone" stroke="#6366f1" strokeWidth={2} fill="url(#contextualActivityGradient)" />
-                {normalPoint && <ReferenceDot x={normalPoint.date} y={normalPoint.count} r={0} label={{ value: '✓', position: 'top', fill: '#16a34a', fontSize: 20 }} />}
-                {annotations.map(p => <ReferenceDot key={p.date} x={p.date} y={p.count} r={6} fill="#d97706" stroke="#fff" />)}
+                <Area dataKey="count" type="monotone" stroke={SERIES[0]} strokeWidth={MARKS.strokeWidth} fill="url(#contextualActivityGradient)" />
+                {normalPoint && <ReferenceDot x={normalPoint.date} y={normalPoint.count} r={0} label={{ value: '✓ typical', position: 'top', fill: CHROME.label, fontSize: 11 }} />}
+                {annotations.map(p => <ReferenceDot key={p.date} x={p.date} y={p.count} r={MARKS.dotRadius + 1} fill={STATUS.serious} stroke={CHROME.surface} strokeWidth={MARKS.surfaceRing} label={{ value: '!', position: 'top', fill: CHROME.label, fontSize: 11 }} />)}
               </AreaChart>
             </ResponsiveContainer>
           </div>

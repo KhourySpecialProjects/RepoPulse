@@ -1,9 +1,16 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { toast } from 'sonner'
 
 import {
+  getAdminAttention,
   getAdminOverview,
   getAdminLlmUsage,
+  getAdminPipeline,
   getAdminSystem,
   getAdminRepoStorage,
   getAdminStorage,
@@ -33,6 +40,12 @@ export const adminKeys = {
     sort?: AdminRepoSizeSort
     collection_id?: string
   }) => ['admin', 'storage', 'repos', params ?? {}] as const,
+  pipeline: () => ['admin', 'pipeline'] as const,
+  attention: (params?: {
+    limit?: number
+    offset?: number
+    stale_after_days?: number
+  }) => ['admin', 'attention', params ?? {}] as const,
 }
 
 export function useAdminOverview(staleAfterDays = 7) {
@@ -115,5 +128,42 @@ export function useRecalculateAdminStorage() {
     },
     onError: () =>
       toast.error('Could not measure clone sizes. Please try again.'),
+  })
+}
+
+/**
+ * Ingestion health and data coverage. A snapshot, with no window.
+ *
+ * Sync state, the error groups, the age histogram and the coverage gaps are
+ * all point-in-time. The endpoint briefly took a `days` window, but that only
+ * ever scoped an email-delivery figure that no longer exists — so a range
+ * argument here would refetch identical data and imply a scope the response
+ * does not have.
+ *
+ * No `keepPreviousData` for the same reason: the key never changes, so there
+ * is no previous window to hold on to.
+ */
+export function useAdminPipeline() {
+  return useQuery({
+    queryKey: adminKeys.pipeline(),
+    queryFn: getAdminPipeline,
+  })
+}
+
+/**
+ * `placeholderData: keepPreviousData` lets a list hold its previous render
+ * while new data loads, instead of unmounting into a skeleton and taking the
+ * layout with it.
+ */
+
+export function useAdminAttention(params?: {
+  limit?: number
+  offset?: number
+  stale_after_days?: number
+}) {
+  return useQuery({
+    queryKey: adminKeys.attention(params),
+    queryFn: () => getAdminAttention(params),
+    placeholderData: keepPreviousData,
   })
 }

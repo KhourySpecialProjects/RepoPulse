@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { vi, it, expect, afterEach } from 'vitest'
 import type { ReactNode } from 'react'
 import { ContextualActivityChart } from '@/components/ContextualActivityChart'
+import { STATUS } from '@/lib/chartTheme'
 vi.mock('@/hooks/useContextualActivity', () => ({ useContextualActivity: () => ({ data: { repositories: [{ id: 'repo', name: 'Repo', available: true, activity: [{ date: '2026-09-01', count: 1 }], students: [{ id: 'alice', name: 'Alice', activity: [{ date: '2026-09-01', count: 1 }] }] }] }, isLoading: false }) }))
 // Recharts needs a measurable container, which jsdom cannot provide, so stub the
 // pieces we assert on and let the rest render as inert markers.
@@ -43,5 +44,11 @@ it('draws a smoothed curve while keeping the contextual markers', () => {
   vi.setSystemTime(new Date('2026-09-10T12:00:00Z'))
   render(<ContextualActivityChart collectionId="collection" repoId="repo" />)
   expect(areaProps[0]?.type).toBe('monotone')
-  expect(referenceDotProps.some(p => p.fill === '#d97706')).toBe(true)
+  // Against the shared status token rather than a literal hex: the assertion
+  // is that anomaly markers are still drawn in the reserved status colour,
+  // and pinning the hex made a palette change look like a broken chart.
+  expect(referenceDotProps.some(p => p.fill === STATUS.serious)).toBe(true)
+  // Colour is never the only channel — each marker carries a text label too,
+  // which matters because the status steps are deliberately low-contrast.
+  expect(referenceDotProps.every(p => p.r === 0 || Boolean(p.label))).toBe(true)
 })

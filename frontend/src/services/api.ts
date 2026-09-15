@@ -1,51 +1,53 @@
 import axios from 'axios'
 import type {
-  TokenResponse,
-  Collection,
-  CreateCollectionData,
-  UpdateCollectionData,
-  Repo,
-  HealthScore,
-  Contributor,
-  UnmergeContributorsResponse,
-  Commit,
-  Note,
-  CreateNoteData,
-  UpdateNoteData,
-  Summary,
-  GenerateSummaryData,
+  AdminAttention,
+  AdminLlmUsage,
+  AdminOverview,
+  AdminPipeline,
+  AdminRecalculateResult,
+  AdminRepoSizeSort,
+  AdminRepoStorageItem,
+  AdminStorageSummary,
+  AdminSystemStatus,
   AppSettings,
-  UpdateSettingsData,
-  PaginatedResponse,
+  ChangePasswordData,
+  ClassifyCommitsResponse,
+  Collection,
+  CollectionAccessEntry,
+  CollectionCommitActivity,
+  Commit,
+  CommitQualityResponse,
+  Contributor,
+  CreateCollectionData,
+  CreateNoteData,
+  CreateUserData,
+  GenerateSummaryData,
   GetCommitsParams,
   GetNotesParams,
-  UserDetail,
-  CreateUserData,
-  UpdateUserData,
-  PatchMeData,
-  ChangePasswordData,
-  CollectionAccessEntry,
+  HealthScore,
+  Note,
   NoteComment,
   Notification,
   NotificationListResponse,
   NotificationSettings,
-  ReminderListResponse,
-  TestEmailResponse,
-  UpdateNotificationSettingsData,
-  RecentlyDeletedListResponse,
-  CommitQualityResponse,
-  ClassifyCommitsResponse,
   PRListResponse,
   PRStats,
   PRSyncResponse,
-  AdminStorageSummary,
-  AdminRepoStorageItem,
-  AdminRepoSizeSort,
-  AdminRecalculateResult,
-  AdminOverview,
-  AdminSystemStatus,
-  AdminLlmUsage,
-  CollectionCommitActivity,
+  PaginatedResponse,
+  PatchMeData,
+  RecentlyDeletedListResponse,
+  ReminderListResponse,
+  Repo,
+  Summary,
+  TestEmailResponse,
+  TokenResponse,
+  UnmergeContributorsResponse,
+  UpdateCollectionData,
+  UpdateNoteData,
+  UpdateNotificationSettingsData,
+  UpdateSettingsData,
+  UpdateUserData,
+  UserDetail,
 } from '@/types'
 
 const apiClient = axios.create({
@@ -544,6 +546,22 @@ export async function getAdminSystem(): Promise<AdminSystemStatus> {
 export async function getAdminLlmUsage(days = 30): Promise<AdminLlmUsage> {
   const res = await apiClient.get<AdminLlmUsage>('/admin/llm-usage', {
     params: { days },
+  })
+  return res.data
+}
+
+export async function getAdminPipeline(): Promise<AdminPipeline> {
+  const res = await apiClient.get<AdminPipeline>('/admin/pipeline')
+  return res.data
+}
+
+export async function getAdminAttention(params?: {
+  limit?: number
+  offset?: number
+  stale_after_days?: number
+}): Promise<AdminAttention> {
+  const res = await apiClient.get<AdminAttention>('/admin/attention', {
+    params,
   })
   return res.data
 }

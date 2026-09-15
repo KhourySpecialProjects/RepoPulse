@@ -429,6 +429,112 @@ const mockAdminLlmUsage = {
   generated_at: '2026-09-14T10:00:00Z',
 }
 
+/**
+ * Pipeline health.
+ *
+ * Deliberately not a clean instance: one grouped sync failure, a spread of
+ * sync ages including a `never` bucket, a couple of real coverage gaps and an
+ * undelivered notification. A fault dashboard mocked against a healthy
+ * instance never exercises the code paths it exists for.
+ */
+const mockAdminPipeline = {
+  sync_state: { idle: 2, syncing: 0, failed: 2 },
+  sync_errors: [
+    {
+      error: 'Authentication failed',
+      repos: 2,
+      example_repo_name: 'team-alpha',
+      last_seen: '2026-09-14T09:00:00Z',
+    },
+  ],
+  sync_age: [
+    { key: 'lt1d', label: 'Under a day', repos: 1 },
+    { key: '1to3d', label: '1-3 days', repos: 1 },
+    { key: '3to7d', label: '3-7 days', repos: 0 },
+    { key: '7to30d', label: '7-30 days', repos: 1 },
+    { key: 'gt30d', label: 'Over 30 days', repos: 0 },
+    { key: 'never', label: 'Never synced', repos: 1 },
+  ],
+  coverage: [
+    {
+      key: 'no_health_score',
+      label: 'Repos with no health score',
+      affected: 1,
+      total: 4,
+    },
+    {
+      key: 'unknown_health',
+      label: 'Repos scored unknown',
+      affected: 0,
+      total: 4,
+    },
+    {
+      key: 'unmeasured_clone',
+      label: 'Clones never measured',
+      affected: 2,
+      total: 4,
+    },
+    {
+      key: 'missing_clone',
+      label: 'Database rows with no files on disk',
+      affected: 1,
+      total: 4,
+    },
+    {
+      key: 'orphan_directory',
+      label: 'Directories on disk with no database row',
+      affected: 1,
+      total: 4,
+    },
+    {
+      key: 'unattributed_summary',
+      label: 'Summaries with no repo',
+      affected: 1,
+      total: 4,
+    },
+  ],
+  generated_at: '2026-09-14T10:00:00Z',
+}
+
+const mockAdminAttention = {
+  items: [
+    {
+      id: 'repo-alpha',
+      name: 'team-alpha',
+      collection_id: 'collection-1',
+      collection_name: 'CS4530 Fall 2026',
+      sync_status: 'failed',
+      sync_error: 'Authentication failed',
+      last_synced_at: '2026-09-07T10:00:00Z',
+      local_path: '/repos/cs4530-fall-2026/team-alpha',
+      reasons: [
+        { code: 'sync_failed', label: 'Last sync failed' },
+        { code: 'stale_sync', label: 'Sync is stale' },
+      ],
+      severity: 7,
+    },
+    {
+      id: 'repo-bravo',
+      name: 'team-bravo',
+      collection_id: 'collection-1',
+      collection_name: 'CS4530 Fall 2026',
+      sync_status: 'idle',
+      sync_error: null,
+      last_synced_at: null,
+      local_path: null,
+      reasons: [
+        { code: 'never_synced', label: 'Never synced' },
+        { code: 'unmeasured', label: 'Clone size never measured' },
+      ],
+      severity: 4,
+    },
+  ],
+  total: 2,
+  limit: 10,
+  offset: 0,
+  generated_at: '2026-09-14T10:00:00Z',
+}
+
 const mockAdminStorage = {
   disk: {
     root: '/repos',
@@ -743,6 +849,12 @@ export const handlers = [
       limit: 200,
       offset: 0,
     })
+  }),
+  http.get(`${BASE}/admin/pipeline`, () => {
+    return HttpResponse.json(mockAdminPipeline)
+  }),
+  http.get(`${BASE}/admin/attention`, () => {
+    return HttpResponse.json(mockAdminAttention)
   }),
   http.post(`${BASE}/admin/storage/recalculate`, () => {
     return HttpResponse.json({
