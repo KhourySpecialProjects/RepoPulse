@@ -36,7 +36,6 @@ const notif = (id: string, isRead = false): Notification => ({
   commit_hash: null,
   subject: null,
   body: null,
-  emailed_at: null,
 })
 
 const reminder = (id: string): Reminder => ({

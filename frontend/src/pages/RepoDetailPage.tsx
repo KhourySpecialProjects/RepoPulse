@@ -1,9 +1,9 @@
 import { ContextualActivityChart } from '@/components/ContextualActivityChart'
-import { useState, useEffect, useMemo, Fragment } from 'react'
+import { useState, useEffect, useMemo, Fragment, type ComponentType, type ReactNode } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { TrickleProgress } from '@/components/ui/trickle-progress'
-import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Code2, GitBranch, Tag, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed, TriangleAlert } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, useUnmergeContributor, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests, useClassifyCommits, ALL_COMMITS_PARAMS } from '@/hooks/useRepos'
 import { useRepoSummaries, useContributorSummaries, useGenerateSummary, summaryKeys } from '@/hooks/useSummaries'
@@ -152,6 +152,46 @@ function GenerateSummaryButton({
 
 /** Loading state for the Commits card — same spinner, label, and trickling bar
  *  the activity graph uses, so the two sections load alike. */
+/** A collapsible section in the left column.
+ *
+ * Mirrors the Pull Requests panel's chrome so the sidebar reads as one stack
+ * rather than a set of one-off boxes. That panel keeps its own markup because
+ * it also persists its open state per repo; everything else shares this. */
+function SidebarPanel({
+  title, icon: Icon, id, expanded, onToggle, className, children,
+}: {
+  title: string
+  icon: ComponentType<{ className?: string }>
+  id: string
+  expanded: boolean
+  onToggle: () => void
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <div className={cn('shrink-0 bg-gray-50 rounded-xl border border-border p-4', className)}>
+      <h2 className="text-sm font-semibold">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          aria-controls={id}
+          className="flex w-full items-center gap-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+        >
+          <Icon className="h-4 w-4 text-muted-foreground" />
+          {title}
+          {expanded
+            ? <ChevronUp className="ml-auto h-4 w-4" />
+            : <ChevronDown className="ml-auto h-4 w-4" />}
+        </button>
+      </h2>
+      <div id={id} hidden={!expanded} className="mt-3">
+        {children}
+      </div>
+    </div>
+  )
+}
+
 function CommitsLoading() {
   return (
     <div role="status" aria-label="Loading commits" className="flex flex-col items-center justify-center gap-3 py-10">
@@ -346,12 +386,44 @@ const sectionVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.22 } },
 }
 
-function readPullRequestsExpanded(repoId: string | undefined): boolean {
-  try {
-    return localStorage.getItem(`repo-pull-requests-expanded-${repoId}`) !== 'false'
-  } catch {
-    return true
+/** A sidebar panel's open state, remembered per repo across visits and reloads.
+ *
+ * Defaults to open, and only the literal string "false" closes it, so a cleared
+ * or unavailable localStorage degrades to every panel open rather than every
+ * panel mysteriously shut. State is keyed by repo because a collapse is a
+ * judgement about *this* project, not a global preference.
+ */
+function usePersistedPanel(repoId: string | undefined, panel: string) {
+  const storageKey = `repo-${panel}-${repoId}`
+
+  const [expanded, setExpanded] = useState(() => {
+    try {
+      return localStorage.getItem(storageKey) !== 'false'
+    } catch {
+      return true
+    }
+  })
+
+  // Re-read when the route moves to another repo; this component is reused.
+  useEffect(() => {
+    try {
+      setExpanded(localStorage.getItem(storageKey) !== 'false')
+    } catch {
+      setExpanded(true)
+    }
+  }, [storageKey])
+
+  function toggle() {
+    const next = !expanded
+    setExpanded(next)
+    try {
+      localStorage.setItem(storageKey, String(next))
+    } catch {
+      // Keep the toggle usable when browser storage is unavailable.
+    }
   }
+
+  return [expanded, toggle] as const
 }
 
 export function RepoDetailPage() {
@@ -379,25 +451,17 @@ export function RepoDetailPage() {
   // confirmation dialog quotes back to the user.
   const [classifyPreview, setClassifyPreview] = useState<ClassifyCommitsResponse | null>(null)
   const [showAllBranches, setShowAllBranches] = useState(false)
+  // The commit filters and the contributor list each collapse independently and
+  // remember their state per repo, open by default.
+  const [branchFilterExpanded, toggleBranchFilter] = usePersistedPanel(id, 'branch-filter-expanded')
+  const [typeFilterExpanded, toggleTypeFilter] = usePersistedPanel(id, 'type-filter-expanded')
+  const [dateFilterExpanded, toggleDateFilter] = usePersistedPanel(id, 'date-filter-expanded')
+  const [contributorsExpanded, toggleContributors] = usePersistedPanel(id, 'contributors-expanded')
   const [selectedContributorIds, setSelectedContributorIds] = useState<Set<string>>(new Set())
   const [editingContributorId, setEditingContributorId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
   const [showMerge, setShowMerge] = useState(false)
-  const [pullRequestsExpanded, setPullRequestsExpanded] = useState(() => readPullRequestsExpanded(id))
-
-  useEffect(() => {
-    setPullRequestsExpanded(readPullRequestsExpanded(id))
-  }, [id])
-
-  function togglePullRequests() {
-    const expanded = !pullRequestsExpanded
-    setPullRequestsExpanded(expanded)
-    try {
-      localStorage.setItem(`repo-pull-requests-expanded-${id}`, String(expanded))
-    } catch {
-      // Keep the toggle usable when browser storage is unavailable.
-    }
-  }
+  const [pullRequestsExpanded, togglePullRequests] = usePersistedPanel(id, 'pull-requests-expanded')
   const [mergeDisplayName, setMergeDisplayName] = useState('')
   const [expectedCount, setExpectedCount] = useState<string>('')
   const [COMMITS_PER_PAGE, setCommitsPerPage] = useState(10)
@@ -1219,6 +1283,21 @@ export function RepoDetailPage() {
                 <p className="text-muted-foreground text-sm">No commits found.</p>
               ) : (
                 <div className="flex flex-col gap-2">
+                  {/* The clone could not be read, so these came from the last
+                      sync. Said out loud because anything committed since is
+                      missing, and a silently stale list looks live. */}
+                  {allCommitsData.stale && (
+                    <p
+                      data-testid="commits-stale-notice"
+                      className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+                    >
+                      <TriangleAlert className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                      <span>
+                        Showing the last synced history — the local clone could
+                        not be read. Sync the repository for anything newer.
+                      </span>
+                    </p>
+                  )}
                   <div className="flex flex-col gap-2">
                     {allBranches.length > 0 && (
                       <div className="flex flex-wrap items-center gap-1.5">
@@ -1378,11 +1457,17 @@ export function RepoDetailPage() {
                     <table className="w-full text-sm">
                       <thead className="sticky top-0 z-10 bg-card">
                         <tr className="border-b text-muted-foreground text-xs">
+                          {/* Leftmost so the vertical scrollbar cannot clip
+                              it, with a floor on its width so neither the name
+                              nor the counts get squeezed. The diffstat stacks
+                              underneath the name — one heading covers both,
+                              since they answer who changed how much. */}
+                          <th className="text-left pb-2 pr-6 font-medium min-w-[9rem]">Author</th>
                           <th className="text-left pb-2 font-medium">Commit</th>
-                          <th className="text-left pb-2 font-medium">Author</th>
                           <th className="text-left pb-2 font-medium">Branch</th>
-                          <th className="text-left pb-2 font-medium">Score</th>
-                          <th className="text-right pb-2 font-medium">+/-</th>
+                          {/* Now the last column, so it needs its own gap from
+                              the scrollbar. */}
+                          <th className="text-left pb-2 pr-2 font-medium">Score</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1406,6 +1491,14 @@ export function RepoDetailPage() {
                                 'ring-2 ring-inset ring-indigo-400 bg-indigo-50 hover:bg-indigo-50'
                             )}
                           >
+                            <td className="py-2.5 pr-6 text-xs whitespace-nowrap align-top">
+                              <span className="block text-foreground">{resolvedAuthor(commit)}</span>
+                              <span className="block">
+                                <span className="text-health-green">+{commit.insertions}</span>
+                                {' / '}
+                                <span className="text-health-red">-{commit.deletions}</span>
+                              </span>
+                            </td>
                             <td className="py-2.5 pr-4">
                               <div className="flex items-center gap-2">
                                 <a
@@ -1450,7 +1543,6 @@ export function RepoDetailPage() {
                                 )
                               })()}
                             </td>
-                            <td className="py-2.5 pr-4 text-xs whitespace-nowrap">{resolvedAuthor(commit)}</td>
                             <td className="py-2.5 pr-4 text-xs max-w-[10rem]">
                               {(() => {
                                 const mainNames = ['main', 'master']
@@ -1486,18 +1578,13 @@ export function RepoDetailPage() {
                                 )
                               })()}
                             </td>
-                            <td className="py-2.5 pr-4">
+                            <td className="py-2.5 pr-2">
                               <CommitScorePill score={commit.quality_score} />
-                            </td>
-                            <td className="py-2.5 text-right text-xs whitespace-nowrap">
-                              <span className="text-health-green">+{commit.insertions}</span>
-                              {' / '}
-                              <span className="text-health-red">-{commit.deletions}</span>
                             </td>
                           </tr>
                           {activeCommitHash === commit.hash && (
                             <tr>
-                              <td colSpan={5} className="pb-3 pt-1">
+                              <td colSpan={4} className="pb-3 pt-1">
                                 <CommitNotesPanel repoId={id ?? ''} commitHash={commit.hash} />
                               </td>
                             </tr>
@@ -1661,24 +1748,51 @@ export function RepoDetailPage() {
               </div>
             </div>
 
+            {/* Contributors and the three filters ride along as the commit
+                list scrolls — all four are useless out of reach of the rows
+                they describe. One sticky wrapper rather than four, so they
+                travel as a block instead of piling up at the same offset,
+                and it scrolls internally when the stack outgrows the
+                viewport (otherwise its lower panels become unreachable). */}
+            <div className="sticky top-6 flex max-h-[calc(100vh-3rem)] flex-col gap-6 overflow-y-auto">
             {/* Contributors panel */}
-            <div className="sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto shrink-0 bg-gray-50 rounded-xl border border-border p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <User className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-sm font-semibold">Contributors</h2>
-                <div className="ml-auto flex items-center gap-1.5">
-                  <span className="text-xs text-muted-foreground">Expected:</span>
-                  <input
-                    type="number"
-                    min={contributors?.length ?? 1}
-                    value={expectedCount}
-                    onChange={e => setExpectedCount(e.target.value)}
-                    onBlur={handleSaveExpectedCount}
-                    onKeyDown={e => { if (e.key === 'Enter') handleSaveExpectedCount() }}
-                    placeholder="—"
-                    className="w-10 text-xs text-center border border-border rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white"
-                  />
-                </div>
+            <div className="shrink-0 bg-gray-50 rounded-xl border border-border p-4">
+              {/* Header is the toggle and nothing else, so its chevron lands on
+                  the same right edge as every other panel's. Expected and the
+                  merge buttons moved into the body below — they cannot sit in
+                  this row, because nesting controls inside the toggle button
+                  would be invalid and would swallow their clicks. */}
+              <h2 className="text-sm font-semibold">
+                <button
+                  type="button"
+                  onClick={toggleContributors}
+                  aria-expanded={contributorsExpanded}
+                  aria-controls="contributors-content"
+                  className="flex w-full items-center gap-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                >
+                  <User className="h-4 w-4 text-muted-foreground" />
+                  Contributors
+                  {contributorsExpanded
+                    ? <ChevronUp className="ml-auto h-4 w-4" />
+                    : <ChevronDown className="ml-auto h-4 w-4" />}
+                </button>
+              </h2>
+
+              {/* No cap here — the sticky wrapper scrolls the whole stack, and
+                  a scroll region inside a scroll region is miserable to use. */}
+              <div id="contributors-content" hidden={!contributorsExpanded} className="mt-3">
+              <div className="mb-3 flex flex-wrap items-center justify-end gap-1.5">
+                <span className="text-xs text-muted-foreground">Expected:</span>
+                <input
+                  type="number"
+                  min={contributors?.length ?? 1}
+                  value={expectedCount}
+                  onChange={e => setExpectedCount(e.target.value)}
+                  onBlur={handleSaveExpectedCount}
+                  onKeyDown={e => { if (e.key === 'Enter') handleSaveExpectedCount() }}
+                  placeholder="—"
+                  className="w-10 text-xs text-center border border-border rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white"
+                />
                 {selectedMergedContributor && (
                   <button
                     onClick={handleUnmerge}
@@ -1694,7 +1808,6 @@ export function RepoDetailPage() {
                   <button onClick={() => { initMerge(); setShowMerge(v => !v) }} className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded px-2 py-1" aria-expanded={showMerge}>Merge</button>
                 )}
               </div>
-
               {/* Explicit merge confirmation */}
               {showMerge && selectedContributorIds.size >= 2 && (
                 <div className="mb-3 p-2.5 bg-indigo-50 border border-indigo-200 rounded-lg flex flex-col gap-2">
@@ -1807,6 +1920,146 @@ export function RepoDetailPage() {
                   ))}
                 </div>
               )}
+              </div>{/* end contributors-content */}
+            </div>
+
+            {/* Commit filters. Each is its own section rather than a row in the
+                Commits card, and each renders only when it has something to
+                offer — an empty Branch panel would just be a dead header. */}
+            {allBranches.length > 0 && (
+              <SidebarPanel
+                title="Branch"
+                icon={GitBranch}
+                id="branch-filter-content"
+                expanded={branchFilterExpanded}
+                onToggle={toggleBranchFilter}
+              >
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    onClick={() => setSelectedBranches(new Set())}
+                    className={cn(
+                      'text-xs px-1.5 py-0.5 rounded border transition-colors',
+                      selectedBranches.size === 0
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                    )}
+                  >
+                    All
+                  </button>
+                  {(showAllBranches ? allBranches : allBranches.slice(0, MAX_BRANCH_CHIPS)).map(b => (
+                    <button
+                      key={b}
+                      onClick={() => toggleBranch(b)}
+                      className={cn(
+                        'text-xs px-1.5 py-0.5 rounded border font-mono transition-colors',
+                        selectedBranches.has(b)
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                      )}
+                    >
+                      {b}
+                    </button>
+                  ))}
+                  {allBranches.length > MAX_BRANCH_CHIPS && (
+                    <button
+                      onClick={() => setShowAllBranches(v => !v)}
+                      className="text-xs px-1.5 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
+                    >
+                      {showAllBranches ? 'Show less' : `+${allBranches.length - MAX_BRANCH_CHIPS} more`}
+                    </button>
+                  )}
+                </div>
+              </SidebarPanel>
+            )}
+
+            {(allCommitsData?.items.length ?? 0) > 0 && (
+              <SidebarPanel
+                title="Type"
+                icon={Tag}
+                id="type-filter-content"
+                expanded={typeFilterExpanded}
+                onToggle={toggleTypeFilter}
+              >
+                {/* role/aria-label so tests and screen readers can tell this
+                    group apart — "All" appears in the Branch panel and the
+                    chart range selector too. */}
+                <div
+                  role="group"
+                  aria-label="Filter by commit type"
+                  className="flex flex-wrap items-center gap-1.5"
+                >
+                  <button
+                    onClick={() => setSelectedTypes(new Set())}
+                    className={cn(
+                      'text-xs px-1.5 py-0.5 rounded border transition-colors',
+                      selectedTypes.size === 0
+                        ? 'bg-slate-700 text-white border-slate-700'
+                        : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                    )}
+                  >
+                    All
+                  </button>
+                  {/* Each chip wears its own type's colour, so this group is
+                      also the legend for the commit row tints. */}
+                  {COMMIT_TYPE_FILTERS.map((value) => {
+                    const style = commitTypeStyle(value)
+                    const active = selectedTypes.has(value)
+                    return (
+                      <button
+                        key={value}
+                        onClick={() => toggleType(value)}
+                        aria-pressed={active}
+                        className={cn(
+                          'text-xs px-1.5 py-0.5 rounded border transition-colors',
+                          active ? style.chipActive : style.chipIdle
+                        )}
+                      >
+                        {style.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </SidebarPanel>
+            )}
+
+            {commitDates.length > 0 && (
+              <SidebarPanel
+                title="Date"
+                icon={Calendar}
+                id="date-filter-content"
+                expanded={dateFilterExpanded}
+                onToggle={toggleDateFilter}
+              >
+                <div
+                  role="group"
+                  aria-label="Filter by commit date"
+                  className="flex flex-wrap items-center gap-1.5"
+                >
+                  {/* "All" is the first option rather than a separate reset
+                      button, so this panel starts with the same affordance as
+                      the Branch and Type panels above it. */}
+                  <select
+                    aria-label="Filter commits by date"
+                    value={selectedDate}
+                    onChange={e => setSelectedDate(e.target.value)}
+                    className={cn(
+                      'text-xs px-1.5 py-0.5 rounded border transition-colors focus:outline-none focus:border-indigo-400',
+                      selectedDate
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                    )}
+                  >
+                    <option value="">All</option>
+                    {commitDates.map(d => (
+                      <option key={d} value={d}>{formatMonthDay(d)}</option>
+                    ))}
+                  </select>
+                  <span className="text-xs italic text-gray-400">
+                    *only showing dates with commits
+                  </span>
+                </div>
+              </SidebarPanel>
+            )}
             </div>
 
           </div>{/* end sidebar column */}

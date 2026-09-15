@@ -8,7 +8,6 @@ import type {
   HealthScore,
   Contributor,
   UnmergeContributorsResponse,
-  Commit,
   Note,
   CreateNoteData,
   UpdateNoteData,
@@ -17,6 +16,7 @@ import type {
   AppSettings,
   UpdateSettingsData,
   PaginatedResponse,
+  CommitsResponse,
   GetCommitsParams,
   GetNotesParams,
   UserDetail,
@@ -28,10 +28,9 @@ import type {
   NoteComment,
   Notification,
   NotificationListResponse,
-  NotificationSettings,
+  NotificationPreferences,
+  UpdateNotificationPreferencesData,
   ReminderListResponse,
-  TestEmailResponse,
-  UpdateNotificationSettingsData,
   RecentlyDeletedListResponse,
   CommitQualityResponse,
   ClassifyCommitsResponse,
@@ -173,8 +172,8 @@ export async function getRepoHealth(id: string): Promise<HealthScore> {
   return response.data
 }
 
-export async function getRepoCommits(id: string, params?: GetCommitsParams): Promise<PaginatedResponse<Commit>> {
-  const response = await apiClient.get<PaginatedResponse<Commit>>(`/repos/${id}/commits`, { params })
+export async function getRepoCommits(id: string, params?: GetCommitsParams): Promise<CommitsResponse> {
+  const response = await apiClient.get<CommitsResponse>(`/repos/${id}/commits`, { params })
   return response.data
 }
 
@@ -381,26 +380,20 @@ export async function markAllNotificationsRead(): Promise<{ marked_read: number 
   return res.data
 }
 
-// Email relay settings
-export async function getNotificationSettings(): Promise<NotificationSettings> {
-  const res = await apiClient.get<NotificationSettings>('/notifications/settings')
+// Which events this account wants to be notified about
+export async function getNotificationPreferences(): Promise<NotificationPreferences> {
+  const res = await apiClient.get<NotificationPreferences>('/notifications/preferences')
   return res.data
 }
 
-export async function updateNotificationSettings(
-  data: UpdateNotificationSettingsData
-): Promise<NotificationSettings> {
-  const res = await apiClient.put<NotificationSettings>('/notifications/settings', data)
-  return res.data
-}
-
-export async function sendTestEmail(to?: string): Promise<TestEmailResponse> {
-  // Omitting `to` sends to the signed-in user's own account address. The
-  // override exists because dev accounts are seeded with @example.com, which
-  // real providers refuse to deliver to.
-  const res = await apiClient.post<TestEmailResponse>(
-    '/notifications/settings/test-email',
-    { to: to ?? null }
+export async function updateNotificationPreferences(
+  data: UpdateNotificationPreferencesData
+): Promise<NotificationPreferences> {
+  // A partial map: the server merges it over what is stored, so sending one
+  // toggled event cannot reset the others.
+  const res = await apiClient.put<NotificationPreferences>(
+    '/notifications/preferences',
+    data
   )
   return res.data
 }

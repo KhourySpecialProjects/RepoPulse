@@ -37,7 +37,6 @@ const mention: Notification = {
   commit_hash: null,
   subject: null,
   body: null,
-  emailed_at: null,
 }
 
 const reminderNotif: Notification = {
@@ -52,7 +51,6 @@ const reminderNotif: Notification = {
   commit_hash: null,
   subject: null,
   body: null,
-  emailed_at: null,
 }
 
 const commentNotif: Notification = {
@@ -67,7 +65,6 @@ const commentNotif: Notification = {
   commit_hash: null,
   subject: null,
   body: null,
-  emailed_at: null,
 }
 
 const activeReminder: Reminder = {

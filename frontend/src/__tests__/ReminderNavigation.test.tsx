@@ -24,6 +24,9 @@ const getRepo = vi.fn()
 const getRepoCommits = vi.fn()
 
 vi.mock('@/services/api', () => ({
+  // The reminders panel reads the signed-in user's subscriptions.
+  getNotificationPreferences: () => Promise.resolve({ subscribed_events: {} }),
+  updateNotificationPreferences: vi.fn(),
   getReminders: (...a: unknown[]) => getReminders(...a),
   getRepo: (...a: unknown[]) => getRepo(...a),
   getRepoCommits: (...a: unknown[]) => getRepoCommits(...a),

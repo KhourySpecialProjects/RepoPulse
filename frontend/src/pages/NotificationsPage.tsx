@@ -31,7 +31,6 @@ import {
   usePurgeNote,
 } from '@/hooks/useNotifications'
 import { ActiveRemindersPanel, ICON_BUTTON_CLASS } from '@/components/ActiveRemindersPanel'
-import { EmailRelayPanel } from '@/components/EmailRelayPanel'
 import { EmptyInboxMascot } from '@/components/EmptyInboxMascot'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -226,16 +225,7 @@ export function NotificationsPage() {
         </div>
       </div>
 
-      {/*
-        Two columns from `lg` up: everything that reports what happened on the
-        left, the email relay configuration on the right. Below `lg` they stack
-        in the same order, so the feed stays the first thing you see.
-      */}
-      <div
-        data-testid="notifications-body"
-        className={cn(PAGE_BODY_CLASS, 'lg:grid lg:grid-cols-[minmax(0,1fr)_24rem] lg:gap-6')}
-      >
-        <div className="min-w-0">
+      <div data-testid="notifications-body" className={PAGE_BODY_CLASS}>
         {/* Reminders you can manage directly */}
         <section className={SECTION_CLASS}>
           <ActiveRemindersPanel />
@@ -296,17 +286,8 @@ export function NotificationsPage() {
                           {notif.note_content_preview ?? notif.body}
                         </span>
                       )}
-                      <span className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span className="mt-1 block text-xs text-muted-foreground">
                         {formatTimeAgo(notif.created_at)}
-                        {notif.emailed_at && (
-                          <span
-                            title="Also delivered by email"
-                            className="inline-flex items-center gap-0.5 text-muted-foreground"
-                          >
-                            <Mail className="h-3 w-3" />
-                            emailed
-                          </span>
-                        )}
                       </span>
                     </span>
                   </button>
@@ -351,12 +332,6 @@ export function NotificationsPage() {
 
         {/* Undo surface for anything deleted by mistake */}
         <RecentlyDeletedSection />
-        </div>
-
-        {/* Where notifications go besides this page */}
-        <aside className="min-w-0">
-          <EmailRelayPanel />
-        </aside>
       </div>
     </motion.div>
   )

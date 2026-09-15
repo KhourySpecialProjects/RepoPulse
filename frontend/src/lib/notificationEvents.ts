@@ -10,12 +10,12 @@ export interface NotificationEventMeta {
 }
 
 /**
- * The catalog of subscribable events, in the order the settings panel shows
+ * The catalog of subscribable events, in the order the subscription list shows
  * them: personal mentions first, then course activity.
  *
  * Order is defined here rather than by iterating the API response, because
  * object key order is not a contract and this list is read top-to-bottom by a
- * person deciding what to be emailed about.
+ * person deciding what they want to hear about.
  */
 export const NOTIFICATION_EVENTS: Array<
   { key: NotificationEvent } & NotificationEventMeta
