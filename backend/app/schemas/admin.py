@@ -189,8 +189,15 @@ class RecalculateRequest(BaseModel):
     collection_id: uuid.UUID | None = None
 
 
+#: The LLM features that spend tokens, and so the series the volume graph
+#: stacks. Mirrors the FEATURE_* constants on app/models/llm_token_usage.py —
+#: `commit_quality` was invisible while call volume came from a two-table
+#: union, which made the graph's series sum to less than its own total.
+LlmUsageKind = Literal["summary", "commit_classification", "commit_quality"]
+
+
 class LlmModelUsage(BaseModel):
-    kind: Literal["summary", "commit_classification"]
+    kind: LlmUsageKind
     model: str
     calls: int
     first_at: datetime | None = None
@@ -199,51 +206,45 @@ class LlmModelUsage(BaseModel):
 
 class LlmDailyUsage(BaseModel):
     day: date
-    kind: str
-    calls: int
-
-
-class LlmOwnerUsage(BaseModel):
-    """Attribution by collection owner, which is not the same as by user.
-
-    Neither `summaries` nor `commit_classifications` records who triggered
-    the call. The closest reachable attribution is repo -> collection ->
-    owner_id, which credits the collection owner rather than whoever clicked
-    the button. Named for what it actually measures.
-    """
-
-    user_id: uuid.UUID
-    display_name: str
+    kind: LlmUsageKind
     calls: int
 
 
 class LlmUsage(BaseModel):
-    """LLM call volume over a window.
+    """Provider call volume over a window.
+
+    `total_calls` counts requests to the provider, not rows in a table. It is
+    summed from `llm_token_usage.calls`, which the adapters increment once per
+    request. The previous source was a union over `summaries` and
+    `commit_classifications`: one-per-artefact tables, so classifying 222
+    commits reported 222 calls against six batched requests, and the figure
+    tracked repo size rather than load.
 
     Deliberately carries no cost estimate and no failure count.
 
-    No token counts are persisted on either table, so any spend figure would
-    be `rows x assumed-tokens x assumed-price` — invented inputs producing a
-    number that reads as measured and is wrong by a multiple, not a
-    percentage. Arize Phoenix is already in the stack and records real token
-    usage per span; the honest answer is call counts plus a link to it.
+    Cost belongs to the AI Settings tab, which prices measured tokens at rates
+    an administrator entered. A spend figure derived from call volume alone
+    would be `calls x assumed-tokens x assumed-price` — invented inputs
+    producing a number that reads as measured and is wrong by a multiple.
 
-    Failures are equally unavailable: a failed LLM call writes no row, so
-    these tables contain only successes. A "0 failures" tile would be a lie
-    by construction.
+    Failures are unavailable by construction: a failed call writes no usage
+    row, so these rows are only successes and a "0 failures" tile would lie.
 
     `retired_models_in_use` is the actionable signal instead — models present
-    in history that are not the current default. Migration 0002 exists
-    because a retired model id started returning 404s.
+    in history that are not the instance's configured model. Migration 0002
+    exists because a retired model id started returning 404s.
+
+    Per-user attribution is absent on purpose. It used to be a join from
+    summaries to collection owner, which credited the collection's owner
+    rather than whoever spent the tokens; `llm_token_usage.user_id` now
+    answers it exactly, and the AI Settings tab reports it against each
+    user's limit. Nothing on the dashboard read the old field.
     """
 
     window_days: int
     total_calls: int
     by_model: list[LlmModelUsage]
     daily: list[LlmDailyUsage]
-    by_collection_owner: list[LlmOwnerUsage]
-    # Summaries with no repo_id, which the owner join silently drops.
-    unattributed_summaries: int
     models_in_use: list[str]
     retired_models_in_use: list[str]
     current_default_model: str

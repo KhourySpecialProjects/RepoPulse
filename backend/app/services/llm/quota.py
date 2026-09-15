@@ -162,7 +162,9 @@ async def usage_summary(
             select(
                 func.coalesce(func.sum(LlmTokenUsage.input_tokens), 0),
                 func.coalesce(func.sum(LlmTokenUsage.output_tokens), 0),
-                func.count(LlmTokenUsage.id),
+                # SUM, not COUNT: a batching caller folds several requests
+                # into one row and records how many in `calls`.
+                func.coalesce(func.sum(LlmTokenUsage.calls), 0),
             ).where(LlmTokenUsage.period == window)
         )
     ).one()
@@ -241,16 +243,24 @@ async def record_usage(
     model_used: str,
     usage: TokenUsage,
 ) -> None:
-    """Charge `usage` to `user_id`. A zero-token call writes nothing.
+    """Charge `usage` to `user_id`. A call that spent nothing writes nothing.
 
-    Zero means no call was made — every commit served from cache, or a test
-    double standing in for the adapter. A 0-token row would claim otherwise in
-    the admin usage view, and rows-per-call is exactly what that view counts.
+    Nothing spent means no call was made — every commit served from cache, or
+    a test double standing in for the adapter. An empty row would claim
+    otherwise in the admin usage view.
+
+    The guard tests tokens *or* calls, not tokens alone: a provider that
+    returns no usage block leaves a real request with zero tokens, and
+    dropping it would hide load the graph exists to show.
+
+    `calls` falls back to 1 for a spend that reports no count, which is the
+    floor rather than a guess — tokens were spent, so at least one request
+    happened. Adapters report the true number via `TokenUsage.record_call`.
 
     Does not commit. The caller owns the transaction: usage belongs in the
     same commit as the work it paid for, so a failed request charges nothing.
     """
-    if usage.total_tokens <= 0:
+    if usage.total_tokens <= 0 and usage.calls <= 0:
         return
 
     db.add(
@@ -259,6 +269,7 @@ async def record_usage(
             period=current_period(),
             feature=feature,
             model_used=model_used,
+            calls=usage.calls or 1,
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
             total_tokens=usage.total_tokens,

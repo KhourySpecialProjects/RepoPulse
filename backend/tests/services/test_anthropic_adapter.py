@@ -133,3 +133,47 @@ async def test_usage_is_recorded_even_when_no_text_comes_back() -> None:
 
     assert await adapter.generate("prompt") == ""
     assert adapter.usage.total_tokens == 280
+
+
+# ── call accounting ──────────────────────────────────────────────────────────
+#
+# Counted separately from tokens because the admin call-volume graph plots
+# these, and the two genuinely diverge: a response that reports no usage is
+# charged zero tokens and is still one request the provider served.
+
+
+async def test_calls_start_at_zero() -> None:
+    adapter = _adapter_returning(_block("text", text="ok"))
+    assert adapter.usage.calls == 0
+
+
+async def test_each_generate_counts_one_call() -> None:
+    """One `generate` is one request, which is the unit the graph plots.
+
+    The classifier sends up to BATCH_SIZE commits per call, so this counter is
+    what makes "one Classify click = N batches" reportable at all.
+    """
+    adapter = _adapter_returning(
+        _block("text", text="ok"),
+        usage=SimpleNamespace(input_tokens=10, output_tokens=5),
+    )
+
+    await adapter.generate("one")
+    await adapter.generate("two")
+    await adapter.generate("three")
+
+    assert adapter.usage.calls == 3
+
+
+async def test_a_response_without_usage_still_counts_as_a_call() -> None:
+    """Where tokens and calls part company.
+
+    An unreported response is charged zero tokens — never a guess — but it was
+    still a request, and a call graph that dropped it would under-report load.
+    """
+    adapter = _adapter_returning(_block("text", text="ok"))
+
+    await adapter.generate("prompt")
+
+    assert adapter.usage.total_tokens == 0
+    assert adapter.usage.calls == 1

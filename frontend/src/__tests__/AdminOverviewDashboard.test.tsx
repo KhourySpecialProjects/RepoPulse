@@ -436,6 +436,38 @@ describe('LLM call volume', () => {
       'claude-sonnet-4-20250514',
     )
   })
+
+  it('counts commit-quality scoring as call volume', async () => {
+    /**
+     * Three features spend tokens. While volume came from a union over
+     * `summaries` and `commit_classifications`, commit-quality scoring was
+     * invisible — the stacked areas summed to less than the card's own total.
+     */
+    const user = userEvent.setup()
+    renderAdmin()
+
+    const card = await openTable(user, 'llm-volume')
+    expect(card).toHaveTextContent('Commit quality')
+  })
+
+  it('opens the AI Settings tab, where per-user usage and limits live', async () => {
+    /**
+     * This card answers "how much load"; the question it provokes is "from
+     * whom, and against what limit". That is one tab away and the footer used
+     * to only name it in prose.
+     */
+    const user = userEvent.setup()
+    renderAdmin()
+
+    const card = await screen.findByTestId('llm-volume')
+    await user.click(
+      await within(card).findByRole('button', { name: /per-user usage and limits/i }),
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: /per-user usage and limits/i }),
+    ).toBeInTheDocument()
+  })
 })
 
 // ---------------------------------------------------------------------------

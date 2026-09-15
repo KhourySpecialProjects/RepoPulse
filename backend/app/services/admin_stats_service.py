@@ -47,7 +47,6 @@ from app.schemas.admin import (
     HealthDistribution,
     LlmDailyUsage,
     LlmModelUsage,
-    LlmOwnerUsage,
     LlmUsage,
     RecalculateResult,
     RepoSizeSort,
@@ -61,6 +60,7 @@ from app.schemas.admin import (
     TableStat,
 )
 from app.services.git_service import GitService
+from app.services.llm.quota import get_llm_config
 from app.services.system_status_service import head_revision, probe_schema
 
 _HEALTH_STATUSES = ("green", "yellow", "red", "unknown")
@@ -147,68 +147,46 @@ _REPO_SORTS: dict[str, str] = {
 # off-thread; four in flight saturates a disk without thrashing it.
 _RECALC_CONCURRENCY = 4
 
-# CommitClassification.scored_at is a NAIVE DateTime while every other
-# timestamp in the schema is timezone-aware. Comparing it to now() would make
-# Postgres interpret it using the session TimeZone — UTC in this container by
-# luck, wrong anywhere else. `AT TIME ZONE 'UTC'` reifies it as timestamptz so
-# both event sources are on the same clock.
-_LLM_EVENTS_CTE = """
-    WITH events AS (
-        SELECT 'summary'::text AS kind, s.model_used AS model, s.generated_at AS at
-        FROM summaries s
-        WHERE s.generated_at >= now() - make_interval(days => :days)
-        UNION ALL
-        SELECT 'commit_classification'::text,
-               cc.model_used,
-               (cc.scored_at AT TIME ZONE 'UTC')
-        FROM commit_classifications cc
-        WHERE (cc.scored_at AT TIME ZONE 'UTC')
-              >= now() - make_interval(days => :days)
-    )
-"""
-
+# Call volume comes from llm_token_usage, the only table that records provider
+# requests. It previously came from a union over `summaries` and
+# `commit_classifications`, which are one-per-artefact: a 222-commit Classify
+# run reported 222 calls against the six batched requests it actually made, and
+# the number moved with repo size rather than with load. It also could not see
+# commit-quality scoring at all, so the graph's series summed to less than its
+# own total.
+#
+# SUM(calls) rather than count(*) for the same reason one level down: a row is
+# one write, and a batching caller settles a whole wave in one write.
+#
+# created_at is timestamptz here, so no AT TIME ZONE reification is needed —
+# unlike commit_classifications.scored_at, which is naive and was the reason
+# the old query carried a cast.
 _LLM_BY_MODEL_SQL = text(
-    _LLM_EVENTS_CTE
-    + """
-    SELECT kind, model, count(*) AS calls, min(at) AS first_at, max(at) AS last_at
-    FROM events
-    GROUP BY kind, model
-    ORDER BY calls DESC, model ASC
+    """
+    SELECT feature AS kind,
+           model_used AS model,
+           SUM(calls) AS calls,
+           MIN(created_at) AS first_at,
+           MAX(created_at) AS last_at
+    FROM llm_token_usage
+    WHERE created_at >= now() - make_interval(days => :days)
+    GROUP BY feature, model_used
+    -- Ordered by the aggregate and the real column, not by the output aliases:
+    -- `calls` names both the summed alias and the column it sums, and leaving
+    -- Postgres to pick between them is not worth the ambiguity.
+    ORDER BY SUM(calls) DESC, model_used ASC
     """
 )
 
 _LLM_DAILY_SQL = text(
-    _LLM_EVENTS_CTE
-    + """
-    SELECT CAST(at AT TIME ZONE 'UTC' AS date) AS day, kind, count(*) AS calls
-    FROM events
+    """
+    SELECT CAST(created_at AT TIME ZONE 'UTC' AS date) AS day,
+           feature AS kind,
+           SUM(calls) AS calls
+    FROM llm_token_usage
+    WHERE created_at >= now() - make_interval(days => :days)
     GROUP BY 1, 2
     ORDER BY 1, 2
-    """
-)
-
-# summaries.repo_id is nullable (contributor-scoped summaries), so this inner
-# join silently drops rows — the dropped count is reported separately rather
-# than lost.
-_LLM_BY_OWNER_SQL = text(
-    """
-    SELECT u.id AS user_id, u.display_name, count(*) AS calls
-    FROM summaries s
-    JOIN repos r       ON r.id = s.repo_id
-    JOIN collections c ON c.id = r.collection_id
-    JOIN users u       ON u.id = c.owner_id
-    WHERE s.generated_at >= now() - make_interval(days => :days)
-    GROUP BY u.id, u.display_name
-    ORDER BY calls DESC, u.display_name ASC
-    """
-)
-
-_LLM_UNATTRIBUTED_SQL = text(
-    """
-    SELECT count(*)
-    FROM summaries s
-    WHERE s.repo_id IS NULL
-      AND s.generated_at >= now() - make_interval(days => :days)
     """
 )
 
@@ -566,31 +544,40 @@ class AdminStatsService:
         )
 
     async def llm_usage(self, db: AsyncSession, *, days: int = 30) -> LlmUsage:
-        """LLM call volume over a window.
+        """Provider call volume over a window.
 
         Reports no cost and no failure count, and that is deliberate — see
-        the LlmUsage docstring. Neither is derivable from what is persisted,
-        and a fabricated figure is worse than an absent one.
+        the LlmUsage docstring. Spend is priced on the AI Settings tab from
+        measured tokens at admin-entered rates; a second figure derived from
+        call counts would be an invention, and a failed call writes no row so
+        a failure count would always read zero.
+
+        Per-user attribution is not here either. It was a join from summaries
+        to collection owner — the closest thing reachable before usage rows
+        carried a user_id, and it credited the collection's owner rather than
+        whoever spent the tokens. `llm_token_usage.user_id` now answers that
+        exactly, and the AI Settings tab reports it as tokens against each
+        user's limit, which is the form an administrator can act on.
         """
         params = {"days": days}
         by_model_rows = (await db.execute(_LLM_BY_MODEL_SQL, params)).mappings().all()
         daily_rows = (await db.execute(_LLM_DAILY_SQL, params)).mappings().all()
-        owner_rows = (await db.execute(_LLM_BY_OWNER_SQL, params)).mappings().all()
-        unattributed = int(
-            (await db.execute(_LLM_UNATTRIBUTED_SQL, params)).scalar_one()
-        )
 
         by_model = [LlmModelUsage(**row) for row in by_model_rows]
         models_in_use = sorted({row.model for row in by_model})
-        current_default = settings.DEFAULT_LLM_MODEL
+
+        # The instance config, not settings.DEFAULT_LLM_MODEL: an administrator
+        # picks the model on the AI Settings tab and the env var only seeds that
+        # row, so comparing against the env var would flag the configured model
+        # itself as retired on any instance whose admin has changed it.
+        config = await get_llm_config(db)
+        current_default = config.llm_model or settings.DEFAULT_LLM_MODEL
 
         return LlmUsage(
             window_days=days,
             total_calls=sum(row.calls for row in by_model),
             by_model=by_model,
             daily=[LlmDailyUsage(**row) for row in daily_rows],
-            by_collection_owner=[LlmOwnerUsage(**row) for row in owner_rows],
-            unattributed_summaries=unattributed,
             models_in_use=models_in_use,
             # Actionable in a way a cost estimate is not: migration 0002
             # exists because a retired model id began returning 404s.

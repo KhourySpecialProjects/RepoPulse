@@ -1,14 +1,22 @@
-"""GET /api/v1/admin/llm-usage — call volume, deliberately not cost.
+"""GET /api/v1/admin/llm-usage — provider call volume, deliberately not cost.
 
-Two omissions are load-bearing and are pinned by tests here so nobody
-helpfully adds them back:
+The endpoint used to count rows in `summaries` and `commit_classifications`,
+which are one-per-artefact tables: classifying 222 commits reported 222
+"calls" when the classifier had actually made six batched requests. The number
+was off by the batch size and moved with how many commits a repo had rather
+than with load on the provider.
 
-  * No cost estimate. No token counts are persisted on either table, so any
-    spend figure would be rows x assumed-tokens x assumed-price — invented
-    inputs producing a number that reads as measured and is wrong by a
-    multiple. Phoenix has the real per-span token usage.
-  * No failure count. A failed LLM call writes no row, so these tables hold
-    only successes; "0 failures" would be a lie by construction.
+It now reads `llm_token_usage`, whose rows are written per LLM call with the
+counts the provider reported. One click of Classify therefore registers as the
+number of batches it sent — the thing an administrator can act on.
+
+Two omissions remain load-bearing and are pinned below:
+
+  * No cost estimate *here*. Tokens are priced on the AI Settings tab, at
+    rates an administrator enters; this endpoint answers "how much load", and
+    a second spend figure derived from call counts alone would be invented.
+  * No failure count. A failed call writes no usage row, so these rows are
+    only successes and "0 failures" would be a lie by construction.
 """
 
 from __future__ import annotations
@@ -19,75 +27,41 @@ from datetime import datetime, timedelta, timezone
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.collection import Collection
-from app.models.commit_classification import CommitClassification
-from app.models.repo import Repo
-from app.models.summary import Summary
+from app.models.llm_token_usage import (
+    FEATURE_COMMIT_CLASSIFICATION,
+    FEATURE_COMMIT_QUALITY,
+    FEATURE_SUMMARY,
+    LlmTokenUsage,
+    current_period,
+)
 from app.models.user import User
+from app.services.llm.quota import get_llm_config
 
 
-async def _collection(db: AsyncSession, owner: User) -> Collection:
-    slug = uuid.uuid4().hex[:8]
-    collection = Collection(
-        id=uuid.uuid4(),
-        name=f"Collection {slug}",
-        local_folder_name=f"coll-{slug}",
-        owner_id=owner.id,
-    )
-    db.add(collection)
-    await db.flush()
-    return collection
-
-
-async def _repo(db: AsyncSession, collection: Collection) -> Repo:
-    slug = uuid.uuid4().hex[:8]
-    repo = Repo(
-        id=uuid.uuid4(),
-        collection_id=collection.id,
-        github_url=f"https://github.com/acme/{slug}",
-        name=f"repo-{slug}",
-    )
-    db.add(repo)
-    await db.flush()
-    return repo
-
-
-async def _summary(
+async def _usage(
     db: AsyncSession,
+    user: User,
     *,
-    repo: Repo | None,
+    feature: str = FEATURE_SUMMARY,
     model: str = "claude-sonnet-5",
-    generated_at: datetime | None = None,
-) -> Summary:
-    summary = Summary(
+    calls: int = 1,
+    input_tokens: int = 100,
+    output_tokens: int = 20,
+    created_at: datetime | None = None,
+) -> LlmTokenUsage:
+    """One usage row: the record a completed LLM request leaves behind."""
+    moment = created_at or datetime.now(timezone.utc)
+    row = LlmTokenUsage(
         id=uuid.uuid4(),
-        repo_id=repo.id if repo else None,
-        summary_type="repo_overview",
-        content="...",
+        user_id=user.id,
+        period=current_period(moment),
+        feature=feature,
         model_used=model,
-        generated_at=generated_at or datetime.now(timezone.utc),
-    )
-    db.add(summary)
-    await db.flush()
-    return summary
-
-
-async def _classification(
-    db: AsyncSession,
-    repo: Repo,
-    *,
-    model: str = "claude-sonnet-5",
-    scored_at: datetime | None = None,
-) -> CommitClassification:
-    row = CommitClassification(
-        id=uuid.uuid4(),
-        repo_id=repo.id,
-        commit_hash=uuid.uuid4().hex * 1,
-        score="good",
-        commit_type="substantive",
-        model_used=model,
-        # NAIVE on purpose: the column is DateTime without timezone.
-        scored_at=scored_at or datetime.utcnow(),
+        calls=calls,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=input_tokens + output_tokens,
+        created_at=moment,
     )
     db.add(row)
     await db.flush()
@@ -108,68 +82,85 @@ async def test_llm_usage_is_empty_on_a_fresh_instance(
     assert body["window_days"] == 30
 
 
-async def test_llm_usage_groups_summaries_by_model(
+async def test_llm_usage_counts_provider_calls_not_rows(
     test_client: AsyncClient,
     db_session: AsyncSession,
     admin_auth_headers: dict[str, str],
     test_user: User,
 ) -> None:
-    collection = await _collection(db_session, test_user)
-    repo = await _repo(db_session, collection)
-    await _summary(db_session, repo=repo, model="claude-sonnet-5")
-    await _summary(db_session, repo=repo, model="claude-sonnet-5")
-    await _summary(db_session, repo=repo, model="claude-opus-4")
+    """The regression this endpoint was rewritten for.
+
+    One batched Classify run writes a single usage row covering several
+    requests. Counting rows reported 1; the answer is 6.
+    """
+    await _usage(
+        db_session,
+        test_user,
+        feature=FEATURE_COMMIT_CLASSIFICATION,
+        calls=6,
+    )
 
     response = await test_client.get(
         "/api/v1/admin/llm-usage", headers=admin_auth_headers
     )
 
-    by_model = {row["model"]: row["calls"] for row in response.json()["by_model"]}
-    assert by_model == {"claude-sonnet-5": 2, "claude-opus-4": 1}
+    assert response.json()["total_calls"] == 6
 
 
-async def test_llm_usage_counts_classifications_alongside_summaries(
+async def test_llm_usage_groups_by_feature_and_model(
     test_client: AsyncClient,
     db_session: AsyncSession,
     admin_auth_headers: dict[str, str],
     test_user: User,
 ) -> None:
-    collection = await _collection(db_session, test_user)
-    repo = await _repo(db_session, collection)
-    await _summary(db_session, repo=repo)
-    await _classification(db_session, repo)
+    await _usage(db_session, test_user, feature=FEATURE_SUMMARY, calls=2)
+    await _usage(db_session, test_user, feature=FEATURE_SUMMARY, calls=1)
+    await _usage(
+        db_session, test_user, feature=FEATURE_COMMIT_CLASSIFICATION, calls=6
+    )
+    await _usage(
+        db_session,
+        test_user,
+        feature=FEATURE_SUMMARY,
+        model="claude-opus-4",
+        calls=4,
+    )
 
     response = await test_client.get(
         "/api/v1/admin/llm-usage", headers=admin_auth_headers
     )
 
     body = response.json()
-    kinds = {row["kind"] for row in body["by_model"]}
-    assert kinds == {"summary", "commit_classification"}
-    assert body["total_calls"] == 2
+    grouped = {(row["kind"], row["model"]): row["calls"] for row in body["by_model"]}
+    assert grouped == {
+        ("summary", "claude-sonnet-5"): 3,
+        ("commit_classification", "claude-sonnet-5"): 6,
+        ("summary", "claude-opus-4"): 4,
+    }
+    assert body["total_calls"] == 13
 
 
-async def test_llm_usage_counts_a_naive_scored_at_correctly(
+async def test_llm_usage_includes_commit_quality(
     test_client: AsyncClient,
     db_session: AsyncSession,
     admin_auth_headers: dict[str, str],
     test_user: User,
 ) -> None:
-    """CommitClassification.scored_at is naive while everything else is aware.
+    """Three features spend tokens, so all three are call volume.
 
-    Comparing it to now() without an explicit cast makes Postgres interpret
-    it using the session TimeZone, which is UTC in this container by luck and
-    wrong anywhere else. This is the test that catches that.
+    The old two-table union could not see commit-quality scoring at all, which
+    made the graph's series sum to less than its own total.
     """
-    collection = await _collection(db_session, test_user)
-    repo = await _repo(db_session, collection)
-    await _classification(db_session, repo, scored_at=datetime.utcnow())
+    await _usage(db_session, test_user, feature=FEATURE_COMMIT_QUALITY, calls=3)
 
     response = await test_client.get(
-        "/api/v1/admin/llm-usage?days=1", headers=admin_auth_headers
+        "/api/v1/admin/llm-usage", headers=admin_auth_headers
     )
 
-    assert response.json()["total_calls"] == 1
+    body = response.json()
+    assert {row["kind"] for row in body["by_model"]} == {"commit_quality"}
+    assert body["total_calls"] == 3
+    assert sum(row["calls"] for row in body["by_model"]) == body["total_calls"]
 
 
 async def test_llm_usage_respects_the_window(
@@ -178,11 +169,9 @@ async def test_llm_usage_respects_the_window(
     admin_auth_headers: dict[str, str],
     test_user: User,
 ) -> None:
-    collection = await _collection(db_session, test_user)
-    repo = await _repo(db_session, collection)
     now = datetime.now(timezone.utc)
-    await _summary(db_session, repo=repo, generated_at=now - timedelta(days=40))
-    await _summary(db_session, repo=repo, generated_at=now - timedelta(days=1))
+    await _usage(db_session, test_user, calls=5, created_at=now - timedelta(days=40))
+    await _usage(db_session, test_user, calls=2, created_at=now - timedelta(days=1))
 
     within_30 = await test_client.get(
         "/api/v1/admin/llm-usage?days=30", headers=admin_auth_headers
@@ -191,52 +180,8 @@ async def test_llm_usage_respects_the_window(
         "/api/v1/admin/llm-usage?days=90", headers=admin_auth_headers
     )
 
-    assert within_30.json()["total_calls"] == 1
-    assert within_90.json()["total_calls"] == 2
-
-
-async def test_llm_usage_attributes_to_the_collection_owner(
-    test_client: AsyncClient,
-    db_session: AsyncSession,
-    admin_auth_headers: dict[str, str],
-    test_user: User,
-) -> None:
-    """Not "by user" — the tables record no requester. This is the closest
-    reachable attribution and is named for what it measures."""
-    collection = await _collection(db_session, test_user)
-    repo = await _repo(db_session, collection)
-    await _summary(db_session, repo=repo)
-    await _summary(db_session, repo=repo)
-
-    response = await test_client.get(
-        "/api/v1/admin/llm-usage", headers=admin_auth_headers
-    )
-
-    owners = response.json()["by_collection_owner"]
-    assert len(owners) == 1
-    assert owners[0]["user_id"] == str(test_user.id)
-    assert owners[0]["calls"] == 2
-
-
-async def test_llm_usage_reports_unattributed_summaries_separately(
-    test_client: AsyncClient,
-    db_session: AsyncSession,
-    admin_auth_headers: dict[str, str],
-) -> None:
-    """summaries.repo_id is nullable, so the owner join drops those rows.
-
-    Reported rather than silently lost.
-    """
-    await _summary(db_session, repo=None)
-
-    response = await test_client.get(
-        "/api/v1/admin/llm-usage", headers=admin_auth_headers
-    )
-
-    body = response.json()
-    assert body["unattributed_summaries"] == 1
-    assert body["by_collection_owner"] == []
-    assert body["total_calls"] == 1
+    assert within_30.json()["total_calls"] == 2
+    assert within_90.json()["total_calls"] == 7
 
 
 async def test_llm_usage_returns_a_daily_series(
@@ -245,11 +190,9 @@ async def test_llm_usage_returns_a_daily_series(
     admin_auth_headers: dict[str, str],
     test_user: User,
 ) -> None:
-    collection = await _collection(db_session, test_user)
-    repo = await _repo(db_session, collection)
     now = datetime.now(timezone.utc)
-    await _summary(db_session, repo=repo, generated_at=now - timedelta(days=2))
-    await _summary(db_session, repo=repo, generated_at=now - timedelta(days=2))
+    await _usage(db_session, test_user, calls=2, created_at=now - timedelta(days=2))
+    await _usage(db_session, test_user, calls=3, created_at=now - timedelta(days=2))
 
     response = await test_client.get(
         "/api/v1/admin/llm-usage", headers=admin_auth_headers
@@ -257,10 +200,38 @@ async def test_llm_usage_returns_a_daily_series(
 
     daily = response.json()["daily"]
     assert len(daily) == 1
-    assert daily[0]["calls"] == 2
+    assert daily[0]["kind"] == "summary"
+    assert daily[0]["calls"] == 5
 
 
-async def test_llm_usage_flags_models_that_are_not_the_current_default(
+async def test_llm_usage_splits_the_daily_series_by_kind(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+    admin_auth_headers: dict[str, str],
+    test_user: User,
+) -> None:
+    """The graph stacks one area per kind, so a day needs one point per kind."""
+    now = datetime.now(timezone.utc)
+    await _usage(
+        db_session, test_user, feature=FEATURE_SUMMARY, calls=1, created_at=now
+    )
+    await _usage(
+        db_session,
+        test_user,
+        feature=FEATURE_COMMIT_CLASSIFICATION,
+        calls=6,
+        created_at=now,
+    )
+
+    response = await test_client.get(
+        "/api/v1/admin/llm-usage", headers=admin_auth_headers
+    )
+
+    daily = {point["kind"]: point["calls"] for point in response.json()["daily"]}
+    assert daily == {"summary": 1, "commit_classification": 6}
+
+
+async def test_llm_usage_flags_models_that_are_not_the_configured_one(
     test_client: AsyncClient,
     db_session: AsyncSession,
     admin_auth_headers: dict[str, str],
@@ -268,19 +239,29 @@ async def test_llm_usage_flags_models_that_are_not_the_current_default(
 ) -> None:
     """The actionable signal, in place of a cost estimate.
 
-    Migration 0002 exists because a retired model id started returning 404s.
+    Compared against the instance's configured model rather than the
+    environment default: an administrator picks the model on the AI Settings
+    tab, and the env var is only the fallback that seeds it. Migration 0002
+    exists because a retired model id started returning 404s.
     """
-    collection = await _collection(db_session, test_user)
-    repo = await _repo(db_session, collection)
-    await _summary(db_session, repo=repo, model="claude-sonnet-4-20250514")
+    config = await get_llm_config(db_session)
+    config.llm_model = "claude-sonnet-5"
+    await db_session.flush()
+
+    await _usage(db_session, test_user, model="claude-sonnet-4-20250514")
+    await _usage(db_session, test_user, model="claude-sonnet-5")
 
     response = await test_client.get(
         "/api/v1/admin/llm-usage", headers=admin_auth_headers
     )
 
     body = response.json()
-    assert "claude-sonnet-4-20250514" in body["retired_models_in_use"]
-    assert body["current_default_model"] not in body["retired_models_in_use"]
+    assert body["current_default_model"] == "claude-sonnet-5"
+    assert body["retired_models_in_use"] == ["claude-sonnet-4-20250514"]
+    assert sorted(body["models_in_use"]) == [
+        "claude-sonnet-4-20250514",
+        "claude-sonnet-5",
+    ]
 
 
 async def test_llm_usage_validates_the_window(
@@ -298,10 +279,9 @@ async def test_llm_usage_reports_no_cost_and_no_failure_count(
 ) -> None:
     """Pins two deliberate omissions.
 
-    Token counts are not persisted, so a spend figure would be fabricated;
-    failed calls write no row, so a failure count would always read zero.
-    Both are unsupportable, and a number that looks measured is worse than
-    an absent one.
+    Spend is priced on the AI Settings tab from real token counts; deriving a
+    second figure from call volume would be an invention. Failed calls write
+    no row, so a failure count would always read zero.
     """
     response = await test_client.get(
         "/api/v1/admin/llm-usage", headers=admin_auth_headers
