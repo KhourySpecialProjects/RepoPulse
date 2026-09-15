@@ -487,11 +487,13 @@ describe('DashboardPage — repository health map', () => {
 })
 
 describe('DashboardPage — signal balance', () => {
-  it('states the 0-2 scale rather than leaving "of 2" unexplained', async () => {
+  it('scores each signal out of 100, like the composite badge', async () => {
     setup([repo()])
     renderPage()
 
     const radar = await screen.findByLabelText('Health signal averages')
-    expect(await within(radar).findByText(/graded 0–2/)).toBeInTheDocument()
+    expect(await within(radar).findByText(/out of 100/)).toBeInTheDocument()
+    // This fixture scores distribution 0, so the weakest reads as 0/100.
+    expect(await within(radar).findByText(/Weakest signal/)).toHaveTextContent('0/100')
   })
 })
