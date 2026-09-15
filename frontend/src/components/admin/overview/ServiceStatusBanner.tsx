@@ -126,6 +126,9 @@ function buildFaults(
       icon: KeyRound,
       label: 'No Anthropic API key',
       detail: 'Summaries and commit classification cannot run.',
+      // The key is one instance-wide setting now, so there is finally a
+      // screen that fixes this rather than only reporting it.
+      tab: 'ai',
     })
   }
 
@@ -140,7 +143,9 @@ function buildFaults(
         llm.retired_models_in_use.length === 1 ? '' : 's'
       } in use`,
       detail: llm.retired_models_in_use.join(', '),
-      tab: 'llm',
+      // Was 'llm', a read-only tab that could only confirm the problem.
+      // AI Settings is where the model id is actually changed.
+      tab: 'ai',
     })
   }
 

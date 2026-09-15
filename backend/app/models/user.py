@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from sqlalchemy import DateTime, Enum, String, Text, func
+from sqlalchemy import DateTime, Enum, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,6 +27,16 @@ class User(Base):
         default="instructor",
     )
     github_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # This user's monthly LLM token allowance, overriding
+    # LlmConfig.default_monthly_token_limit. Three distinct states, all
+    # meaningful, which is why it is nullable rather than defaulted:
+    #   NULL -> follow the instance default (what every user starts as)
+    #   0    -> no LLM access at all
+    #   n    -> exactly n tokens per calendar month
+    # Ignored for admins, who are never metered. See services/llm/quota.py.
+    monthly_token_limit: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, default=None
+    )
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

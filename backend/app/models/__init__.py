@@ -17,6 +17,11 @@ from app.models.commit import Commit  # noqa: F401
 from app.models.commit_classification import CommitClassification  # noqa: F401
 from app.models.pull_request import PullRequest  # noqa: F401
 from app.models.reminder_share import ReminderShare  # noqa: F401
+from app.models.llm_config import (  # noqa: F401
+    DEFAULT_MONTHLY_TOKEN_LIMIT,
+    LlmConfig,
+)
+from app.models.llm_token_usage import LlmTokenUsage  # noqa: F401
 
 __all__ = [
     "User",
@@ -37,4 +42,7 @@ __all__ = [
     "CommitClassification",
     "PullRequest",
     "ReminderShare",
+    "LlmConfig",
+    "LlmTokenUsage",
+    "DEFAULT_MONTHLY_TOKEN_LIMIT",
 ]

@@ -30,10 +30,13 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user, get_db_session
+from app.core.deps import get_current_user_obj, get_db_session
 from app.models.commit_classification import CommitClassification
+from app.models.llm_token_usage import FEATURE_COMMIT_CLASSIFICATION
 from app.models.repo import Repo
+from app.models.user import User
 from app.schemas.errors import ErrorResponse
+from app.schemas.llm_quota import TokenLimitExceeded
 from app.services.commit_classifier_service import (
     BATCH_SIZE,
     MAX_CONCURRENCY,
@@ -43,6 +46,8 @@ from app.services.commit_classifier_service import (
     classify_by_rules,
 )
 from app.services.git_service import GitService
+from app.services.llm.base import TokenUsage
+from app.services.llm.quota import record_usage, require_quota
 from app.services.llm.user_settings import resolve_llm_settings
 from app.services.permission_service import can_access_collection
 
@@ -207,13 +212,14 @@ async def _persist(db: AsyncSession, rows: list[dict]) -> bool:
         400: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
         409: {"model": ErrorResponse},
+        429: {"model": TokenLimitExceeded},
     },
 )
 async def classify_repo_commits(
     repo_id: uuid.UUID,
     body: Optional[ClassifyCommitsRequest] = None,
     db: AsyncSession = Depends(get_db_session),
-    current_user_id: str = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_obj),
 ) -> ClassifyCommitsResponse:
     """Classify every unclassified commit in a repo.
 
@@ -222,7 +228,7 @@ async def classify_repo_commits(
     request is done, with `remaining` non-zero if the cap was hit.
     """
     confirm = bool(body and body.confirm)
-    user_uuid = uuid.UUID(current_user_id)
+    user_uuid = current_user.id
 
     repo = await db.get(Repo, repo_id)
     if repo is None:
@@ -252,6 +258,10 @@ async def classify_repo_commits(
                 "results will appear when it finishes."
             ),
         )
+
+    # After the 409 so a caller whose run is already in flight is told that,
+    # not told they are out of tokens for a request that spends none.
+    await require_quota(db, current_user)
 
     # Read before the first commit: attribute access after one would re-fetch
     # if expire_on_commit were ever turned back on.
@@ -379,6 +389,13 @@ async def classify_repo_commits(
                 instructor_criteria=llm_cfg.commit_evaluation_criteria,
             )
 
+            # Charged per wave rather than once at the end. This loop can run
+            # for minutes over thousands of commits, and a client that
+            # disconnects halfway has still spent every token up to that
+            # point — a single trailing write would forgive all of it, which
+            # is a free retry for anyone who closes the tab.
+            charged_in = charged_out = 0
+
             for start in range(0, len(to_process), WAVE_SIZE):
                 wave = to_process[start:start + WAVE_SIZE]
                 results = await classifier.classify(
@@ -411,6 +428,23 @@ async def classify_repo_commits(
 
                 if await _persist(db, rows):
                     classified_by_llm += typed
+
+                # The adapter's counter is cumulative across waves, so charge
+                # the delta since the last write or every wave pays for its
+                # predecessors.
+                spent = classifier.usage
+                await record_usage(
+                    db,
+                    user_id=user_uuid,
+                    feature=FEATURE_COMMIT_CLASSIFICATION,
+                    model_used=llm_cfg.label,
+                    usage=TokenUsage(
+                        input_tokens=spent.input_tokens - charged_in,
+                        output_tokens=spent.output_tokens - charged_out,
+                    ),
+                )
+                charged_in, charged_out = spent.input_tokens, spent.output_tokens
+                await db.commit()
 
         return _response(
             "completed",

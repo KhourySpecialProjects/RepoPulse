@@ -32,6 +32,11 @@ ADMIN_ENDPOINTS: list[tuple[str, str]] = [
     ("GET", "/api/v1/admin/pipeline"),
     ("GET", "/api/v1/admin/attention"),
     ("POST", "/api/v1/admin/storage/recalculate"),
+    ("GET", "/api/v1/admin/llm-config"),
+    ("PATCH", "/api/v1/admin/llm-config"),
+    ("GET", "/api/v1/admin/token-usage"),
+    ("GET", "/api/v1/admin/token-usage/summary"),
+    ("PATCH", "/api/v1/admin/users/{user_id}/token-limit"),
 ]
 
 

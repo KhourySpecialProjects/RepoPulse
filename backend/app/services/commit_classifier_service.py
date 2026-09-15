@@ -26,7 +26,7 @@ from typing import Any, Callable, Sequence
 
 from app.models.commit_classification import COMMIT_TYPES, QUALITY_SCORES
 from app.services.llm import get_llm_service
-from app.services.llm.base import LLMService
+from app.services.llm.base import LLMService, TokenUsage, usage_of
 from app.services.llm.criteria import fence
 
 logger = logging.getLogger(__name__)
@@ -441,6 +441,16 @@ class CommitClassifierService:
         if self._llm is None:
             self._llm = self._llm_factory()
         return self._llm
+
+    @property
+    def usage(self) -> TokenUsage:
+        """Tokens this classifier spent, for the caller to charge to a quota.
+
+        Zero when the LLM was never built — a fully-cached or all-rules batch
+        costs nothing, and D3's lazy factory is what makes that true. The
+        adapter accumulates across chunks, so this is the whole batch's cost.
+        """
+        return TokenUsage() if self._llm is None else usage_of(self._llm)
 
     async def classify(self, commits: Sequence[CommitInput]) -> list[Classification]:
         """Classify commits, returning one result per input in the same order.

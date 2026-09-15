@@ -190,8 +190,8 @@ export function LlmVolumeCard({
               {llm.total_calls.toLocaleString()}
             </span>{' '}
             calls · {llm.models_in_use.length}{' '}
-            {llm.models_in_use.length === 1 ? 'model' : 'models'} · no cost
-            shown (tokens are not persisted;{' '}
+            {llm.models_in_use.length === 1 ? 'model' : 'models'}. Tokens and
+            cost are on the AI Settings tab;{' '}
             <a
               href={PHOENIX_URL}
               target="_blank"
@@ -200,7 +200,7 @@ export function LlmVolumeCard({
             >
               Phoenix
             </a>{' '}
-            has the real usage)
+            has per-call traces.
           </p>
           {llm.retired_models_in_use.length > 0 && (
             <p

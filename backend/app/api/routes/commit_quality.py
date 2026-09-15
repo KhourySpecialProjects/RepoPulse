@@ -10,13 +10,17 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user, get_db_session
+from app.core.deps import get_current_user_obj, get_db_session
 from app.models.collection import Collection
 from app.models.commit_classification import CommitClassification
+from app.models.llm_token_usage import FEATURE_COMMIT_QUALITY
 from app.models.repo import Repo
+from app.models.user import User
 from app.schemas.errors import ErrorResponse
+from app.schemas.llm_quota import TokenLimitExceeded
 from app.services.commit_classifier_service import CommitInput, build_classifier
 from app.services.git_service import GitService
+from app.services.llm.quota import record_usage, require_quota
 from app.services.llm.user_settings import resolve_llm_settings
 from app.services.permission_service import can_access_collection
 
@@ -86,26 +90,32 @@ def _commit_input(commit: dict) -> CommitInput:
     responses={
         403: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
+        429: {"model": TokenLimitExceeded},
     },
 )
 async def get_commit_quality(
     collection_id: uuid.UUID,
     per_repo: int = Query(15, ge=5, le=25),
     db: AsyncSession = Depends(get_db_session),
-    current_user_id: str = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_obj),
 ) -> CommitQualityResponse:
     """Score the most recent commit messages for every repo in a collection.
 
     Scores are cached in the DB by (repo_id, commit_hash). Only new commits
     (ones not seen before) require an LLM call.
     """
-    user_uuid = uuid.UUID(current_user_id)
+    user_uuid = current_user.id
 
     collection = await db.get(Collection, collection_id)
     if collection is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
     if not await can_access_collection(db, user_uuid, collection_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    # Checked up front even though a fully-cached request spends nothing: the
+    # alternative is discovering the limit after reading every clone on disk,
+    # and the cache state is not knowable until then anyway.
+    await require_quota(db, current_user)
 
     llm_cfg = await resolve_llm_settings(db, user_uuid)
     model_label = llm_cfg.label
@@ -234,7 +244,18 @@ async def get_commit_quality(
                 },
             )
             await db.execute(stmt)
-            await db.commit()
+
+        # Outside the rows_to_insert guard: an answer the parser could not
+        # read persists no score and still cost tokens. Charging only for
+        # usable output would make a malformed-response loop free.
+        await record_usage(
+            db,
+            user_id=user_uuid,
+            feature=FEATURE_COMMIT_QUALITY,
+            model_used=model_label,
+            usage=classifier.usage,
+        )
+        await db.commit()
     else:
         logger.info(
             "commit-quality: all %d commits served from cache for collection %s",

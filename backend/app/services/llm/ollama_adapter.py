@@ -52,5 +52,14 @@ class OllamaAdapter(LLMService):
                 data = response.json()
                 result = data["message"]["content"]
 
+            # Recorded for the admin usage view even though a local model costs
+            # nothing to run — an instance on Ollama should not look idle. The
+            # quota still counts these; an admin who switches to Ollama and
+            # wants them uncapped raises the limit, which is one number.
+            self.usage.add(
+                int(data.get("prompt_eval_count") or 0),
+                int(data.get("eval_count") or 0),
+            )
+
             span.set_attribute("output.value", result[:2000])
             return result
