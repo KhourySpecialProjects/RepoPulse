@@ -29,5 +29,12 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'warn' }))
 afterEach(() => {
   cleanup()
   server.resetHandlers()
+  // The repo page persists sidebar panel state and check-ins per repo. Without
+  // this, one test collapsing a panel silently changes what later tests render.
+  try {
+    localStorage.clear()
+  } catch {
+    // jsdom without storage — nothing to reset.
+  }
 })
 afterAll(() => server.close())
