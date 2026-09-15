@@ -2,7 +2,7 @@
 
 `AdminStatsService.recalculate_repo_sizes` used to be the only writer of
 `repos.size_bytes`, and nothing in the application invoked it, so the admin
-Storage tab reported "0 repos measured / 0 B" on a perfectly healthy instance
+dashboard reported "0 B of clones" on a perfectly healthy instance
 and no amount of syncing changed that. Measuring at the end of an index run
 makes the figures self-maintaining: the tree has just been cloned or fetched,
 so it is still in page cache and the walk costs a fraction of what it would

@@ -386,89 +386,21 @@ class CoverageGap(BaseModel):
     total: int
 
 
-class DeliveryHealth(BaseModel):
-    """Notification email delivery.
+class AdminPipeline(BaseModel):
+    """A snapshot. Deliberately carries no window.
 
-    `emailed_at IS NULL` is a silent failure by construction: nothing else
-    records that a send was attempted and lost, so an undelivered count is the
-    only evidence a misconfigured transport leaves behind.
-
-    `users_with_deliverable_transport` mirrors
-    NotificationSetting.is_deliverable (email_enabled AND has_transport_config)
-    rather than just counting rows — a settings row with email switched off is
-    a deliberate opt-out, not a fault.
+    Every figure here is point-in-time: the live sync state, the failures
+    grouped by cause, how long ago each repo last pulled, and what the
+    pipeline has not filled in. None of it is scoped to a date range, so
+    accepting one would promise a filter the response does not honour.
     """
 
-    notifications_in_window: int
-    delivered: int
-    undelivered: int
-    users_with_deliverable_transport: int
-    users_total: int
-
-
-class AdminPipeline(BaseModel):
-    window_days: int
     sync_state: SyncStateCounts
     sync_errors: list[SyncErrorGroup]
     # Over last_synced_at (when we last pulled), never last_commit_at (when a
     # student last pushed). Only the former is an operations metric.
     sync_age: list[AgeBucket]
     coverage: list[CoverageGap]
-    delivery: DeliveryHealth
-    generated_at: datetime
-
-
-# ---------------------------------------------------------------------------
-# Growth
-# ---------------------------------------------------------------------------
-
-
-class GrowthPoint(BaseModel):
-    """New rows on one day.
-
-    Every day in the window is present, zero-filled server-side. A client that
-    infers the missing days draws a line straight through the gaps, and a gap
-    in an instance-growth chart is exactly the thing worth seeing.
-    """
-
-    day: date
-    repos: int = 0
-    users: int = 0
-    collections: int = 0
-    summaries: int = 0
-    commit_classifications: int = 0
-    notes: int = 0
-    notifications: int = 0
-
-
-class GrowthDelta(BaseModel):
-    """A measured change, never a modelled one.
-
-    `added_in_previous_window` is the honest basis for a "vs previous N days"
-    chip: both figures are counts of rows whose creation timestamp falls in a
-    real interval. No rate is extrapolated and no trend is fitted, because
-    nothing in the schema would support one.
-    """
-
-    metric: Literal[
-        "repos",
-        "users",
-        "collections",
-        "contributors",
-        "summaries",
-        "commit_classifications",
-        "notes",
-        "notifications",
-    ]
-    current_total: int
-    added_in_window: int
-    added_in_previous_window: int
-
-
-class AdminGrowth(BaseModel):
-    window_days: int
-    daily: list[GrowthPoint]
-    deltas: list[GrowthDelta]
     generated_at: datetime
 
 

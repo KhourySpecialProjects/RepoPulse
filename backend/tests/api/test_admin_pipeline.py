@@ -7,6 +7,10 @@ which is an instructor concern that CollectionDetailPage already owns.
 
 The filesystem boundary arrives through get_admin_stats_service, so drift-based
 coverage gaps use a FakeGitService rather than walking a real /repos mount.
+
+The endpoint takes no window. Everything it reports is point-in-time, so
+`test_pipeline_takes_no_window` pins that a `days` parameter does not quietly
+come back and imply a filter the response would not honour.
 """
 
 from __future__ import annotations
@@ -22,8 +26,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.routes.admin import get_admin_stats_service
 from app.main import app
 from app.models.collection import Collection
-from app.models.notification import Notification
-from app.models.notification_setting import NotificationSetting
 from app.models.repo import Repo
 from app.models.user import User
 from app.services.admin_stats_service import AdminStatsService
@@ -118,12 +120,10 @@ async def test_pipeline_returns_the_documented_shape(
     assert response.status_code == 200
     body = response.json()
     assert set(body) == {
-        "window_days",
         "sync_state",
         "sync_errors",
         "sync_age",
         "coverage",
-        "delivery",
         "generated_at",
     }
 
@@ -463,163 +463,32 @@ async def test_coverage_never_sizes_orphan_directories(
 
 
 # ---------------------------------------------------------------------------
-# Delivery health
+# No window
 # ---------------------------------------------------------------------------
 
 
-async def test_delivery_splits_delivered_from_undelivered(
+async def test_pipeline_takes_no_window(
     test_client: AsyncClient,
-    db_session: AsyncSession,
     admin_auth_headers: dict[str, str],
     override_service: FakeGitService,
-    test_user: User,
 ) -> None:
-    """emailed_at IS NULL is the only trace a lost send leaves."""
-    db_session.add(
-        Notification(
-            id=uuid.uuid4(),
-            recipient_id=test_user.id,
-            type="reminder",
-            subject="delivered",
-            emailed_at=_ago(hours=1),
-        )
-    )
-    db_session.add(
-        Notification(
-            id=uuid.uuid4(),
-            recipient_id=test_user.id,
-            type="reminder",
-            subject="never sent",
-            emailed_at=None,
-        )
-    )
-    await db_session.commit()
+    """A snapshot does not advertise a filter it cannot honour.
 
-    response = await test_client.get(
-        "/api/v1/admin/pipeline", headers=admin_auth_headers
-    )
-
-    delivery = response.json()["delivery"]
-    assert delivery["notifications_in_window"] == 2
-    assert delivery["delivered"] == 1
-    assert delivery["undelivered"] == 1
-
-
-async def test_delivery_counts_only_deliverable_transports(
-    test_client: AsyncClient,
-    db_session: AsyncSession,
-    admin_auth_headers: dict[str, str],
-    override_service: FakeGitService,
-    test_user: User,
-) -> None:
-    """Mirrors NotificationSetting.is_deliverable, not a bare row count.
-
-    Email switched off is a deliberate opt-out; configured-but-disabled and
-    enabled-but-unconfigured are both undeliverable, and only the second is a
-    misconfiguration. Neither counts.
+    `days` briefly existed here and scoped only an email-delivery figure that
+    has since been removed. FastAPI ignores unknown query parameters, so the
+    guarantee worth pinning is that the response carries no window field and
+    reads identically with or without one.
     """
-    db_session.add(
-        NotificationSetting(
-            id=uuid.uuid4(),
-            user_id=test_user.id,
-            email_enabled=True,
-            transport="smtp",
-            smtp_host="smtp.example.com",
-            smtp_port=587,
-            from_email="noreply@example.com",
-        )
-    )
-    disabled = User(
-        id=uuid.uuid4(),
-        email=f"disabled-{uuid.uuid4().hex[:6]}@example.com",
-        display_name="Opted Out",
-        role="instructor",
-        password_hash=None,
-    )
-    db_session.add(disabled)
-    await db_session.flush()
-    db_session.add(
-        NotificationSetting(
-            id=uuid.uuid4(),
-            user_id=disabled.id,
-            email_enabled=False,
-            transport="smtp",
-            smtp_host="smtp.example.com",
-            smtp_port=587,
-            from_email="noreply@example.com",
-        )
-    )
-    await db_session.commit()
-
-    response = await test_client.get(
-        "/api/v1/admin/pipeline", headers=admin_auth_headers
-    )
-
-    delivery = response.json()["delivery"]
-    assert delivery["users_with_deliverable_transport"] == 1
-    assert delivery["users_total"] >= 2
-
-
-async def test_delivery_window_excludes_older_notifications(
-    test_client: AsyncClient,
-    db_session: AsyncSession,
-    admin_auth_headers: dict[str, str],
-    override_service: FakeGitService,
-    test_user: User,
-) -> None:
-    db_session.add(
-        Notification(
-            id=uuid.uuid4(),
-            recipient_id=test_user.id,
-            type="reminder",
-            subject="recent",
-            created_at=_ago(days=2),
-        )
-    )
-    db_session.add(
-        Notification(
-            id=uuid.uuid4(),
-            recipient_id=test_user.id,
-            type="reminder",
-            subject="ancient",
-            created_at=_ago(days=60),
-        )
-    )
-    await db_session.commit()
-
-    response = await test_client.get(
+    plain = await test_client.get("/api/v1/admin/pipeline", headers=admin_auth_headers)
+    with_days = await test_client.get(
         "/api/v1/admin/pipeline?days=7", headers=admin_auth_headers
     )
 
-    assert response.json()["delivery"]["notifications_in_window"] == 1
+    assert plain.status_code == 200
+    assert with_days.status_code == 200
+    assert "window_days" not in plain.json()
 
-
-# ---------------------------------------------------------------------------
-# Window validation
-# ---------------------------------------------------------------------------
-
-
-async def test_pipeline_echoes_the_window_it_used(
-    test_client: AsyncClient,
-    admin_auth_headers: dict[str, str],
-    override_service: FakeGitService,
-) -> None:
-    response = await test_client.get(
-        "/api/v1/admin/pipeline?days=7", headers=admin_auth_headers
-    )
-
-    assert response.json()["window_days"] == 7
-
-
-@pytest.mark.parametrize("days", [0, -1, 366])
-async def test_pipeline_rejects_a_window_outside_the_allowed_range(
-    test_client: AsyncClient,
-    admin_auth_headers: dict[str, str],
-    override_service: FakeGitService,
-    days: int,
-) -> None:
-    response = await test_client.get(
-        f"/api/v1/admin/pipeline?days={days}", headers=admin_auth_headers
-    )
-
-    assert response.status_code == 422
+    ignoring_timestamp = {k: v for k, v in plain.json().items() if k != "generated_at"}
+    assert ignoring_timestamp == {
+        k: v for k, v in with_days.json().items() if k != "generated_at"
+    }

@@ -213,9 +213,10 @@ async def _measure_clone_size(repo: Repo) -> None:
 
     Called at the end of a successful index run, while the tree has just been
     cloned or fetched and is still in page cache, so the walk costs far less
-    here than it would standalone. This is what keeps the admin Storage tab
-    current: `AdminStatsService.recalculate_repo_sizes` is the only other
-    writer of these columns and it runs only when an administrator asks.
+    here than it would standalone. This is what keeps the admin dashboard's
+    storage figures current: `AdminStatsService.recalculate_repo_sizes` is the
+    only other writer of these columns and it runs only when an administrator
+    asks.
 
     Mutates the repo without committing — the caller already commits, so the
     size lands in the same transaction as the health and sync-state updates
