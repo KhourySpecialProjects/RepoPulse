@@ -1313,11 +1313,17 @@ export function RepoDetailPage() {
                     <table className="w-full text-sm">
                       <thead className="sticky top-0 z-10 bg-card">
                         <tr className="border-b text-muted-foreground text-xs">
+                          {/* Leftmost so the vertical scrollbar cannot clip
+                              it, with a floor on its width so neither the name
+                              nor the counts get squeezed. The diffstat stacks
+                              underneath the name — one heading covers both,
+                              since they answer who changed how much. */}
+                          <th className="text-left pb-2 pr-6 font-medium min-w-[9rem]">Author</th>
                           <th className="text-left pb-2 font-medium">Commit</th>
-                          <th className="text-left pb-2 font-medium">Author</th>
                           <th className="text-left pb-2 font-medium">Branch</th>
-                          <th className="text-left pb-2 font-medium">Score</th>
-                          <th className="text-right pb-2 font-medium">+/-</th>
+                          {/* Now the last column, so it needs its own gap from
+                              the scrollbar. */}
+                          <th className="text-left pb-2 pr-2 font-medium">Score</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1341,6 +1347,14 @@ export function RepoDetailPage() {
                                 'ring-2 ring-inset ring-indigo-400 bg-indigo-50 hover:bg-indigo-50'
                             )}
                           >
+                            <td className="py-2.5 pr-6 text-xs whitespace-nowrap align-top">
+                              <span className="block text-foreground">{resolvedAuthor(commit)}</span>
+                              <span className="block">
+                                <span className="text-health-green">+{commit.insertions}</span>
+                                {' / '}
+                                <span className="text-health-red">-{commit.deletions}</span>
+                              </span>
+                            </td>
                             <td className="py-2.5 pr-4">
                               <div className="flex items-center gap-2">
                                 <a
@@ -1385,7 +1399,6 @@ export function RepoDetailPage() {
                                 )
                               })()}
                             </td>
-                            <td className="py-2.5 pr-4 text-xs whitespace-nowrap">{resolvedAuthor(commit)}</td>
                             <td className="py-2.5 pr-4 text-xs max-w-[10rem]">
                               {(() => {
                                 const mainNames = ['main', 'master']
@@ -1421,18 +1434,13 @@ export function RepoDetailPage() {
                                 )
                               })()}
                             </td>
-                            <td className="py-2.5 pr-4">
+                            <td className="py-2.5 pr-2">
                               <CommitScorePill score={commit.quality_score} />
-                            </td>
-                            <td className="py-2.5 text-right text-xs whitespace-nowrap">
-                              <span className="text-health-green">+{commit.insertions}</span>
-                              {' / '}
-                              <span className="text-health-red">-{commit.deletions}</span>
                             </td>
                           </tr>
                           {activeCommitHash === commit.hash && (
                             <tr>
-                              <td colSpan={5} className="pb-3 pt-1">
+                              <td colSpan={4} className="pb-3 pt-1">
                                 <CommitNotesPanel repoId={id ?? ''} commitHash={commit.hash} />
                               </td>
                             </tr>

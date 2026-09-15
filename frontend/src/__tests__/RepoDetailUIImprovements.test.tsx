@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
@@ -198,7 +198,61 @@ describe('RepoDetailPage - Contributors in right column', () => {
 })
 
 // ──────────────────────────────────────────────
-// 2. Commit hash links to GitHub
+// 2. Author column (name + diffstat, leftmost)
+// ──────────────────────────────────────────────
+describe('RepoDetailPage - Author column with stacked diffstat', () => {
+  it('leads with Author and drops the separate +/- column', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('abc1234')).toBeInTheDocument())
+
+    // Author is leftmost so the vertical scrollbar cannot clip it.
+    const headers = screen.getAllByRole('columnheader').map(th => th.textContent)
+    expect(headers).toEqual(['Author', 'Commit', 'Branch', 'Score'])
+  })
+
+  it('puts the author cell first in each row', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('abc1234')).toBeInTheDocument())
+
+    const table = screen.getByRole('table')
+    const cell = within(table).getByText('Alice Johnson').closest('td')
+    expect(cell).toBe(cell?.closest('tr')?.querySelector('td'))
+  })
+
+  it('stacks the author name above the diffstat in one cell', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('abc1234')).toBeInTheDocument())
+
+    const table = screen.getByRole('table')
+    const cell = within(table).getByText('Alice Johnson').closest('td')
+    expect(cell).not.toBeNull()
+    // Name first, then the counts, in one cell under the Author heading.
+    expect(cell).toContainElement(within(table).getByText('+142'))
+    expect(cell).toContainElement(within(table).getByText('-23'))
+    expect(cell?.textContent?.indexOf('Alice Johnson')).toBeLessThan(
+      cell?.textContent?.indexOf('+142') ?? -1
+    )
+  })
+
+  it('keeps the expanded notes row spanning the full table', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('abc1234')).toBeInTheDocument())
+
+    // Button reads "Add note" until the commit has one.
+    fireEvent.click(screen.getAllByText('Add note')[0].closest('button') as HTMLElement)
+    // One column fewer now — a stale colSpan would leave the panel short.
+    await waitFor(() => {
+      expect(document.querySelector('td[colspan]')).toHaveAttribute('colspan', '4')
+    })
+  })
+})
+
+// ──────────────────────────────────────────────
+// 3. Commit hash links to GitHub
 // ──────────────────────────────────────────────
 describe('RepoDetailPage - Commit hash GitHub link', () => {
   it('renders commit hash as a link', async () => {
@@ -213,7 +267,7 @@ describe('RepoDetailPage - Commit hash GitHub link', () => {
 })
 
 // ──────────────────────────────────────────────
-// 3. Chart range selector
+// 4. Chart range selector
 // ──────────────────────────────────────────────
 describe('RepoDetailPage - Chart date range selector', () => {
   it('renders range options and defaults to 30 days', async () => {
@@ -238,7 +292,7 @@ describe('RepoDetailPage - Chart date range selector', () => {
 })
 
 // ──────────────────────────────────────────────
-// 4. Commit-level notes
+// 5. Commit-level notes
 // ──────────────────────────────────────────────
 describe('RepoDetailPage - Commit notes panel', () => {
   it('renders a Notes toggle button in each commit row', async () => {
@@ -277,7 +331,7 @@ describe('RepoDetailPage - Commit notes panel', () => {
 })
 
 // ──────────────────────────────────────────────
-// 5. Commit row note count indicators
+// 6. Commit row note count indicators
 // ──────────────────────────────────────────────
 describe('RepoDetailPage - Commit row note count indicators', () => {
   it('shows "Add note" text when no notes exist for a commit', async () => {
