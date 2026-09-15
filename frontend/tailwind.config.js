@@ -79,8 +79,16 @@ export default {
          * darker (brand-700) rather than sideways to orchid.
          */
         brand: {
-          50: "hsl(272, 100%, 98%)",
-          100: "hsl(272, 100%, 95%)",
+          /*
+           * 50 is the panel/inset surface, so it is deliberately the faintest
+           * step on the ramp — just enough purple to not read as grey at
+           * full-panel size. Full saturation here (it was 100%) tints large
+           * boxes visibly lavender, which is louder than a surface should be.
+           * Anything needing an actually visible fill — a skeleton pulse, a
+           * highlighted row — uses 100, not 50.
+           */
+          50: "hsl(272, 80%, 98.8%)",
+          100: "hsl(272, 100%, 96%)",
           200: "hsl(276, 100%, 85%)",
           300: "hsl(273, 100%, 76%)",
           400: "hsl(271, 100%, 65%)",

@@ -23,7 +23,9 @@ async function allPages<T>(fetchPage: (offset: number) => Promise<PaginatedRespo
 
 const hoverCard = 'transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:shadow-md hover:border-brand-200 motion-reduce:transform-none motion-reduce:transition-none'
 const panel = 'rounded-lg border border-border bg-card shadow-sm'
-const skeleton = 'animate-pulse rounded-lg bg-brand-50'
+// brand-100, not the fainter 50 used for surfaces: a pulse has to be visible
+// against the white card it sits on.
+const skeleton = 'animate-pulse rounded-lg bg-brand-100'
 
 /** How many unread items the panel lists before deferring to the full page. */
 const NOTIFICATION_LIMIT = 8
@@ -69,7 +71,7 @@ function RecentNotificationsPanel() {
         : isError ? <p className="p-4 text-sm text-muted-foreground">Notifications could not be loaded.</p>
         : !items.length ? <p className="p-4 text-sm text-muted-foreground">No unread notifications. You are all caught up.</p>
         : <ul className="max-h-80 divide-y divide-border overflow-auto">
-            {items.map(notification => <li key={notification.id} data-testid="dashboard-notification" className="bg-brand-50/70">
+            {items.map(notification => <li key={notification.id} data-testid="dashboard-notification" className="bg-brand-100/50">
               <button type="button" onClick={() => open(notification)} className="flex w-full items-start gap-3 p-4 text-left hover:bg-accent/50">
                 <NotificationIcon type={notification.type} className="mt-0.5 h-4 w-4 shrink-0" />
                 <span className="min-w-0 flex-1">

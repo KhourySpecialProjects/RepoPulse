@@ -1380,7 +1380,7 @@ export function RepoDetailPage() {
                               // Last, so tailwind-merge lets the link
                               // highlight win over the type tint.
                               highlightedCommitHash === commit.hash &&
-                                'ring-2 ring-inset ring-brand-400 bg-brand-50 hover:bg-brand-50'
+                                'ring-2 ring-inset ring-brand-400 bg-brand-100 hover:bg-brand-100'
                             )}
                           >
                             <td className="py-2.5 pr-4">
@@ -1511,7 +1511,7 @@ export function RepoDetailPage() {
           <div className="min-w-0 self-stretch flex flex-col gap-6 lg:col-start-1 lg:row-start-1">
 
             {/* Pull Requests panel */}
-            <div className="shrink-0 bg-brand-50 rounded-xl border border-border p-4">
+            <div className="shrink-0 bg-card rounded-xl border border-border p-4">
               <h2 className="text-sm font-semibold">
                 <button
                   type="button"
@@ -1639,7 +1639,7 @@ export function RepoDetailPage() {
             </div>
 
             {/* Contributors panel */}
-            <div className="sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto shrink-0 bg-brand-50 rounded-xl border border-border p-4">
+            <div className="sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto shrink-0 bg-card rounded-xl border border-border p-4">
               <div className="flex items-center gap-2 mb-3">
                 <User className="h-4 w-4 text-muted-foreground" />
                 <h2 className="text-sm font-semibold">Contributors</h2>
@@ -1715,7 +1715,9 @@ export function RepoDetailPage() {
                   {sortedContributors.map((contributor) => (
                     <div key={contributor.id} className={cn(
                       'flex items-start gap-2 rounded-lg p-1.5 -mx-1.5 transition-colors',
-                      selectedContributorIds.has(contributor.id) && 'bg-brand-50'
+                      // brand-100, not 50: selection drives the merge action, so
+                      // it has to be unmistakable against the white panel.
+                      selectedContributorIds.has(contributor.id) && 'bg-brand-100'
                     )}>
                       <input
                         type="checkbox"
