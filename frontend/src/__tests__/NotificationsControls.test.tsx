@@ -82,7 +82,6 @@ const notifOf = (
   commit_hash: null,
   subject: null,
   body: null,
-  emailed_at: null,
   ...over,
 })
 

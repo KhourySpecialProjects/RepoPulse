@@ -181,6 +181,17 @@ export interface PaginatedResponse<T> {
   offset: number
 }
 
+/**
+ * Commits, plus whether they are live.
+ *
+ * `stale` means the local clone could not be read and these came from the
+ * snapshot written at the last successful sync — worth saying out loud, since
+ * anything committed since then is missing.
+ */
+export interface CommitsResponse extends PaginatedResponse<Commit> {
+  stale: boolean
+}
+
 export interface TokenResponse {
   access_token: string
   token_type: string
@@ -309,8 +320,6 @@ export interface Notification {
   /** Set on repo-scoped events only. */
   subject: string | null
   body: string | null
-  /** When the email relay delivered this, or null if it never did. */
-  emailed_at: string | null
 }
 
 export interface NotificationListResponse {
@@ -319,52 +328,20 @@ export interface NotificationListResponse {
   unread_count: number
 }
 
-export type EmailTransport = 'smtp' | 'resend'
-export type SmtpEncryption = 'none' | 'starttls' | 'tls'
-
 /**
- * The email relay panel's state.
+ * Which events this account wants to be notified about.
  *
- * Stored secrets are never sent to the client — `smtp_password_set` and
- * `resend_api_key_set` report only whether one is on file.
+ * Per user, not per instance: a TA and a professor on the same collection each
+ * have their own map. Always complete — the server merges defaults in — so the
+ * UI can render the full list without guessing.
  */
-export interface NotificationSettings {
-  email_enabled: boolean
-  transport: EmailTransport
-  from_email: string | null
-  from_name: string | null
-  smtp_host: string | null
-  smtp_port: number | null
-  smtp_username: string | null
-  smtp_encryption: SmtpEncryption
-  smtp_password_set: boolean
-  resend_api_key_set: boolean
+export interface NotificationPreferences {
   subscribed_events: Record<NotificationEvent, boolean>
-  /** Whether a send would currently be attempted. */
-  deliverable: boolean
 }
 
-/**
- * A partial update. Omitted fields keep their stored value; for the two secret
- * fields an empty string clears the stored credential.
- */
-export interface UpdateNotificationSettingsData {
-  email_enabled?: boolean
-  transport?: EmailTransport
-  from_email?: string
-  from_name?: string
-  smtp_host?: string
-  smtp_port?: number
-  smtp_username?: string
-  smtp_password?: string
-  smtp_encryption?: SmtpEncryption
-  resend_api_key?: string
-  subscribed_events?: Partial<Record<NotificationEvent, boolean>>
-}
-
-export interface TestEmailResponse {
-  detail: string
-  sent_to: string
+/** A partial update: send only the events being changed. */
+export interface UpdateNotificationPreferencesData {
+  subscribed_events: Partial<Record<NotificationEvent, boolean>>
 }
 
 /** An outstanding reminder, as shown in the notifications panel. */
@@ -524,6 +501,8 @@ export interface RepositoryActivity {
   id: string
   name: string
   available: boolean
+  /** True when the history came from the last sync's snapshot, not the clone. */
+  stale?: boolean
   activity: CommitActivityPoint[]
   students: StudentActivity[]
 }

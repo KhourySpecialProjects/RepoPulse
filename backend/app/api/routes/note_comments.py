@@ -9,14 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import get_current_user, get_db_session
 from app.models.note import Note
 from app.models.note_comment import NoteComment
-from app.models.notification import Notification, NotificationType
+from app.models.notification import NotificationType
 from app.models.repo import Repo
 from app.models.user import User
 from app.schemas.errors import ErrorResponse
 from app.schemas.notes import NoteCommentCreate, NoteCommentRead
 from app.services.notification_service import (
     create_mention_notifications,
-    deliver_emails,
     notify,
 )
 from app.services.permission_service import can_access_collection
@@ -105,30 +104,23 @@ async def create_comment(
     await db.commit()
     await db.refresh(comment)
 
-    raised: list[Notification] = []
-
     # Notify the note author if the commenter is someone else
     if note.author_id != user_uuid:
-        raised.append(
-            await notify(
-                db,
-                recipient_id=note.author_id,
-                type=NotificationType.note_comment,
-                note_id=note_id,
-                comment_id=comment.id,
-                subject=f"{author_name} commented on your note",
-                body=body.content,
-            )
+        await notify(
+            db,
+            recipient_id=note.author_id,
+            type=NotificationType.note_comment,
+            note_id=note_id,
+            comment_id=comment.id,
+            subject=f"{author_name} commented on your note",
+            body=body.content,
         )
 
     # Notify anyone @mentioned in the comment body
-    raised += await create_mention_notifications(
+    await create_mention_notifications(
         db, body.content, note_id, comment_id=comment.id
     )
     await db.commit()
-
-    # After the commit, so a rolled-back comment is never emailed about.
-    await deliver_emails(db, raised)
 
     return _comment_to_read(comment, author_name)
 

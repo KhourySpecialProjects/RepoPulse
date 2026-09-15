@@ -438,4 +438,4 @@ async def get_contextual_activity(
     if not await can_access_collection(db, uuid.UUID(current_user_id), collection_id):
         raise HTTPException(status_code=404, detail='Collection not found')
     result = await db.execute(select(Repo).where(Repo.collection_id == collection_id))
-    return ContextualActivity(repositories=await collect_activity(result.scalars().all(), _git_service))
+    return ContextualActivity(repositories=await collect_activity(result.scalars().all(), _git_service, db))

@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, Fragment, type ComponentType, type ReactN
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { TrickleProgress } from '@/components/ui/trickle-progress'
+import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed, TriangleAlert } from 'lucide-react'
 import { ArrowLeft, ExternalLink, Code2, GitBranch, Tag, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, useUnmergeContributor, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests, useClassifyCommits, ALL_COMMITS_PARAMS } from '@/hooks/useRepos'
@@ -1265,6 +1266,132 @@ export function RepoDetailPage() {
                 <p className="text-muted-foreground text-sm">No commits found.</p>
               ) : (
                 <div className="flex flex-col gap-2">
+                  {/* The clone could not be read, so these came from the last
+                      sync. Said out loud because anything committed since is
+                      missing, and a silently stale list looks live. */}
+                  {allCommitsData.stale && (
+                    <p
+                      data-testid="commits-stale-notice"
+                      className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+                    >
+                      <TriangleAlert className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                      <span>
+                        Showing the last synced history — the local clone could
+                        not be read. Sync the repository for anything newer.
+                      </span>
+                    </p>
+                  )}
+                  <div className="flex flex-col gap-2">
+                    {allBranches.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="w-14 shrink-0 text-xs text-muted-foreground">Branch:</span>
+                        <button
+                          onClick={() => setSelectedBranches(new Set())}
+                          className={cn(
+                            'text-xs px-1.5 py-0.5 rounded border transition-colors',
+                            selectedBranches.size === 0
+                              ? 'bg-indigo-600 text-white border-indigo-600'
+                              : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                          )}
+                        >
+                          All
+                        </button>
+                        {(showAllBranches ? allBranches : allBranches.slice(0, MAX_BRANCH_CHIPS)).map(b => (
+                          <button
+                            key={b}
+                            onClick={() => toggleBranch(b)}
+                            className={cn(
+                              'text-xs px-1.5 py-0.5 rounded border font-mono transition-colors',
+                              selectedBranches.has(b)
+                                ? 'bg-indigo-600 text-white border-indigo-600'
+                                : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                            )}
+                          >
+                            {b}
+                          </button>
+                        ))}
+                        {allBranches.length > MAX_BRANCH_CHIPS && (
+                          <button
+                            onClick={() => setShowAllBranches(v => !v)}
+                            className="text-xs px-1.5 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
+                          >
+                            {showAllBranches ? 'Show less' : `+${allBranches.length - MAX_BRANCH_CHIPS} more`}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {/* role/aria-label so tests and screen readers can tell this
+                        row apart — "All" appears in the Branch row and the
+                        chart range selector too. */}
+                    <div
+                      role="group"
+                      aria-label="Filter by commit type"
+                      className="flex flex-wrap items-center gap-1.5"
+                    >
+                      <span className="w-14 shrink-0 text-xs text-muted-foreground">Type:</span>
+                      <button
+                        onClick={() => setSelectedTypes(new Set())}
+                        className={cn(
+                          'text-xs px-1.5 py-0.5 rounded border transition-colors',
+                          selectedTypes.size === 0
+                            ? 'bg-slate-700 text-white border-slate-700'
+                            : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                        )}
+                      >
+                        All
+                      </button>
+                      {/* Each chip wears its own type's colour, so this row is
+                          also the legend for the row tints. */}
+                      {COMMIT_TYPE_FILTERS.map((value) => {
+                        const style = commitTypeStyle(value)
+                        const active = selectedTypes.has(value)
+                        return (
+                          <button
+                            key={value}
+                            onClick={() => toggleType(value)}
+                            aria-pressed={active}
+                            className={cn(
+                              'text-xs px-1.5 py-0.5 rounded border transition-colors',
+                              active ? style.chipActive : style.chipIdle
+                            )}
+                          >
+                            {style.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div
+                      role="group"
+                      aria-label="Filter by commit date"
+                      className="flex flex-wrap items-center gap-1.5"
+                    >
+                      <span className="w-14 shrink-0 text-xs text-muted-foreground">Date:</span>
+                      {/* "All" is the first option rather than a separate reset
+                          button, so this row starts with the same affordance as
+                          the Branch and Type rows above it. */}
+                      <select
+                        aria-label="Filter commits by date"
+                        value={selectedDate}
+                        onChange={e => setSelectedDate(e.target.value)}
+                        className={cn(
+                          'text-xs px-1.5 py-0.5 rounded border transition-colors focus:outline-none focus:border-indigo-400',
+                          selectedDate
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                        )}
+                      >
+                        <option value="">All</option>
+                        {commitDates.map(d => (
+                          <option key={d} value={d}>{formatMonthDay(d)}</option>
+                        ))}
+                      </select>
+                      {commitDates.length > 0 && (
+                        <span className="text-xs italic text-gray-400">
+                          *only showing dates with commits
+                        </span>
+                      )}
+                    </div>
+                  </div>
                     <div className="flex flex-wrap items-center justify-between gap-3 py-1">
                       <p className="text-xs text-muted-foreground">
                         {filteredCommits.length} commit{filteredCommits.length !== 1 ? 's' : ''}
