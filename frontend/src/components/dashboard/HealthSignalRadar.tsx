@@ -33,6 +33,9 @@ export function HealthSignalRadar({ repos, className, loading, failed }: { repos
       )}
     >
       <h2 className="text-sm font-semibold">Signal balance</h2>
+      {/* "1.4 of 2" is meaningless without the scale: the backend grades each
+          signal 0, 1 or 2, and this averages that across scored repos. */}
+      <p className="text-[11px] text-slate-500">Each signal graded 0–2, averaged across repos</p>
 
       <div className="mt-1 min-h-40 flex-1 xl:min-h-0">
         {loading || failed || signals.length === 0 ? (

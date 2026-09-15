@@ -11,6 +11,7 @@ import { StalenessChart } from '@/components/dashboard/StalenessChart'
 import { WorkspaceInsights } from '@/components/dashboard/WorkspaceInsights'
 import { DashboardSearch } from '@/components/dashboard/DashboardSearch'
 import { useDashboard } from '@/hooks/useDashboard'
+import { useReminders } from '@/hooks/useNotifications'
 import { useWorkspacePeople } from '@/hooks/useWorkspacePeople'
 import {
   activityTrend,
@@ -27,6 +28,31 @@ const card = 'rounded-2xl border border-slate-200/80 bg-white shadow-sm'
 const listBody = 'min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto'
 
 const tileGrid = { hidden: {}, visible: { transition: { staggerChildren: 0.05 } } }
+
+const DAY_MS = 86_400_000
+
+/** Whole days until a due date; negative once it has passed. */
+function daysUntil(iso: string): number {
+  return Math.ceil((Date.parse(iso) - Date.now()) / DAY_MS)
+}
+
+/** An undated reminder never fires, so it reads as a to-do rather than a date. */
+function dueLabel(remindAt: string | null): string {
+  if (!remindAt) return 'no date'
+  const days = daysUntil(remindAt)
+  if (days < 0) return `${Math.abs(days)}d late`
+  if (days === 0) return 'today'
+  if (days === 1) return 'tomorrow'
+  return `in ${days}d`
+}
+
+function reminderTone(remindAt: string | null): string {
+  if (!remindAt) return 'bg-slate-100 text-slate-500'
+  const days = daysUntil(remindAt)
+  if (days < 0) return 'bg-red-50 text-red-700'
+  if (days <= 1) return 'bg-amber-50 text-amber-700'
+  return 'bg-violet-50 text-violet-700'
+}
 
 function lastCommit(repo: Repo) {
   return repo.last_commit_at
@@ -45,10 +71,20 @@ export function DashboardPage() {
   const peopleQuery = useWorkspacePeople(selected.map(collection => collection.id), peopleWanted)
   const wantPeople = useCallback(() => setPeopleWanted(true), [])
 
+  // /notifications/reminders is the same source the notifications panel reads:
+  // scoped to this user, and including reminders with no repo behind them.
+  // Deriving this from `repo.active_reminder_count` counted only repo-attached
+  // reminders, ignored ownership, and could only ever show a tally per repo.
+  const { data: remindersData, isPending: remindersPending, isError: remindersFailed } = useReminders()
+  const reminders = remindersData?.items ?? []
+  const repoNameById = new Map(repos.map(repo => [repo.id, repo.name]))
+  const dueSoon = reminders.filter(
+    reminder => reminder.remind_at !== null && daysUntil(reminder.remind_at) <= 7
+  ).length
+
   const attention = repos.filter(repo => repo.health_status === 'red' || repo.health_status === 'yellow')
     .sort((a, b) => Number(b.health_status === 'red') - Number(a.health_status === 'red'))
   const reviewRepos = healthFilter ? repos.filter(repo => repo.health_status === healthFilter) : attention
-  const reminders = repos.filter(repo => repo.active_reminder_count > 0).sort((a, b) => b.active_reminder_count - a.active_reminder_count)
 
   const signals = useMemo(() => averageHealthSignals(repos), [repos])
   const weekTrend = useMemo(() => activityTrend(activityQuery.series, 7), [activityQuery.series])
@@ -137,11 +173,11 @@ export function DashboardPage() {
           />
           <MetricTile
             label="active reminders"
-            value={failed ? '—' : repos.reduce((sum, repo) => sum + repo.active_reminder_count, 0)}
-            detail={reminders.length > 0 ? `across ${reminders.length} repositor${reminders.length === 1 ? 'y' : 'ies'}` : undefined}
+            value={remindersFailed ? '—' : (remindersData?.total ?? reminders.length)}
+            detail={dueSoon > 0 ? `${dueSoon} due in the next 7 days` : undefined}
             icon={Bell}
             accent="violet"
-            loading={loading}
+            loading={remindersPending}
           />
         </motion.section>
 
@@ -198,20 +234,30 @@ export function DashboardPage() {
               <h2 className="text-sm font-semibold">Follow-ups</h2>
             </div>
             <div data-testid="followup-list" className={listBody}>
-              {!loading && !failed && reminders.map(repo => (
+              {!remindersPending && !remindersFailed && reminders.map(reminder => (
                 <Link
-                  key={repo.id}
-                  to={`/repos/${repo.id}`}
+                  key={reminder.id}
+                  // A reminder on a repo opens that repo with the note focused;
+                  // one with no repo has nowhere else to go but the inbox.
+                  to={reminder.repo_id ? `/repos/${reminder.repo_id}?note=${reminder.id}` : '/notifications'}
                   state={backState}
-                  className="group flex items-center justify-between gap-2 px-4 py-3 transition-colors hover:bg-indigo-50/50"
+                  className="group flex items-start justify-between gap-2 px-4 py-3 transition-colors hover:bg-indigo-50/50"
                 >
-                  <span className="min-w-0 flex-1 truncate text-xs">{repo.name}</span>
-                  <span className="flex-shrink-0 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] text-violet-700 tabular-nums">
-                    {repo.active_reminder_count}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs">{reminder.content}</span>
+                    <span className="mt-0.5 block truncate text-[11px] text-slate-500">
+                      {reminder.repo_id ? repoNameById.get(reminder.repo_id) ?? 'Repository' : 'No repository'}
+                    </span>
+                  </span>
+                  <span className={cn(
+                    'flex-shrink-0 rounded-full px-2 py-0.5 text-[11px] tabular-nums',
+                    reminderTone(reminder.remind_at)
+                  )}>
+                    {dueLabel(reminder.remind_at)}
                   </span>
                 </Link>
               ))}
-              {loading || failed ? <p className="px-4 py-3 text-xs text-slate-500">{loading ? 'Loading reminders…' : 'Reminder data is unavailable.'}</p> : !reminders.length && (
+              {remindersPending || remindersFailed ? <p className="px-4 py-3 text-xs text-slate-500">{remindersPending ? 'Loading reminders…' : 'Reminder data is unavailable.'}</p> : !reminders.length && (
                 <div className="flex h-full flex-col items-center justify-center gap-2 p-5 text-center"><Bell className="h-7 w-7 text-violet-300" /><p className="text-xs text-slate-500">No active reminders.</p><Link to="/notifications" className="text-xs font-medium text-indigo-600 hover:underline">View notifications →</Link></div>
               )}
             </div>

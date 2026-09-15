@@ -85,8 +85,39 @@ const activity = [
   { date: '2024-01-01', count: 500 },
 ]
 
-function setup(repos: Repo[]) {
+const REMINDERS = [
+  {
+    id: 'rem-1',
+    content: 'Check in with the API team about test coverage',
+    remind_at: '2026-09-16T09:00:00Z',
+    reminder_context: null,
+    repo_id: 'repo-1',
+    commit_hash: null,
+    created_at: '2026-09-10T00:00:00Z',
+    owner_display_name: 'Mark',
+    shared_with: [],
+    is_owner: true,
+  },
+  {
+    // No repo behind it — the case the old count-based list could never show.
+    id: 'rem-2',
+    content: 'Draft the midterm rubric',
+    remind_at: null,
+    reminder_context: null,
+    repo_id: null,
+    commit_hash: null,
+    created_at: '2026-09-11T00:00:00Z',
+    owner_display_name: 'Mark',
+    shared_with: [],
+    is_owner: true,
+  },
+]
+
+function setup(repos: Repo[], reminders = REMINDERS) {
   server.use(
+    http.get('/api/v1/notifications/reminders', () =>
+      HttpResponse.json({ items: reminders, total: reminders.length })
+    ),
     http.get('/api/v1/collections', () =>
       HttpResponse.json({ items: [collection], total: 1, limit: 50, offset: 0 })
     ),
@@ -369,5 +400,98 @@ describe('DashboardPage — stays within one screen', () => {
       /How recently each repository was touched/,
       /Ordered by latest indexed commit/,
     ].forEach(text => expect(screen.queryByText(text)).not.toBeInTheDocument())
+  })
+})
+
+
+/**
+ * Follow-ups used to be derived from `repo.active_reminder_count`, which counts
+ * only repo-attached reminders and ignores who they belong to. A standalone
+ * reminder could never appear, and the card listed repo names with a tally
+ * rather than the reminders themselves. It now reads /reminders, the same
+ * source the notifications panel uses.
+ */
+describe('DashboardPage — follow-ups', () => {
+  it('lists the actual reminders, not a per-repo tally', async () => {
+    setup([repo()])
+    renderPage()
+
+    const followups = await screen.findByTestId('followup-list')
+    expect(
+      await within(followups).findByText(/Check in with the API team/)
+    ).toBeInTheDocument()
+  })
+
+  it('shows a reminder that is not attached to any repository', async () => {
+    setup([repo()])
+    renderPage()
+
+    const followups = await screen.findByTestId('followup-list')
+    expect(await within(followups).findByText(/Draft the midterm rubric/)).toBeInTheDocument()
+  })
+
+  it('counts every reminder in the metric tile, repo-attached or not', async () => {
+    setup([repo()])
+    renderPage()
+
+    const metrics = await screen.findByLabelText('Workspace metrics')
+    const tile = within(metrics).getByText('active reminders').closest('div')
+      ?.parentElement as HTMLElement
+    expect(await within(tile).findByText('2')).toBeInTheDocument()
+  })
+
+  it('opens the repository behind a reminder, on that note', async () => {
+    setup([repo()])
+    renderPage()
+
+    const followups = await screen.findByTestId('followup-list')
+    const link = await within(followups).findByRole('link', {
+      name: /Check in with the API team/,
+    })
+    expect(link).toHaveAttribute('href', '/repos/repo-1?note=rem-1')
+  })
+
+  it('sends a repo-less reminder to the notifications page instead', async () => {
+    setup([repo()])
+    renderPage()
+
+    const followups = await screen.findByTestId('followup-list')
+    const link = await within(followups).findByRole('link', {
+      name: /Draft the midterm rubric/,
+    })
+    expect(link).toHaveAttribute('href', '/notifications')
+  })
+
+  it('says there is nothing outstanding when the list is empty', async () => {
+    setup([repo()], [])
+    renderPage()
+
+    const followups = await screen.findByTestId('followup-list')
+    expect(await within(followups).findByText(/No active reminders/)).toBeInTheDocument()
+  })
+})
+
+
+describe('DashboardPage — repository health map', () => {
+  it('names the repository behind each tile on hover', async () => {
+    setup([repo()])
+    renderPage()
+
+    const donut = await screen.findByLabelText('Health mix')
+    const tile = await within(donut).findByRole('link', {
+      name: 'student-project · Healthy',
+    })
+    // The native title is kept as a fallback for the Radix tooltip.
+    expect(tile).toHaveAttribute('title', 'student-project · Healthy')
+  })
+})
+
+describe('DashboardPage — signal balance', () => {
+  it('states the 0-2 scale rather than leaving "of 2" unexplained', async () => {
+    setup([repo()])
+    renderPage()
+
+    const radar = await screen.findByLabelText('Health signal averages')
+    expect(await within(radar).findByText(/graded 0–2/)).toBeInTheDocument()
   })
 })
