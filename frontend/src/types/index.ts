@@ -773,8 +773,18 @@ export interface AdminSystemStatus {
   git_version: string | null
 }
 
+/**
+ * The LLM features that spend tokens, and so the series the volume graph
+ * stacks. `commit_quality` was invisible while call volume came from a union
+ * over the summaries and commit-classification tables.
+ */
+export type AdminLlmUsageKind =
+  | 'summary'
+  | 'commit_classification'
+  | 'commit_quality'
+
 export interface AdminLlmModelUsage {
-  kind: 'summary' | 'commit_classification'
+  kind: AdminLlmUsageKind
   model: string
   calls: number
   first_at: string | null
@@ -783,27 +793,24 @@ export interface AdminLlmModelUsage {
 
 export interface AdminLlmDailyUsage {
   day: string
-  kind: string
-  calls: number
-}
-
-export interface AdminLlmOwnerUsage {
-  user_id: string
-  display_name: string
+  kind: AdminLlmUsageKind
   calls: number
 }
 
 /**
- * Deliberately carries no cost and no failure count — neither is derivable
- * from what the backend persists. See the LlmUsage schema docstring.
+ * Provider call volume. `total_calls` counts requests, summed from the per-call
+ * count on each usage row — not rows in an artefact table, which is what made
+ * a 222-commit Classify run report 222 calls against six batched requests.
+ *
+ * Deliberately carries no cost and no failure count, and no per-user
+ * attribution: cost and per-user limits are on the AI Settings tab, priced
+ * from measured tokens. See the LlmUsage schema docstring.
  */
 export interface AdminLlmUsage {
   window_days: number
   total_calls: number
   by_model: AdminLlmModelUsage[]
   daily: AdminLlmDailyUsage[]
-  by_collection_owner: AdminLlmOwnerUsage[]
-  unattributed_summaries: number
   models_in_use: string[]
   retired_models_in_use: string[]
   current_default_model: string

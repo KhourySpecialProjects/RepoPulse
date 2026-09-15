@@ -37,12 +37,15 @@ class AnthropicAdapter(LLMService):
         # has to charge for what the API charged for. getattr because a
         # response object is not contractually required to carry usage —
         # an unreported call is charged zero rather than an invented average.
+        #
+        # Unconditional, unlike the token amounts: the request happened
+        # whether or not the response described it, and the admin call-volume
+        # graph counts requests.
         reported = getattr(message, "usage", None)
-        if reported is not None:
-            self.usage.add(
-                int(getattr(reported, "input_tokens", 0) or 0),
-                int(getattr(reported, "output_tokens", 0) or 0),
-            )
+        self.usage.record_call(
+            int(getattr(reported, "input_tokens", 0) or 0) if reported else 0,
+            int(getattr(reported, "output_tokens", 0) or 0) if reported else 0,
+        )
 
         # Not content[0].text: newer models can return a ThinkingBlock first,
         # which has no .text at all. Collect the text blocks and leave the rest

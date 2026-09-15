@@ -394,7 +394,7 @@ async def classify_repo_commits(
             # disconnects halfway has still spent every token up to that
             # point — a single trailing write would forgive all of it, which
             # is a free retry for anyone who closes the tab.
-            charged_in = charged_out = 0
+            charged_in = charged_out = charged_calls = 0
 
             for start in range(0, len(to_process), WAVE_SIZE):
                 wave = to_process[start:start + WAVE_SIZE]
@@ -441,9 +441,13 @@ async def classify_repo_commits(
                     usage=TokenUsage(
                         input_tokens=spent.input_tokens - charged_in,
                         output_tokens=spent.output_tokens - charged_out,
+                        # Batches this wave sent, so the admin graph reads one
+                        # Classify click as the requests it actually made.
+                        calls=spent.calls - charged_calls,
                     ),
                 )
                 charged_in, charged_out = spent.input_tokens, spent.output_tokens
+                charged_calls = spent.calls
                 await db.commit()
 
         return _response(

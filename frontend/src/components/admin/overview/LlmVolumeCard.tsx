@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, ArrowRight } from 'lucide-react'
 import {
   Area,
   AreaChart,
@@ -18,18 +18,30 @@ import type { AdminLlmUsage } from '@/types'
 /**
  * Load on the LLM integration, over time.
  *
- * The first thing to render `AdminLlmUsage.daily`, which the API has been
- * returning since the endpoint shipped with nothing on the client reading it.
+ * A "call" here is one request to the provider. That is worth stating because
+ * it was not always true: volume used to be counted as rows in `summaries`
+ * and `commit_classifications`, so classifying 222 commits drew a spike of
+ * 222 against the six batched requests it actually made, and the height of
+ * the chart tracked repo size rather than load.
  *
- * Two series, so a legend is mandatory — identity must never rest on colour
- * matching alone — and the two slots are taken in order from the validated
+ * Two plotted series, so a legend is mandatory — identity must never rest on
+ * colour matching alone — and the slots are taken in order from the validated
  * categorical palette rather than picked to look nice together.
  *
+ * Two, though the API reports three kinds. chartTheme documents a two-slot
+ * categorical palette and the reason it stops there: a generated third hue is
+ * indistinguishable from an existing one under CVD simulation, so the tail
+ * gets folded rather than coloured. Folding the two commit kinds together is
+ * not an arbitrary pairing — commit classification and commit quality are the
+ * same batched request to the same service, differing only in which dimension
+ * of the answer the caller keeps. The table view has no colour budget and
+ * breaks all three out.
+ *
  * Deliberately not cost, and the note below says so on the card rather than
- * only in a docstring. No token counts are persisted on either source table,
- * so any spend figure would be rows x assumed-tokens x assumed-price: a
- * number that reads as measured and is wrong by a multiple. Phoenix has the
- * real per-span usage.
+ * only in a docstring. Cost needs rates an administrator enters, so it is
+ * reported next to them on AI Settings; a spend figure derived from call
+ * volume alone would read as measured and be wrong by a multiple. Phoenix has
+ * the real per-span usage.
  *
  * The backend emits only days that have rows, so the series is zero-filled
  * here across the whole window. Joining the points as given would draw a line
@@ -37,9 +49,27 @@ import type { AdminLlmUsage } from '@/types'
  */
 const PHOENIX_URL = 'http://localhost:6006'
 
+/** The kinds the API reports, each its own column in the table view. */
+const FEATURES = [
+  { key: 'summary', label: 'Summaries' },
+  { key: 'commit_classification', label: 'Commit classifications' },
+  { key: 'commit_quality', label: 'Commit quality' },
+] as const
+
+/** Plotted series. Two slots, assigned in order and never cycled. */
 const KINDS = [
-  { key: 'summary', label: 'Summaries', color: SERIES[0] },
-  { key: 'commit_classification', label: 'Commit classifications', color: SERIES[1] },
+  {
+    key: 'summary',
+    label: 'Summaries',
+    color: SERIES[0],
+    features: ['summary'],
+  },
+  {
+    key: 'commit_analysis',
+    label: 'Commit analysis',
+    color: SERIES[1],
+    features: ['commit_classification', 'commit_quality'],
+  },
 ] as const
 
 interface Props {
@@ -50,6 +80,11 @@ interface Props {
   isError: boolean
   isPlaceholder: boolean
   onRetry: () => void
+  /**
+   * Opens another admin tab. "How much load" invites "from whom, and against
+   * what limit", and that answer is one tab away rather than on this card.
+   */
+  onNavigate?: (tab: string) => void
 }
 
 function formatDay(value: string | number): string {
@@ -66,6 +101,7 @@ export function LlmVolumeCard({
   isError,
   isPlaceholder,
   onRetry,
+  onNavigate,
 }: Props) {
   const windowDays = llm?.window_days ?? 30
 
@@ -84,22 +120,28 @@ export function LlmVolumeCard({
       date.setUTCDate(date.getUTCDate() - (windowDays - 1 - offset))
       const day = date.toISOString().slice(0, 10)
       const bucket = byDay.get(day) ?? {}
+      const counts = Object.fromEntries(
+        FEATURES.map((feature) => [feature.key, bucket[feature.key] ?? 0]),
+      ) as Record<(typeof FEATURES)[number]['key'], number>
+
       return {
         day,
-        summary: bucket.summary ?? 0,
-        commit_classification: bucket.commit_classification ?? 0,
+        ...counts,
+        // The folded series the chart plots, alongside the per-feature counts
+        // the table reads.
+        commit_analysis: counts.commit_classification + counts.commit_quality,
       }
     })
   }, [llm, windowDays])
 
-  const hasCalls = series.some(
-    (point) => point.summary > 0 || point.commit_classification > 0,
+  const hasCalls = series.some((point) =>
+    FEATURES.some((feature) => point[feature.key] > 0),
   )
 
   return (
     <ChartCard
       title="LLM call volume"
-      description={`Calls per day, last ${windowDays} days. Not cost.`}
+      description={`Provider requests per day, last ${windowDays} days. Not cost.`}
       isLoading={isLoading}
       isError={isError}
       onRetry={onRetry}
@@ -109,12 +151,11 @@ export function LlmVolumeCard({
       testId="llm-volume"
       action={action}
       table={{
-        caption: 'LLM calls per day by kind',
-        columns: ['Day', 'Summaries', 'Commit classifications'],
+        caption: 'Provider requests per day by kind',
+        columns: ['Day', ...FEATURES.map((feature) => feature.label)],
         rows: series.map((point) => [
           point.day,
-          point.summary,
-          point.commit_classification,
+          ...FEATURES.map((feature) => point[feature.key]),
         ]),
       }}
     >
@@ -189,7 +230,8 @@ export function LlmVolumeCard({
             <span className="font-semibold tabular-nums text-foreground">
               {llm.total_calls.toLocaleString()}
             </span>{' '}
-            calls · {llm.models_in_use.length}{' '}
+            provider {llm.total_calls === 1 ? 'request' : 'requests'} ·{' '}
+            {llm.models_in_use.length}{' '}
             {llm.models_in_use.length === 1 ? 'model' : 'models'}. Tokens and
             cost are on the AI Settings tab;{' '}
             <a
@@ -202,6 +244,22 @@ export function LlmVolumeCard({
             </a>{' '}
             has per-call traces.
           </p>
+
+          {/* A button rather than the prose pointer this replaces: the tab is
+              reachable in one click instead of being named and left to the
+              reader to find. Rendered only when the host can navigate, so the
+              card stays usable anywhere it is mounted on its own. */}
+          {onNavigate && (
+            <button
+              type="button"
+              onClick={() => onNavigate('ai')}
+              data-testid="llm-volume-ai-settings"
+              className="mt-2 inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Per-user usage and limits
+              <ArrowRight aria-hidden="true" className="h-3 w-3" />
+            </button>
+          )}
           {llm.retired_models_in_use.length > 0 && (
             <p
               data-testid="llm-volume-retired"

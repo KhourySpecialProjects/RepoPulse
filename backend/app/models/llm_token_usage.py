@@ -1,10 +1,16 @@
-"""One row per LLM call, carrying the tokens it actually cost.
+"""What LLM work cost: the tokens spent, and the requests that spent them.
 
 Written after the call returns, from the token counts the provider reported —
 never from an estimate. That distinction is the whole point: `LlmUsage` in
 app/schemas/admin.py documents at length why a spend figure derived from
 `rows x assumed-tokens` would be worse than no figure at all. These rows are
 measured, so the quota built on them is too.
+
+A row is one *write*, not one call. A caller that batches — the commit
+classifier sends up to BATCH_SIZE commits per request and settles a whole
+wave at once — folds several requests into one row and says how many in
+`calls`. Anything reporting call volume sums that column; counting rows is
+what made a 222-commit Classify run read as a single call.
 
 A failed call writes nothing, so this table contains only successes. Usage a
 user was never billed for is usage they should not be charged against.
@@ -58,6 +64,12 @@ class LlmTokenUsage(Base):
     period: Mapped[str] = mapped_column(String(7), nullable=False)
     feature: Mapped[str] = mapped_column(String(50), nullable=False)
     model_used: Mapped[str] = mapped_column(String(200), nullable=False)
+    #: Provider requests this row covers, which is not always one. The
+    #: classifier batches up to BATCH_SIZE commits per request and charges a
+    #: whole wave in a single write, so a row can stand for several calls.
+    #: This is the column the admin call-volume graph sums — counting rows
+    #: instead reported one batched Classify run as a single call.
+    calls: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     input_tokens: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="0"
     )

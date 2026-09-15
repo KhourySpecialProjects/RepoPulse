@@ -458,7 +458,8 @@ const mockAdminSystem = {
 
 const mockAdminLlmUsage = {
   window_days: 30,
-  total_calls: 14,
+  // Batched requests, not classified commits: the series below sum to this.
+  total_calls: 16,
   by_model: [
     {
       kind: 'commit_classification',
@@ -466,6 +467,13 @@ const mockAdminLlmUsage = {
       calls: 10,
       first_at: '2026-09-01T10:00:00Z',
       last_at: '2026-09-14T10:00:00Z',
+    },
+    {
+      kind: 'commit_quality',
+      model: 'claude-sonnet-5',
+      calls: 2,
+      first_at: '2026-09-14T09:00:00Z',
+      last_at: '2026-09-14T09:00:00Z',
     },
     {
       kind: 'summary',
@@ -485,11 +493,8 @@ const mockAdminLlmUsage = {
   daily: [
     { day: '2026-09-13', kind: 'summary', calls: 2 },
     { day: '2026-09-14', kind: 'commit_classification', calls: 12 },
+    { day: '2026-09-14', kind: 'commit_quality', calls: 2 },
   ],
-  by_collection_owner: [
-    { user_id: 'user-instructor-1', display_name: 'Instructor Mark', calls: 4 },
-  ],
-  unattributed_summaries: 1,
   models_in_use: ['claude-sonnet-4-20250514', 'claude-sonnet-5'],
   retired_models_in_use: ['claude-sonnet-4-20250514'],
   current_default_model: 'claude-sonnet-5',
