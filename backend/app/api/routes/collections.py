@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -22,6 +23,7 @@ from app.schemas.collections import (
     PaginatedCollections,
 )
 from app.schemas.errors import ErrorResponse
+from app.services import commit_snapshot_service
 from app.services.git_service import GitService
 from app.services.permission_service import (
     can_access_collection,
@@ -29,6 +31,8 @@ from app.services.permission_service import (
     can_write_collection,
     get_accessible_collection_ids,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -312,11 +316,11 @@ async def get_collection_commit_activity(
             detail="Collection not found",
         )
 
+    # Pathless repos are included rather than filtered out: they may still
+    # have a snapshot from a sync done elsewhere, and filtering them here would
+    # put that history out of reach.
     result = await db.execute(
-        select(Repo).where(
-            Repo.collection_id == collection_id,
-            Repo.local_path.is_not(None),
-        )
+        select(Repo).where(Repo.collection_id == collection_id)
     )
     repos = result.scalars().all()
 
@@ -324,10 +328,25 @@ async def get_collection_commit_activity(
     date_counts: dict[str, int] = {}
 
     for repo in repos:
-        try:
-            commits = await _git_service.parse_commits(repo.local_path)
-        except Exception:
-            continue
+        # The clone is the source of truth and is tried first. When it will not
+        # open — never cloned on this machine, recreated bind mount, a seeded
+        # database with no clones behind it — the last sync's snapshot stands in,
+        # matching what `get_repo_commits` and `collect_activity` already do.
+        # Without that fallback this endpoint was the one commit reader that
+        # returned a flat, empty graph next to a populated commits table.
+        commits: list[dict] = []
+        if repo.local_path:
+            try:
+                commits = await _git_service.parse_commits(repo.local_path)
+            except Exception as exc:
+                logger.warning(
+                    "commit-activity: parse_commits failed for repo %s (%s); "
+                    "falling back to the last synced snapshot: %s",
+                    repo.name, repo.local_path, exc,
+                )
+                commits = await commit_snapshot_service.load(db, repo.id)
+        else:
+            commits = await commit_snapshot_service.load(db, repo.id)
 
         for commit in commits:
             commit_hash = commit.get("hash", "")
