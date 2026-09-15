@@ -96,6 +96,46 @@ const mockContributorsEnriched: Contributor[] = [
 ]
 
 describe('RepoDetailPage - Contributors enriched stats', () => {
+  it('collapses and restores the contributors list', async () => {
+    server.use(
+      http.get('/api/v1/repos/:id', () => HttpResponse.json(mockRepo)),
+      http.get('/api/v1/repos/:id/contributors', () =>
+        HttpResponse.json(mockContributorsEnriched)
+      )
+    )
+    renderPage()
+    await waitFor(() => expect(screen.getAllByText('Alice Johnson').length).toBeGreaterThan(0))
+
+    const toggle = screen.getByRole('button', { name: 'Contributors' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(document.getElementById('contributors-content')).toHaveAttribute('hidden')
+
+    fireEvent.click(toggle)
+    expect(document.getElementById('contributors-content')).not.toHaveAttribute('hidden')
+  })
+
+  it('collapses the expected-count control along with the list', async () => {
+    server.use(
+      http.get('/api/v1/repos/:id', () => HttpResponse.json(mockRepo)),
+      http.get('/api/v1/repos/:id/contributors', () =>
+        HttpResponse.json(mockContributorsEnriched)
+      )
+    )
+    renderPage()
+    await waitFor(() => expect(screen.getAllByText('Alice Johnson').length).toBeGreaterThan(0))
+
+    // Expected moved out of the header row so the chevron could sit on the same
+    // right edge as the other panels, which puts it inside the collapsible body.
+    const body = document.getElementById('contributors-content')
+    expect(body).toContainElement(screen.getByText('Expected:'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Contributors' }))
+    expect(body).toHaveAttribute('hidden')
+  })
+
   it('renders contributor commit count', async () => {
     server.use(
       http.get('/api/v1/repos/:id', () => HttpResponse.json(mockRepo)),

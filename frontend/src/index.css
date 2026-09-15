@@ -78,36 +78,61 @@
 }
 
 @layer base {
+  /*
+   * Purple and white, light only — there is no `.dark` block on purpose.
+   *
+   * White carries the reading surfaces (`--card`, `--popover`) and the page sits
+   * on a barely-tinted white so stacked white cards still read as raised.
+   * Purple is spent on primary actions, links and focus, not on large fills.
+   *
+   * Which requested shade each token is:
+   *   --primary / --ring   Violet   #7F00FF   (= brand-600)
+   *   --accent             Mauve, lightened   (= brand-200 family)
+   *   --secondary          Periwinkle #CCCCFF (= periwinkle-200)
+   *
+   * `--destructive` stays red: it means "this will break something", which is
+   * not a brand decision. Health green/amber/red live in tailwind.config.js for
+   * the same reason.
+   */
   :root {
-    --background: 0 0% 98%;
-    --foreground: 224 71% 4%;
+    --background: 270 40% 99%;
+    --foreground: 270 35% 11%;
 
     --card: 0 0% 100%;
-    --card-foreground: 224 71% 4%;
+    --card-foreground: 270 35% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 224 71% 4%;
+    --popover-foreground: 270 35% 11%;
 
-    --primary: 243 75% 59%;
+    --primary: 270 100% 50%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 243 20% 95%;
-    --secondary-foreground: 243 75% 40%;
+    /* Exactly Periwinkle #CCCCFF. Drives secondary badges and buttons, which
+       are small enough to carry a saturated tint. Against the deep-violet
+       foreground below it measures 7.0:1, so it clears AA comfortably. */
+    --secondary: 240 100% 90%;
+    --secondary-foreground: 270 100% 33%;
 
-    --muted: 220 14% 96%;
-    --muted-foreground: 220 9% 46%;
+    --muted: 270 30% 97%;
+    --muted-foreground: 270 10% 42%;
 
-    --accent: 243 20% 93%;
-    --accent-foreground: 243 75% 40%;
+    --accent: 276 100% 94%;
+    --accent-foreground: 270 100% 33%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 243 75% 59%;
+    --border: 270 28% 91%;
+    --input: 270 28% 88%;
+    --ring: 270 100% 50%;
 
     --radius: 0.5rem;
+  }
+
+  /* Text selection reads as brand rather than the browser's default blue. */
+  ::selection {
+    background-color: hsl(276 100% 85%);
+    color: hsl(270 90% 25%);
   }
 
   * {

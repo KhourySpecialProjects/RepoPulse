@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQueries, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getCollections,
   getCollection,
@@ -78,4 +78,31 @@ export function useCollectionCommitActivity(collectionId: string) {
     queryFn: () => getCollectionCommitActivity(collectionId),
     enabled: Boolean(collectionId),
   })
+}
+
+/**
+ * Commit activity for every collection at once, for workspace-wide charts.
+ *
+ * Deliberately the same query keys as `useCollectionCommitActivity`, so
+ * opening a collection after the dashboard reuses the cached series instead of
+ * re-walking its git history.
+ */
+export function useWorkspaceCommitActivity(collectionIds: string[]) {
+  const queries = useQueries({
+    queries: collectionIds.map(id => ({
+      queryKey: ['collections', id, 'commit-activity'],
+      queryFn: () => getCollectionCommitActivity(id),
+      // Walking git log per collection is expensive; an hour-old commit graph
+      // is still an accurate picture of the term.
+      staleTime: 5 * 60 * 1000,
+    })),
+  })
+
+  return {
+    series: queries.map(query => query.data?.activity ?? []),
+    isPending: queries.some(query => query.isPending),
+    isError: queries.some(query => query.isError),
+    isFetching: queries.some(query => query.isFetching),
+    refetch: () => Promise.all(queries.map(query => query.refetch())),
+  }
 }

@@ -18,6 +18,17 @@ import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
 // commits, so its length is a per-request cost multiplier.
 const MAX_CRITERIA_CHARS = 8000
 
+// A prose budget on top of the character cap. The character cap is there to
+// stop a runaway paste; this one is the number an instructor can actually aim
+// at while writing, which is why it is the one shown as a running count.
+const MAX_CRITERIA_WORDS = 500
+
+/** Whitespace-separated runs, so trailing spaces and blank lines don't count. */
+function countWords(text: string): number {
+  const trimmed = text.trim()
+  return trimmed === '' ? 0 : trimmed.split(/\s+/).length
+}
+
 const ANTHROPIC_MODELS = [
   { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (recommended)' },
   { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (fast)' },
@@ -142,8 +153,15 @@ export function SettingsPage() {
     }
   }
 
+  const criteriaWordCount = countWords(commitEvaluationCriteria)
+  const criteriaOverLimit = criteriaWordCount > MAX_CRITERIA_WORDS
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
+    // The Save button is disabled in this state, but a form can also be
+    // submitted with Enter, so the limit is enforced here rather than only
+    // in the button.
+    if (countWords(commitEvaluationCriteria) > MAX_CRITERIA_WORDS) return
     const model = provider === 'ollama' ? ollamaModel : llmModel
     const updateData: Record<string, unknown> = {
       llm_provider: provider,
@@ -181,8 +199,8 @@ export function SettingsPage() {
     currentUser?.role === 'admin'
       ? 'bg-rose-100 text-rose-700'
       : currentUser?.role === 'ta'
-        ? 'bg-violet-100 text-violet-700'
-        : 'bg-indigo-100 text-indigo-700'
+        ? 'bg-orchid-100 text-orchid-700'
+        : 'bg-brand-100 text-brand-700'
 
   return (
     <motion.div
@@ -422,7 +440,7 @@ export function SettingsPage() {
                     className={cn(
                       'px-4 py-1.5 text-sm font-medium transition-colors',
                       provider === p
-                        ? 'bg-indigo-600 text-white'
+                        ? 'bg-brand-600 text-white'
                         : 'bg-white text-muted-foreground hover:bg-muted'
                     )}
                   >
@@ -571,9 +589,19 @@ export function SettingsPage() {
           </CardHeader>
           <CardContent>
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="commit-evaluation-criteria" className="text-sm font-medium">
-                Criteria
-              </label>
+              <div className="flex items-baseline justify-between gap-2">
+                <label htmlFor="commit-evaluation-criteria" className="text-sm font-medium">
+                  Criteria
+                </label>
+                <span
+                  className={cn(
+                    'text-xs tabular-nums',
+                    criteriaOverLimit ? 'text-destructive' : 'text-muted-foreground'
+                  )}
+                >
+                  {criteriaWordCount}/{MAX_CRITERIA_WORDS} words
+                </span>
+              </div>
               <Textarea
                 id="commit-evaluation-criteria"
                 value={commitEvaluationCriteria}
@@ -581,11 +609,23 @@ export function SettingsPage() {
                 placeholder="e.g. Commits should describe why the change was made, not just what changed. Treat a message that only names a file as bad."
                 rows={12}
                 maxLength={MAX_CRITERIA_CHARS}
-                className="min-h-[240px] resize-y font-mono text-sm"
+                aria-invalid={criteriaOverLimit}
+                className={cn(
+                  'min-h-[240px] resize-y font-mono text-sm',
+                  criteriaOverLimit && 'border-destructive focus-visible:ring-destructive'
+                )}
               />
-              <p className="text-xs text-muted-foreground">
-                Editing this re-grades commits that were already scored.
-              </p>
+              {criteriaOverLimit ? (
+                <p className="text-xs text-destructive">
+                  {criteriaWordCount - MAX_CRITERIA_WORDS} word
+                  {criteriaWordCount - MAX_CRITERIA_WORDS === 1 ? '' : 's'} over the
+                  500-word limit. Shorten the criteria to save.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Editing this re-grades commits that were already scored.
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -618,7 +658,27 @@ export function SettingsPage() {
           {updateMutation.isError && (
             <p className="text-sm text-destructive">Failed to save settings.</p>
           )}
-          <Button type="submit" loading={updateMutation.isPending} disabled={updateMutation.isPending}>
+          {criteriaOverLimit && (
+            <p className="text-sm text-destructive">Trim the AI criteria before saving.</p>
+          )}
+          <Button
+            type="submit"
+            loading={updateMutation.isPending}
+            disabled={updateMutation.isPending || criteriaOverLimit}
+            title={
+              criteriaOverLimit
+                ? `Criteria is ${criteriaWordCount - MAX_CRITERIA_WORDS} word${
+                    criteriaWordCount - MAX_CRITERIA_WORDS === 1 ? '' : 's'
+                  } over the 500-word limit`
+                : undefined
+            }
+            // A 50% fade on a solid primary button still reads as clickable.
+            // pointer-events has to come back on for the cursor to show at all.
+            className={cn(
+              criteriaOverLimit &&
+                'disabled:pointer-events-auto disabled:cursor-not-allowed disabled:opacity-100 disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none'
+            )}
+          >
             <Save className="h-4 w-4 mr-2" />
             {updateMutation.isPending ? 'Saving...' : 'Save Settings'}
           </Button>

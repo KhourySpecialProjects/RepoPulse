@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { CrosshairTooltip } from '@/components/charts'
 import { CHROME, MARKS, SERIES, TICK } from '@/lib/chartTheme'
 import { useCollectionCommitActivity } from '@/hooks/useCollections'
+import { BRAND } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 
 type ChartRange = '7d' | '30d' | '90d' | 'all'
@@ -78,8 +79,8 @@ export function CollectionCommitActivityChart({ collectionId }: Props) {
                   className={cn(
                     'text-xs px-2 py-1 rounded border transition-colors',
                     range === r
-                      ? 'bg-indigo-600 text-white border-indigo-600'
-                      : 'text-muted-foreground border-border hover:border-indigo-300'
+                      ? 'bg-brand-600 text-white border-brand-600'
+                      : 'text-muted-foreground border-border hover:border-brand-300'
                   )}
                 >
                   {r === 'all' ? 'All' : r}
@@ -104,8 +105,8 @@ export function CollectionCommitActivityChart({ collectionId }: Props) {
                 <AreaChart data={chartData}>
                   <defs>
                     <linearGradient id="collectionActivityGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={SERIES[0]} stopOpacity={0.25} />
-                      <stop offset="95%" stopColor={SERIES[0]} stopOpacity={0.04} />
+                      <stop offset="5%" stopColor={BRAND.violet} stopOpacity={0.3} />
+                      <stop offset="95%" stopColor={BRAND.violet} stopOpacity={0.05} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid vertical={false} stroke={CHROME.grid} strokeDasharray="0" />
@@ -141,7 +142,7 @@ export function CollectionCommitActivityChart({ collectionId }: Props) {
                     type="monotone"
                     dataKey="count"
                     name="Commits"
-                    stroke={SERIES[0]}
+                    stroke={BRAND.violet}
                     fill="url(#collectionActivityGradient)"
                     strokeWidth={MARKS.strokeWidth}
                     activeDot={{
@@ -156,7 +157,7 @@ export function CollectionCommitActivityChart({ collectionId }: Props) {
                     <LabelList
                       dataKey="pointLabel"
                       position="top"
-                      style={{ fontSize: 11, fill: CHROME.label }}
+                      style={{ fontSize: 13, fill: BRAND.violet, fontWeight: 600 }}
                     />
                   </Area>
                 </AreaChart>

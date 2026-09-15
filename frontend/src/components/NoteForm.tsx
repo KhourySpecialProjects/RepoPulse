@@ -94,7 +94,7 @@ export function NoteForm({ onSubmit, initialValues, isLoading = false, submitLab
           size="sm"
           variant="outline"
           loading={isLoading} disabled={isLoading || !content.trim()}
-          className={cn('text-xs h-7 px-3 bg-indigo-600 hover:bg-indigo-700 text-white border-0', isLoading && 'opacity-70 cursor-not-allowed')}
+          className={cn('text-xs h-7 px-3 bg-brand-600 hover:bg-brand-700 text-white border-0', isLoading && 'opacity-70 cursor-not-allowed')}
         >
           {isLoading ? 'Saving...' : submitLabel}
         </Button>

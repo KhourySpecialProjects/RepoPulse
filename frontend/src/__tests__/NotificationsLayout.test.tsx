@@ -1,23 +1,22 @@
 /**
- * The notifications page splits into "what happened" on the left and "where
- * it gets sent" on the right, and the feed has to render repo-scoped events
- * that carry their own text instead of a note preview.
+ * The notifications page is a single column of "what happened", and the feed
+ * has to render repo-scoped events that carry their own text instead of a note
+ * preview.
  */
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NotificationsPage } from '@/pages/NotificationsPage'
-import type { Notification, NotificationSettings } from '@/types'
+import type { Notification } from '@/types'
 
 const getNotifications = vi.fn()
-const getNotificationSettings = vi.fn()
 
 vi.mock('@/services/api', () => ({
+  // The reminders panel reads the signed-in user's subscriptions.
+  getNotificationPreferences: () => Promise.resolve({ subscribed_events: {} }),
+  updateNotificationPreferences: vi.fn(),
   getNotifications: (...a: unknown[]) => getNotifications(...a),
-  getNotificationSettings: (...a: unknown[]) => getNotificationSettings(...a),
-  updateNotificationSettings: vi.fn().mockResolvedValue({}),
-  sendTestEmail: vi.fn().mockResolvedValue({ detail: '', sent_to: '' }),
   getUnreadCount: () => Promise.resolve({ unread_count: 0 }),
   getReminders: () => Promise.resolve({ items: [], total: 0 }),
   getRecentlyDeleted: () => Promise.resolve({ items: [], total: 0 }),
@@ -34,7 +33,6 @@ vi.mock('@/services/api', () => ({
   createReminder: vi.fn(),
   createNote: vi.fn(),
   deleteNote: vi.fn(),
-  // EmailRelayPanel prefills its test recipient from the signed-in account.
   getCurrentUser: () =>
     Promise.resolve({
       id: 'user-1',
@@ -63,30 +61,6 @@ vi.mock('@/hooks/useAuth', () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
 }))
 
-const SETTINGS: NotificationSettings = {
-  email_enabled: false,
-  transport: 'smtp',
-  from_email: null,
-  from_name: null,
-  smtp_host: null,
-  smtp_port: null,
-  smtp_username: null,
-  smtp_encryption: 'starttls',
-  smtp_password_set: false,
-  resend_api_key_set: false,
-  subscribed_events: {
-    mention: true,
-    note_comment: true,
-    reminder: true,
-    repo_added: true,
-    repo_removed: true,
-    repo_health_declined: true,
-    pr_opened: true,
-    pr_merged: true,
-  },
-  deliverable: false,
-}
-
 function notif(over: Partial<Notification>): Notification {
   return {
     id: 'n1',
@@ -100,7 +74,6 @@ function notif(over: Partial<Notification>): Notification {
     commit_hash: null,
     subject: null,
     body: null,
-    emailed_at: null,
     ...over,
   }
 }
@@ -118,22 +91,19 @@ function renderPage() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  getNotificationSettings.mockResolvedValue(SETTINGS)
   getNotifications.mockResolvedValue({ items: [], total: 0, unread_count: 0 })
 })
 
 describe('notifications page layout', () => {
-  it('puts the email relay panel alongside the existing sections', async () => {
+  it('renders the feed full width, with no email relay panel', async () => {
     renderPage()
 
-    // Both columns are present...
-    expect(await screen.findByTestId('email-relay-panel')).toBeInTheDocument()
-    expect(screen.getByText('Recent activity')).toBeInTheDocument()
+    expect(await screen.findByText('Recent activity')).toBeInTheDocument()
+    expect(screen.queryByTestId('email-relay-panel')).not.toBeInTheDocument()
 
-    // ...and the body is a two-column grid at lg and above.
+    // Single column: the old two-column grid is gone.
     const body = screen.getByTestId('notifications-body')
-    expect(body.className).toContain('lg:grid')
-    expect(body.className).toContain('lg:grid-cols-[minmax(0,1fr)_24rem]')
+    expect(body.className).not.toContain('lg:grid')
   })
 
   it('renders a repo event using its own subject and body', async () => {
@@ -174,34 +144,5 @@ describe('notifications page layout', () => {
 
     expect(await screen.findByText('You were mentioned')).toBeInTheDocument()
     expect(screen.getByText('Hey @Mark take a look')).toBeInTheDocument()
-  })
-
-  it('marks a notification that also went out by email', async () => {
-    getNotifications.mockResolvedValue({
-      items: [
-        notif({
-          type: 'pr_merged',
-          subject: 'team-4 #7 merged: Add login',
-          emailed_at: '2026-09-14T11:05:00Z',
-        }),
-      ],
-      total: 1,
-      unread_count: 1,
-    })
-    renderPage()
-
-    expect(await screen.findByText('emailed')).toBeInTheDocument()
-  })
-
-  it('does not mark notifications that were never emailed', async () => {
-    getNotifications.mockResolvedValue({
-      items: [notif({ type: 'pr_opened', subject: 'team-4 #8 opened: Refactor' })],
-      total: 1,
-      unread_count: 1,
-    })
-    renderPage()
-
-    expect(await screen.findByText('team-4 #8 opened: Refactor')).toBeInTheDocument()
-    expect(screen.queryByText('emailed')).not.toBeInTheDocument()
   })
 })

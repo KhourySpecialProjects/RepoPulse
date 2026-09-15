@@ -194,14 +194,14 @@ describe('RepoDetailPage - commit linking from Notes panel', () => {
     await waitFor(() => expect(screen.getByText('Note linked to a commit')).toBeInTheDocument())
 
     const commitRow = document.getElementById('commit-abc1234567890') as HTMLElement
-    expect(commitRow.className).not.toMatch(/ring-indigo-400/)
+    expect(commitRow.className).not.toMatch(/ring-brand-400/)
 
     const commitLinkBtn = screen.getByTitle('Jump to commit')
     fireEvent.click(commitLinkBtn)
 
     await waitFor(() => {
       const updatedRow = document.getElementById('commit-abc1234567890') as HTMLElement
-      expect(updatedRow.className).toMatch(/ring-indigo-400/)
+      expect(updatedRow.className).toMatch(/ring-brand-400/)
     })
   })
 

@@ -57,7 +57,7 @@ export function LlmUsageTab() {
             aria-pressed={days === window}
             className={`rounded border px-2 py-1 text-xs transition-colors ${
               days === window
-                ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                ? 'border-brand-200 bg-brand-50 text-brand-700'
                 : 'border-border text-muted-foreground hover:bg-muted'
             }`}
           >
@@ -178,7 +178,7 @@ export function LlmUsageTab() {
             href={PHOENIX_URL}
             target="_blank"
             rel="noreferrer"
-            className="text-sm font-medium text-indigo-700 underline underline-offset-2 hover:text-indigo-800"
+            className="text-sm font-medium text-brand-700 underline underline-offset-2 hover:text-brand-800"
           >
             Open Phoenix for token usage and traces
           </a>

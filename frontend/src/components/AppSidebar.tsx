@@ -14,7 +14,9 @@ import {
   Shield,
   LogOut,
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { useAuth } from '@/hooks/useAuth'
+import { useBackState } from '@/hooks/useBackTarget'
 import { useCollections } from '@/hooks/useCollections'
 import { useRepos, useRepo } from '@/hooks/useRepos'
 import { useUnreadCount, useReminders } from '@/hooks/useNotifications'
@@ -33,14 +35,14 @@ const HEALTH_DOT_CLASS: Record<HealthStatus | 'unknown', string> = {
   green: 'bg-emerald-400',
   yellow: 'bg-amber-400',
   red: 'bg-red-400',
-  unknown: 'bg-slate-500',
+  unknown: 'bg-plum-500',
 }
 
 // ── Nav item base class ──────────────────────────────────────────────────────
 const NAV_BASE =
   'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer select-none'
-const NAV_DEFAULT = 'text-slate-300 hover:text-white hover:bg-slate-800'
-const NAV_ACTIVE = 'bg-indigo-600/20 text-indigo-300'
+const NAV_DEFAULT = 'text-plum-300 hover:text-white hover:bg-plum-800'
+const NAV_ACTIVE = 'bg-brand-600/20 text-brand-300'
 
 // ── Collection tree item ──────────────────────────────────────────────────────
 function CollectionTreeItem({
@@ -57,6 +59,7 @@ function CollectionTreeItem({
   collapsed: boolean
 }) {
   const navigate = useNavigate()
+  const backState = useBackState()
   const { data: reposData } = useRepos(collection.id, 50, 0)
   const repos = reposData?.items ?? []
 
@@ -86,25 +89,25 @@ function CollectionTreeItem({
       <div className={`w-full ${NAV_BASE} ${NAV_DEFAULT} justify-between pr-1`}>
         <button
           type="button"
-          onClick={() => navigate(`/collections/${collection.id}`)}
+          onClick={() => navigate(`/collections/${collection.id}`, { state: backState })}
           className="flex items-center gap-2.5 min-w-0 flex-1 text-left"
         >
           {expanded ? (
-            <FolderOpen className="h-4 w-4 flex-shrink-0 text-slate-400" />
+            <FolderOpen className="h-4 w-4 flex-shrink-0 text-plum-400" />
           ) : (
-            <Folder className="h-4 w-4 flex-shrink-0 text-slate-400" />
+            <Folder className="h-4 w-4 flex-shrink-0 text-plum-400" />
           )}
           <span className="truncate">{collection.name}</span>
         </button>
         <button
           type="button"
           onClick={onToggle}
-          className="flex-shrink-0 p-0.5 rounded hover:bg-slate-700 transition-colors"
+          className="flex-shrink-0 p-0.5 rounded hover:bg-plum-700 transition-colors"
         >
           {expanded ? (
-            <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+            <ChevronDown className="h-3.5 w-3.5 text-plum-500" />
           ) : (
-            <ChevronRightSmall className="h-3.5 w-3.5 text-slate-500" />
+            <ChevronRightSmall className="h-3.5 w-3.5 text-plum-500" />
           )}
         </button>
       </div>
@@ -116,10 +119,10 @@ function CollectionTreeItem({
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.15 }}
-            className="overflow-hidden pl-3 border-l border-slate-700 ml-4 mt-0.5"
+            className="overflow-hidden pl-3 border-l border-plum-700 ml-4 mt-0.5"
           >
             {repos.length === 0 ? (
-              <p className="text-xs text-slate-500 py-1.5 pl-1">No repos</p>
+              <p className="text-xs text-plum-500 py-1.5 pl-1">No repos</p>
             ) : (
               repos.map((repo) => {
                 const isActive = repo.id === activeRepoId
@@ -127,11 +130,11 @@ function CollectionTreeItem({
                   <button
                     key={repo.id}
                     type="button"
-                    onClick={() => navigate(`/repos/${repo.id}`)}
+                    onClick={() => navigate(`/repos/${repo.id}`, { state: backState })}
                     className={`w-full flex items-center gap-2 px-2 py-1.5 text-sm transition-colors rounded-md ${
                       isActive
-                        ? 'bg-indigo-600/20 text-indigo-300 border-l-2 border-indigo-400 rounded-l-none pl-1.5'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        ? 'bg-brand-600/20 text-brand-300 border-l-2 border-brand-400 rounded-l-none pl-1.5'
+                        : 'text-plum-400 hover:text-white hover:bg-plum-800'
                     }`}
                   >
                     <span
@@ -169,7 +172,7 @@ function SidebarNavItem({
 }) {
   const baseClass = `${NAV_BASE} ${
     danger
-      ? 'text-slate-400 hover:text-red-400 hover:bg-red-950/30'
+      ? 'text-plum-400 hover:text-red-400 hover:bg-red-950/30'
       : isActive
         ? NAV_ACTIVE
         : NAV_DEFAULT
@@ -184,7 +187,7 @@ function SidebarNavItem({
             onClick={onClick}
             className={`w-full flex items-center justify-center py-2 rounded-md transition-colors ${
               danger
-                ? 'text-slate-400 hover:text-red-400 hover:bg-red-950/30'
+                ? 'text-plum-400 hover:text-red-400 hover:bg-red-950/30'
                 : isActive
                   ? NAV_ACTIVE
                   : NAV_DEFAULT
@@ -212,7 +215,7 @@ const COLLAPSE_THRESHOLD = 120
 
 // ── Main sidebar ─────────────────────────────────────────────────────────────
 export function AppSidebar() {
-  const { collapsed, setCollapsed, width, setWidth } = useSidebar()
+  const { collapsed, setCollapsed, width, setWidth, dragging, setDragging } = useSidebar()
   const isDragging = useRef(false)
   const { user, logout } = useAuth()
   const navigate = useNavigate()
@@ -296,6 +299,7 @@ export function AppSidebar() {
   function handleDragStart(e: React.MouseEvent) {
     e.preventDefault()
     isDragging.current = true
+    setDragging(true)
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
 
@@ -317,6 +321,7 @@ export function AppSidebar() {
 
     function onMouseUp() {
       isDragging.current = false
+      setDragging(false)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
       document.removeEventListener('mousemove', onMouseMove)
@@ -337,57 +342,64 @@ export function AppSidebar() {
   // stopping short with a raw edge. The arrow keeps the same horizontal line as
   // the collapse arrow it replaces (h-14 header = 56px, so top-3 + h-8 centres
   // both at 28px).
+  // Both states render TooltipProvider > div, so React reuses the panel element
+  // instead of unmounting one and mounting the other. That reuse is what lets
+  // the width transition run at all — a fresh node has no previous width to
+  // animate from, and the panel would snap.
+  const shellClass = cn(
+    'fixed left-0 top-0 bottom-0 z-40 flex flex-col overflow-hidden border-r',
+    collapsed ? 'bg-brand-50 border-border' : 'bg-plum-900 border-plum-900',
+    !dragging && 'transition-[width,background-color] duration-300 ease-out',
+    'motion-reduce:transition-none'
+  )
+
   if (collapsed) {
     return (
-      <div
-        className="fixed left-0 top-0 bottom-0 z-40 bg-gray-50 border-r border-border"
-        style={{ width: COLLAPSED_GUTTER }}
-      >
-        <button
-          type="button"
-          onClick={toggleCollapsed}
-          title="Expand sidebar"
-          aria-label="Expand sidebar"
-          className="fixed left-3 top-3 z-50 flex h-8 w-8 items-center justify-center rounded-md bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 transition-colors"
-        >
-          <ChevronRight className="h-4 w-4" />
-        </button>
-      </div>
+      <TooltipProvider delayDuration={0}>
+        <div className={shellClass} style={{ width: COLLAPSED_GUTTER }}>
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            title="Expand sidebar"
+            aria-label="Expand sidebar"
+            className="fixed left-3 top-3 z-50 flex h-8 w-8 items-center justify-center rounded-md bg-brand-600 text-white shadow-sm hover:bg-brand-700 transition-colors"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </TooltipProvider>
     )
   }
 
   return (
     <TooltipProvider delayDuration={0}>
-      <div
-        className="fixed left-0 top-0 bottom-0 z-40 bg-slate-900 flex flex-col overflow-hidden"
-        style={{ width }}
-      >
+      <div className={shellClass} style={{ width }}>
         {/* Drag handle */}
         <div
           onMouseDown={handleDragStart}
-          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize z-50 hover:bg-indigo-500/50 transition-colors group"
+          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize z-50 hover:bg-brand-500/50 transition-colors group"
           title="Drag to resize"
         >
-          <div className="absolute inset-y-0 -left-0.5 -right-0.5 group-hover:bg-indigo-500/20" />
+          <div className="absolute inset-y-0 -left-0.5 -right-0.5 group-hover:bg-brand-500/20" />
         </div>
         {/* ── Header ── */}
-        <div className="h-14 flex items-center justify-between flex-shrink-0 border-b border-slate-700/50 px-3">
+        <div className="h-14 flex items-center justify-between flex-shrink-0 border-b border-plum-700/50 px-3">
           {!collapsed && (
-            <Link to="/" aria-label="RepoPulse home dashboard" className="flex items-center gap-2 min-w-0 rounded-md hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
-              <GitBranch className="h-6 w-6 text-indigo-400 flex-shrink-0" />
+            <Link to="/" aria-label="RepoPulse home dashboard" className="flex items-center gap-2 min-w-0 rounded-md hover:bg-plum-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400">
+              <GitBranch className="h-6 w-6 text-brand-400 flex-shrink-0" />
               <span className="font-semibold text-white text-base truncate">RepoPulse</span>
             </Link>
           )}
           {collapsed && (
-            <Link to="/" aria-label="RepoPulse home dashboard" className="flex items-center justify-center w-full rounded-md hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
-              <GitBranch className="h-6 w-6 text-indigo-400" />
+            <Link to="/" aria-label="RepoPulse home dashboard" className="flex items-center justify-center w-full rounded-md hover:bg-plum-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400">
+              <GitBranch className="h-6 w-6 text-brand-400" />
             </Link>
           )}
           {!collapsed && (
             <button
               type="button"
               onClick={toggleCollapsed}
-              className="text-slate-400 hover:text-white transition-colors flex-shrink-0"
+              className="text-plum-400 hover:text-white transition-colors flex-shrink-0"
               title="Collapse sidebar"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -438,8 +450,8 @@ export function AppSidebar() {
               title="View all collections"
               className={`text-xs font-semibold uppercase tracking-wider px-3 py-1 mt-2 mb-1 rounded transition-colors ${
                 location.pathname === '/collections'
-                  ? 'text-indigo-300'
-                  : 'text-slate-500 hover:text-slate-300'
+                  ? 'text-brand-300'
+                  : 'text-plum-500 hover:text-plum-300'
               }`}
             >
               Collections
@@ -460,7 +472,7 @@ export function AppSidebar() {
         </div>
 
         {/* ── Bottom nav ── */}
-        <div className="flex-shrink-0 border-t border-slate-700/50 px-2 py-2 flex flex-col gap-0.5">
+        <div className="flex-shrink-0 border-t border-plum-700/50 px-2 py-2 flex flex-col gap-0.5">
           <SidebarNavItem
             icon={Settings}
             label="Settings"

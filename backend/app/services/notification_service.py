@@ -3,15 +3,16 @@
 Notification rows are only ever created here. Routes call into this module
 rather than inserting rows themselves.
 
-Email is a second delivery channel for the same rows, not a parallel system.
-`notify` writes the row; `deliver_emails` sends whichever of those rows the
-recipient has subscribed to. The two are separate calls so that mail goes out
-*after* the caller commits — emailing about a note whose transaction then
-rolled back would announce something that does not exist.
+Notifications are in-app only. `notify` writes the row and the caller owns the
+transaction it lands in.
+
+Every creation path first asks `subscribed_user_ids` who still wants the event.
+Muting suppresses the row entirely rather than hiding it afterwards, so a muted
+event costs nothing and leaves nothing behind. The check is per recipient: one
+repo event can be news for the professor and silence for the TA.
 """
 from __future__ import annotations
 
-import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Iterable, Optional, Sequence
@@ -19,30 +20,21 @@ from typing import Iterable, Optional, Sequence
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.models.collection import Collection
 from app.models.collection_access import CollectionAccess
 from app.models.note import Note
 from app.models.notification import Notification, NotificationType
-from app.models.notification_setting import NotificationSetting
+from app.models.notification_preference import (
+    DEFAULT_SUBSCRIBED_EVENTS,
+    NotificationPreference,
+)
 from app.models.reminder_share import ReminderShare
 from app.models.repo import Repo
 from app.models.user import User
-from app.services.email import EmailDeliveryError, OutboundEmail, get_email_service
-
-logger = logging.getLogger(__name__)
 
 # A mention continues while these characters follow, so "@Mark" is not treated
 # as a mention of "Mark" when the text actually reads "@Mark_(Instructor)".
 _SLUG_CONTINUATION = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_(")
-
-#: Fallback email subject per type, used when a notification carries no
-#: `subject` of its own (the note-scoped types, which have no stored text).
-_DEFAULT_SUBJECTS: dict[NotificationType, str] = {
-    NotificationType.mention: "You were mentioned on RepoPulse",
-    NotificationType.note_comment: "New comment on your note",
-    NotificationType.reminder: "A RepoPulse reminder is due",
-}
 
 
 def slug_for_display_name(display_name: str) -> str:
@@ -110,8 +102,7 @@ async def create_mention_notifications(
     ``previous_content`` suppresses users who were already mentioned before an
     edit, so editing around an existing mention does not re-notify.
 
-    Returns the rows created, for the caller to hand to ``deliver_emails``
-    once it has committed.
+    Returns the rows created, without committing.
     """
     mentioned = await find_mentioned_users(db, content)
     if not mentioned:
@@ -122,6 +113,11 @@ async def create_mention_notifications(
             user.id for user in await find_mentioned_users(db, previous_content)
         }
         mentioned = [user for user in mentioned if user.id not in already]
+
+    subscribed = await subscribed_user_ids(
+        db, (user.id for user in mentioned), NotificationType.mention.value
+    )
+    mentioned = [user for user in mentioned if user.id in subscribed]
 
     created: list[Notification] = []
     for user in mentioned:
@@ -143,8 +139,8 @@ async def create_mention_notifications(
             note_id=note_id,
             comment_id=comment_id,
             is_read=False,
-            # Stored so the email has something to quote without re-reading the
-            # note, and so the body survives a later edit of the note text.
+            # Stored rather than derived, so the quoted text survives a later
+            # edit of the note it came from.
             body=_preview(content),
         )
         db.add(notification)
@@ -153,8 +149,42 @@ async def create_mention_notifications(
     return created
 
 
+async def subscribed_user_ids(
+    db: AsyncSession,
+    user_ids: Iterable[uuid.UUID],
+    event: str,
+) -> set[uuid.UUID]:
+    """Of ``user_ids``, those who still want to hear about ``event``.
+
+    One query however many recipients there are, so a repo event with a dozen
+    staff on the collection does not become a dozen lookups.
+
+    Users with no preferences row have never edited their subscriptions and are
+    therefore subscribed to everything — the query only has to find the ones who
+    explicitly turned this event off.
+    """
+    wanted = set(user_ids)
+    if not wanted:
+        return set()
+
+    rows = await db.execute(
+        select(
+            NotificationPreference.user_id,
+            NotificationPreference.subscribed_events,
+        ).where(NotificationPreference.user_id.in_(wanted))
+    )
+
+    default = DEFAULT_SUBSCRIBED_EVENTS.get(event, False)
+    muted = {
+        user_id
+        for user_id, events in rows.all()
+        if events is not None and not events.get(event, default)
+    }
+    return wanted - muted
+
+
 def _preview(content: str, limit: int = 240) -> str:
-    """A single-line excerpt of note or comment text for email bodies."""
+    """A single-line excerpt of note or comment text for notification bodies."""
     collapsed = " ".join(content.split())
     if len(collapsed) <= limit:
         return collapsed
@@ -172,7 +202,16 @@ async def fire_due_reminders(db: AsyncSession, user_id: uuid.UUID) -> int:
     The author and everyone the reminder was shared with are each notified
     once. Checked, archived and undated reminders never fire — a reminder
     without a due date is a valid to-do that simply never alerts.
+
+    A user who has muted `reminder` fires nothing. The reminder itself stays on
+    their Active reminders list; it just stops raising a notification when it
+    comes due.
     """
+    if not await subscribed_user_ids(
+        db, [user_id], NotificationType.reminder.value
+    ):
+        return 0
+
     now = datetime.now(timezone.utc)
 
     already_fired = select(Notification.note_id).where(
@@ -213,8 +252,6 @@ async def fire_due_reminders(db: AsyncSession, user_id: uuid.UUID) -> int:
 
     if created:
         await db.commit()
-        # Already committed, so emailing here cannot announce a rolled-back row.
-        await deliver_emails(db, created)
 
     return len(created)
 
@@ -224,7 +261,7 @@ async def fire_due_reminders(db: AsyncSession, user_id: uuid.UUID) -> int:
 # ---------------------------------------------------------------------------
 
 
-async def notify(
+def _add_notification(
     db: AsyncSession,
     *,
     recipient_id: uuid.UUID,
@@ -235,11 +272,7 @@ async def notify(
     subject: Optional[str] = None,
     body: Optional[str] = None,
 ) -> Notification:
-    """Add one notification row to the session.
-
-    Does not commit and does not send email — the caller owns the transaction
-    and passes the returned row to ``deliver_emails`` afterwards.
-    """
+    """Add the row, no questions asked. Callers gate before reaching here."""
     notification = Notification(
         recipient_id=recipient_id,
         type=type,
@@ -252,6 +285,39 @@ async def notify(
     )
     db.add(notification)
     return notification
+
+
+async def notify(
+    db: AsyncSession,
+    *,
+    recipient_id: uuid.UUID,
+    type: NotificationType,
+    note_id: Optional[uuid.UUID] = None,
+    comment_id: Optional[uuid.UUID] = None,
+    repo_id: Optional[uuid.UUID] = None,
+    subject: Optional[str] = None,
+    body: Optional[str] = None,
+) -> Optional[Notification]:
+    """Add one notification row to the session, if the recipient wants it.
+
+    Returns the row, or None when the recipient has muted this event — which is
+    why the return type is optional rather than the caller assuming a row.
+
+    Does not commit — the caller owns the transaction.
+    """
+    if recipient_id not in await subscribed_user_ids(db, [recipient_id], type.value):
+        return None
+
+    return _add_notification(
+        db,
+        recipient_id=recipient_id,
+        type=type,
+        note_id=note_id,
+        comment_id=comment_id,
+        repo_id=repo_id,
+        subject=subject,
+        body=body,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -314,25 +380,34 @@ async def notify_repo_event(
 
     ``recipients`` lets a caller raising several events for one repo resolve
     the audience once instead of re-querying it per event.
+
+    Subscriptions are resolved in one query for the whole audience rather than
+    per recipient, so muting stays cheap on a collection with a lot of staff.
     """
     if recipients is None:
         recipients = await recipients_for_repo(db, repo)
 
-    created: list[Notification] = []
-    for user in recipients:
-        if exclude_user_id is not None and user.id == exclude_user_id:
-            continue
-        created.append(
-            await notify(
-                db,
-                recipient_id=user.id,
-                type=type,
-                repo_id=repo.id if link_repo else None,
-                subject=subject,
-                body=body,
-            )
+    audience = [
+        user
+        for user in recipients
+        if exclude_user_id is None or user.id != exclude_user_id
+    ]
+    subscribed = await subscribed_user_ids(
+        db, (user.id for user in audience), type.value
+    )
+
+    return [
+        _add_notification(
+            db,
+            recipient_id=user.id,
+            type=type,
+            repo_id=repo.id if link_repo else None,
+            subject=subject,
+            body=body,
         )
-    return created
+        for user in audience
+        if user.id in subscribed
+    ]
 
 
 async def notify_health_change(
@@ -368,150 +443,4 @@ async def notify_health_change(
                 else "."
             )
         ),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Email delivery
-# ---------------------------------------------------------------------------
-
-
-async def _settings_for(
-    db: AsyncSession, user_id: uuid.UUID
-) -> Optional[NotificationSetting]:
-    result = await db.execute(
-        select(NotificationSetting).where(NotificationSetting.user_id == user_id)
-    )
-    return result.scalar_one_or_none()
-
-
-def _link_for(notification: Notification) -> str:
-    """Where the email should send the reader."""
-    base = settings.APP_BASE_URL.rstrip("/")
-    if notification.repo_id is not None:
-        return f"{base}/repos/{notification.repo_id}"
-    return f"{base}/notifications"
-
-
-def _render(notification: Notification) -> OutboundEmail:
-    """Build the message for a notification. Recipient is filled in by caller."""
-    subject = notification.subject or _DEFAULT_SUBJECTS.get(
-        notification.type, "RepoPulse notification"
-    )
-    lines = [subject]
-    if notification.body:
-        lines += ["", notification.body]
-    lines += ["", f"View it in RepoPulse: {_link_for(notification)}"]
-    return OutboundEmail(to="", subject=subject, text="\n".join(lines))
-
-
-async def deliver_emails(
-    db: AsyncSession, notifications: Iterable[Notification]
-) -> int:
-    """Email whichever of ``notifications`` their recipients subscribed to.
-
-    Call this only after the notifications are committed. Every failure mode —
-    no relay configured, a muted event, a refused connection — is swallowed and
-    logged: email is a secondary channel, and the in-app notification has
-    already been delivered by the time this runs. Raising here would fail the
-    request that caused the event.
-
-    Returns the number of messages actually sent.
-    """
-    sent = 0
-    # One settings lookup per recipient, not per notification.
-    cache: dict[uuid.UUID, Optional[NotificationSetting]] = {}
-
-    for notification in notifications:
-        if notification.emailed_at is not None:
-            continue  # already delivered
-
-        recipient_id = notification.recipient_id
-        if recipient_id not in cache:
-            cache[recipient_id] = await _settings_for(db, recipient_id)
-        setting = cache[recipient_id]
-
-        if setting is None or not setting.is_deliverable():
-            continue
-        if not setting.is_subscribed(notification.type.value):
-            continue
-
-        recipient = await db.get(User, recipient_id)
-        if recipient is None or not recipient.email:
-            continue
-
-        service = get_email_service(
-            setting.transport,
-            from_email=setting.from_email or "",
-            from_name=setting.from_name,
-            smtp_host=setting.smtp_host,
-            smtp_port=setting.smtp_port,
-            smtp_username=setting.smtp_username,
-            smtp_password=setting.smtp_password,
-            smtp_encryption=setting.smtp_encryption,
-            resend_api_key=setting.resend_api_key,
-        )
-
-        message = _render(notification)
-        message.to = recipient.email
-
-        try:
-            await service.send(message)
-        except EmailDeliveryError as exc:
-            # emailed_at stays NULL, which is what the settings page reads to
-            # tell the user their relay is not working.
-            logger.warning(
-                "Email relay failed for notification %s (%s): %s",
-                notification.id,
-                notification.type.value,
-                exc,
-            )
-            continue
-        except Exception as exc:  # a transport bug must not break the request
-            logger.exception(
-                "Unexpected email relay error for notification %s: %s",
-                notification.id,
-                exc,
-            )
-            continue
-
-        notification.emailed_at = datetime.now(timezone.utc)
-        sent += 1
-
-    if sent:
-        await db.commit()
-
-    return sent
-
-
-async def send_test_email(
-    setting: NotificationSetting, recipient_email: str
-) -> None:
-    """Deliver a one-off probe so a user can verify their relay.
-
-    Raises ``EmailDeliveryError`` on failure — unlike ``deliver_emails``, the
-    caller here *wants* the error, because the whole point is to surface a
-    misconfiguration.
-    """
-    service = get_email_service(
-        setting.transport,
-        from_email=setting.from_email or "",
-        from_name=setting.from_name,
-        smtp_host=setting.smtp_host,
-        smtp_port=setting.smtp_port,
-        smtp_username=setting.smtp_username,
-        smtp_password=setting.smtp_password,
-        smtp_encryption=setting.smtp_encryption,
-        resend_api_key=setting.resend_api_key,
-    )
-    await service.send(
-        OutboundEmail(
-            to=recipient_email,
-            subject="RepoPulse email relay test",
-            text=(
-                "Your RepoPulse email relay is working.\n\n"
-                "If you did not request this test, someone with access to your "
-                "RepoPulse account sent it from the notification settings page."
-            ),
-        )
     )

@@ -90,7 +90,7 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-violet-50 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-brand-50 via-white to-orchid-50 p-4">
       <motion.div
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
@@ -98,7 +98,7 @@ export function LoginPage() {
         className="w-full max-w-md"
       >
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg mb-4">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-500 to-orchid-600 shadow-lg mb-4">
             <span className="text-2xl font-bold text-white">R</span>
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">RepoPulse</h1>
@@ -122,13 +122,13 @@ export function LoginPage() {
             >
               <Card
                 className={cn(
-                  'cursor-pointer bg-white border border-border hover:shadow-md hover:border-indigo-200 transition-all duration-200',
+                  'cursor-pointer bg-white border border-border hover:shadow-md hover:border-brand-200 transition-all duration-200',
                   loadingUserId === mockUser.id && 'opacity-60 pointer-events-none'
                 )}
                 onClick={() => handleDevLogin(mockUser.id)}
               >
                 <CardContent className="flex items-center gap-4 p-4">
-                  <div className="flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-100 to-violet-100 text-indigo-600">
+                  <div className="flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-lg bg-gradient-to-br from-brand-100 to-orchid-100 text-brand-600">
                     {mockUser.icon}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -150,7 +150,7 @@ export function LoginPage() {
             <div className="w-full border-t border-border" />
           </div>
           <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-gradient-to-br from-indigo-50 via-white to-violet-50 px-3 text-muted-foreground">
+            <span className="bg-gradient-to-br from-brand-50 via-white to-orchid-50 px-3 text-muted-foreground">
               Or sign in with email
             </span>
           </div>

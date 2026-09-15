@@ -17,6 +17,9 @@ import type { Note, UserDetail } from '@/types'
 const createNoteComment = vi.fn()
 
 vi.mock('@/services/api', () => ({
+  // The reminders panel reads the signed-in user's subscriptions.
+  getNotificationPreferences: () => Promise.resolve({ subscribed_events: {} }),
+  updateNotificationPreferences: vi.fn(),
   getNoteComments: () => Promise.resolve([]),
   createNoteComment: (...args: unknown[]) => createNoteComment(...args),
   deleteNoteComment: () => Promise.resolve(),

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { vi, it, expect, afterEach } from 'vitest'
 import type { ReactNode } from 'react'
 import { ContextualActivityChart } from '@/components/ContextualActivityChart'
@@ -33,7 +33,15 @@ it('follows contributor IDs and restores the full graph', () => {
   expect(screen.getByLabelText('Activity range').parentElement).toHaveClass('justify-end')
   expect(screen.queryByLabelText('Student activity')).not.toBeInTheDocument()
   expect(screen.getByText('Alice — commits per day')).toBeInTheDocument()
-  expect(screen.getByText(/Peer comparison unavailable/)).toBeInTheDocument()
+  // Context strings used to be listed in <details> panels under the graph. Those
+  // are gone; the legend names the marker colours and the full text moved to the
+  // tooltip. It is a fixed key, so all four entries show regardless of what this
+  // fixture happens to trigger.
+  const legend = screen.getByRole('list', { name: 'Marker legend' })
+  expect(within(legend).getByText('Unusual Burst')).toBeInTheDocument()
+  expect(within(legend).getByText('Quiet Period')).toBeInTheDocument()
+  expect(within(legend).getByText('Deadline Burst')).toBeInTheDocument()
+  expect(within(legend).getByText('Good Commit History')).toBeInTheDocument()
   rerender(<ContextualActivityChart collectionId="collection" repoId="repo" selectedContributorIds={[]} />)
   expect(screen.getByText('All students — commits per day')).toBeInTheDocument()
   rerender(<ContextualActivityChart collectionId="collection" repoId="repo" selectedContributorIds={['alice', 'bob']} />)

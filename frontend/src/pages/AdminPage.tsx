@@ -23,8 +23,8 @@ import type { UserDetail, CreateUserData, UpdateUserData } from '@/types'
 import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
 
 const ROLE_BADGE: Record<UserDetail['role'], string> = {
-  instructor: 'bg-indigo-100 text-indigo-700',
-  ta: 'bg-violet-100 text-violet-700',
+  instructor: 'bg-brand-100 text-brand-700',
+  ta: 'bg-orchid-100 text-orchid-700',
   admin: 'bg-rose-100 text-rose-700',
 }
 
@@ -364,7 +364,7 @@ function UsersTab() {
             className="flex items-center justify-between rounded-lg border border-border px-4 py-3 bg-white"
           >
             <div className="flex items-center gap-3 min-w-0">
-              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold flex items-center justify-center">
+              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-brand-100 text-brand-700 text-xs font-semibold flex items-center justify-center">
                 {user.display_name.charAt(0).toUpperCase()}
               </div>
               <div className="min-w-0">
@@ -387,7 +387,7 @@ function UsersTab() {
                 type="button"
                 onClick={() => setEditingUser(user)}
                 title="Edit user"
-                className="p-1.5 rounded text-muted-foreground hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                className="p-1.5 rounded text-muted-foreground hover:text-brand-600 hover:bg-brand-50 transition-colors"
               >
                 <Pencil className="h-3.5 w-3.5" />
               </button>

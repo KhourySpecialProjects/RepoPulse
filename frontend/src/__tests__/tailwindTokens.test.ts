@@ -14,8 +14,16 @@
 import { describe, it, expect } from 'vitest'
 // Raw text rather than `fs`: keeps this a browser-environment test with no
 // node typings, and the config is only ever inspected for `var(--x)` names.
+// Requires `test.css: true` in vite.config.ts — with Vitest's default the CSS
+// import is stubbed to an empty string and every assertion here passes
+// vacuously, which is exactly what happened until that flag was set.
 import cssSource from '../index.css?raw'
 import configSource from '../../tailwind.config.js?raw'
+
+/** Fails loudly rather than asserting against an empty stub. */
+function assertLoaded(name: string, source: string) {
+  if (!source.trim()) throw new Error(`${name} came back empty — is test.css still on?`)
+}
 
 /** Not a colour — maps to borderRadius, not `colors`. */
 const NON_COLOR_VARS = new Set(['radius'])
@@ -38,6 +46,12 @@ function mappedColorVars(): Set<string> {
 }
 
 describe('tailwind colour tokens', () => {
+  it('actually reads the stylesheet and the config', () => {
+    assertLoaded('index.css', cssSource)
+    assertLoaded('tailwind.config.js', configSource)
+    expect(declaredColorVars().length).toBeGreaterThan(0)
+  })
+
   it('maps every colour variable declared in index.css', () => {
     const mapped = mappedColorVars()
     const missing = declaredColorVars().filter((name) => !mapped.has(name))

@@ -41,7 +41,6 @@ const mention: Notification = {
   commit_hash: null,
   subject: null,
   body: null,
-  emailed_at: null,
 }
 
 const reminder: Reminder = {

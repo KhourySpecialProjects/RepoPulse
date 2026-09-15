@@ -47,3 +47,7 @@ class PaginatedCommits(BaseModel):
     total: int
     limit: int
     offset: int
+    #: True when the clone could not be read and these came from the snapshot
+    #: written at the last successful sync. Defaulted so the many places that
+    #: build this response for live data do not each have to say "fresh".
+    stale: bool = False

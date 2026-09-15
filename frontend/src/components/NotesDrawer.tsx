@@ -44,7 +44,7 @@ function renderNoteContent(content: string) {
     if (part.startsWith('@') && part.length > 1) {
       const name = part.slice(1).replace(/_/g, ' ')
       return (
-        <span key={i} className="inline-flex items-center bg-violet-100 text-violet-700 rounded px-1 py-0.5 text-xs font-medium">
+        <span key={i} className="inline-flex items-center bg-orchid-100 text-orchid-700 rounded px-1 py-0.5 text-xs font-medium">
           @{name}
         </span>
       )
@@ -118,7 +118,7 @@ export function NotesDrawer({
                   // Ring rather than a background tint: notes already use
                   // background to mean archived, and the two would blend.
                   note.id === highlightNoteId &&
-                    '-mx-2 rounded-md px-2 ring-2 ring-indigo-400'
+                    '-mx-2 rounded-md px-2 ring-2 ring-brand-400'
                 )}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -160,7 +160,7 @@ export function NotesDrawer({
                 <div className="flex items-center justify-between gap-2 mt-1.5">
                   <div className="flex items-center gap-1.5">
                     <div
-                      className="h-5 w-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-semibold flex-shrink-0 cursor-default"
+                      className="h-5 w-5 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-[10px] font-semibold flex-shrink-0 cursor-default"
                       title={note.author_display_name}
                     >
                       {note.author_display_name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
@@ -170,7 +170,7 @@ export function NotesDrawer({
                   {note.commit_hash && (
                     <button
                       onClick={() => onScrollToCommit(note.commit_hash!)}
-                      className="flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700 font-mono transition-colors"
+                      className="flex items-center gap-1 text-xs text-brand-500 hover:text-brand-700 font-mono transition-colors"
                       title="Jump to commit"
                     >
                       <GitCommit className="h-3 w-3" />
@@ -199,13 +199,13 @@ export function NotesDrawer({
   return (
     <div
       data-testid="notes-panel"
-      className="w-80 flex-shrink-0 sticky top-6 self-start max-h-[calc(100vh-3rem)] flex flex-col bg-white rounded-xl border border-gray-200 overflow-hidden"
+      className="w-80 flex-shrink-0 sticky top-6 self-start max-h-[calc(100vh-3rem)] flex flex-col bg-white rounded-xl border border-border overflow-hidden"
     >
-      <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2 flex-shrink-0">
+      <div className="px-4 py-3 border-b border-border flex items-center gap-2 flex-shrink-0">
         <FileText className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-sm font-semibold">Notes</h2>
         {noteCount > 0 && (
-          <span className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full px-2 py-0.5 font-medium">
+          <span className="text-xs bg-brand-100 text-brand-700 border border-brand-200 rounded-full px-2 py-0.5 font-medium">
             {noteCount}
           </span>
         )}

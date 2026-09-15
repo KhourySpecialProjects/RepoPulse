@@ -43,7 +43,7 @@ export function TrickleProgress({ label, className }: { label: string; className
           repo page's loading bar sets it this way. */}
       <div
         data-testid="trickle-progress-fill"
-        className="h-full rounded-full bg-indigo-500 transition-[width] duration-200 ease-out"
+        className="h-full rounded-full bg-brand-500 transition-[width] duration-200 ease-out"
         style={{ width: `${value}%` }}
       />
     </div>
