@@ -8,10 +8,11 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { HttpResponse, http } from 'msw'
+import { HttpResponse, delay, http } from 'msw'
+import { toast } from 'sonner'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AdminPage } from '@/pages/AdminPage'
@@ -26,6 +27,10 @@ vi.mock('@/hooks/useAuth', () => ({
     isLoading: false,
   }),
 }))
+
+// The Toaster only mounts in main.tsx, so a real toast would go nowhere and be
+// unassertable. Mocked at module scope for the same hoisting reason as useAuth.
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 function renderAdmin() {
   const queryClient = new QueryClient({
@@ -53,6 +58,9 @@ async function renderStorageTab() {
 beforeEach(() => {
   localStorage.clear()
   mockUser.role = 'admin'
+  // Toast calls accumulate across tests otherwise, so a later assertion would
+  // pass on an earlier test's call.
+  vi.clearAllMocks()
 })
 
 describe('AdminPage shell', () => {
@@ -115,14 +123,57 @@ describe('Storage tab', () => {
     expect(await screen.findByText('/repos')).toBeInTheDocument()
   })
 
-  it('lists the largest tables with exact row counts', async () => {
+  it('keeps the per-table breakdown collapsed until it is asked for', async () => {
+    // Per-table bytes are a drill-down, not a headline. Left open it pushes
+    // the numbers an administrator actually opens this tab for — free disk,
+    // clone total, drift — off the top of the card.
     await renderStorageTab()
-
     await screen.findByTestId('database-total')
+
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /database tables/i })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+  })
+
+  it('lists the largest tables with exact row counts once opened', async () => {
+    const user = userEvent.setup()
+    await renderStorageTab()
+    await screen.findByTestId('database-total')
+
+    await user.click(screen.getByRole('button', { name: /database tables/i }))
+
     const table = screen.getAllByRole('table')[0]
     expect(within(table).getByText('commit_classifications')).toBeInTheDocument()
     // repos reports row_estimate 0 but row_count 3; the exact count wins.
     expect(within(table).getByText('3')).toBeInTheDocument()
+  })
+
+  it('closes the breakdown again on a second press', async () => {
+    const user = userEvent.setup()
+    await renderStorageTab()
+    await screen.findByTestId('database-total')
+    const toggle = screen.getByRole('button', { name: /database tables/i })
+
+    await user.click(toggle)
+    expect(screen.getByRole('table')).toBeInTheDocument()
+
+    await user.click(toggle)
+
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('says how many tables are behind the toggle while it is shut', async () => {
+    await renderStorageTab()
+    await screen.findByTestId('database-total')
+
+    // The fixture carries two tables; a count is the one thing a collapsed
+    // section can still tell you about its contents.
+    expect(
+      screen.getByRole('button', { name: /database tables/i }),
+    ).toHaveTextContent('2')
   })
 
   it('surfaces drift in both directions', async () => {
@@ -161,8 +212,12 @@ describe('Storage tab', () => {
     await renderStorageTab()
 
     const drift = await screen.findByTestId('drift')
-    expect(drift).toHaveTextContent('1 clone on disk with no repo record')
-    expect(drift).toHaveTextContent('1 repo with a missing clone')
+    expect(drift).toHaveTextContent('1 clone on disk with no database rows')
+    // Says what the administrator can see for themselves — no files where the
+    // app expects them — rather than naming the mechanism. It stops short of
+    // "never downloaded" or "deleted" because this one number cannot tell
+    // those apart.
+    expect(drift).toHaveTextContent('1 repo with no files on disk')
   })
 
   it('reports an unmounted repo root rather than showing an empty disk', async () => {
@@ -214,6 +269,177 @@ describe('Storage tab', () => {
       /could not load storage/i,
     )
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
+  })
+})
+
+/**
+ * The recalculate control.
+ *
+ * `POST /admin/storage/recalculate` and `useRecalculateAdminStorage` both
+ * existed and were both tested, but no component ever called the hook — so
+ * `AdminStatsService` never ran, `repos.size_bytes` stayed NULL, and the tab
+ * read "0 repos measured / 0 B" with no way to clear it from the UI. These
+ * tests cover the wiring that was missing, not the endpoint behind it.
+ */
+describe('Storage recalculate', () => {
+  /** A storage response with the clone figures overridden. */
+  function storageWith(
+    clones: Partial<{
+      measured_repos: number
+      unmeasured_repos: number
+      total_bytes: number
+      git_bytes: number
+      newest_measurement: string | null
+    }>,
+  ) {
+    return {
+      disk: {
+        root: '/repos',
+        exists: true,
+        total_bytes: 100,
+        used_bytes: 50,
+        free_bytes: 50,
+        percent_used: 50,
+      },
+      clones: {
+        measured_repos: 0,
+        unmeasured_repos: 0,
+        total_bytes: 0,
+        git_bytes: 0,
+        oldest_measurement: null,
+        newest_measurement: null,
+        ...clones,
+      },
+      database_bytes: 1024,
+      tables: [],
+      drift: { orphan_directories: [], missing_clones: [], orphan_bytes: null },
+      repo_root_dir: '/repos',
+      generated_at: '2026-09-14T10:00:00Z',
+    }
+  }
+
+  async function openStorageTab() {
+    const user = userEvent.setup()
+    renderAdmin()
+    await user.click(screen.getByRole('tab', { name: 'Storage' }))
+    await screen.findByTestId('clone-total')
+    return user
+  }
+
+  it('offers a recalculate control, since nothing else ever measures a clone', async () => {
+    await openStorageTab()
+
+    expect(
+      screen.getByRole('button', { name: /recalculate/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('replaces the stale figures with the freshly measured ones', async () => {
+    let reads = 0
+    server.use(
+      http.get('/api/v1/admin/storage', () => {
+        reads += 1
+        return HttpResponse.json(
+          reads === 1
+            ? storageWith({})
+            : storageWith({ measured_repos: 2, total_bytes: 3 * 1024 * 1024 }),
+        )
+      }),
+    )
+
+    const user = await openStorageTab()
+    expect(screen.getByTestId('measured-repos')).toHaveTextContent('0')
+
+    await user.click(screen.getByRole('button', { name: /recalculate/i }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('measured-repos')).toHaveTextContent('2'),
+    )
+    expect(screen.getByTestId('clone-total')).toHaveTextContent('3 MB')
+  })
+
+  it('disables the control while the measurement is running', async () => {
+    server.use(
+      http.post('/api/v1/admin/storage/recalculate', async () => {
+        await delay(50)
+        return HttpResponse.json({
+          requested: 1,
+          measured: 1,
+          skipped_missing: 0,
+          failed: 0,
+          total_bytes: 1024,
+          duration_ms: 50,
+          computed_at: '2026-09-14T10:00:00Z',
+        })
+      }),
+    )
+
+    const user = await openStorageTab()
+    await user.click(screen.getByRole('button', { name: /recalculate/i }))
+
+    // The endpoint is synchronous and walks every clone on the volume, so a
+    // second click would start a second full walk of the same disk.
+    expect(screen.getByRole('button', { name: /measuring/i })).toBeDisabled()
+
+    // Settle before leaving. The mutation outlives the unmount otherwise, and
+    // its toast fires during whichever test runs next — after beforeEach has
+    // already cleared the mock, so that test reads this one's call as its own.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /recalculate/i })).toBeEnabled(),
+    )
+  })
+
+  it('reports what was measured, skipped and failed', async () => {
+    server.use(
+      http.post('/api/v1/admin/storage/recalculate', () =>
+        HttpResponse.json({
+          requested: 5,
+          measured: 3,
+          skipped_missing: 1,
+          failed: 1,
+          total_bytes: 2 * 1024 * 1024,
+          duration_ms: 90,
+          computed_at: '2026-09-14T10:00:00Z',
+        }),
+      ),
+    )
+
+    const user = await openStorageTab()
+    await user.click(screen.getByRole('button', { name: /recalculate/i }))
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalled())
+    // All four numbers matter. "3 measured" on its own hides that two repos
+    // the administrator expected to see counted were not measured at all.
+    const message = String(vi.mocked(toast.success).mock.calls[0][0])
+    expect(message).toContain('3 of 5')
+    expect(message).toContain('2 MB')
+    expect(message).toContain('1 clone missing')
+    expect(message).toContain('1 failed')
+  })
+
+  it('does not mention skipped or failed when there were none', async () => {
+    const user = await openStorageTab()
+
+    await user.click(screen.getByRole('button', { name: /recalculate/i }))
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalled())
+    const message = String(vi.mocked(toast.success).mock.calls[0][0])
+    expect(message).toContain('2 of 2')
+    expect(message).not.toMatch(/missing|failed/)
+  })
+
+  it('says so when the measurement fails, and stays usable', async () => {
+    server.use(
+      http.post('/api/v1/admin/storage/recalculate', () =>
+        HttpResponse.json({ detail: 'boom' }, { status: 500 }),
+      ),
+    )
+
+    const user = await openStorageTab()
+    await user.click(screen.getByRole('button', { name: /recalculate/i }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: /recalculate/i })).toBeEnabled()
   })
 })
 

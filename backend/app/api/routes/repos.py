@@ -208,6 +208,52 @@ async def _upsert_contributors(
     await db.flush()
 
 
+async def _measure_clone_size(repo: Repo) -> None:
+    """Record the clone's on-disk size on `repo`. Best-effort; never raises.
+
+    Called at the end of a successful index run, while the tree has just been
+    cloned or fetched and is still in page cache, so the walk costs far less
+    here than it would standalone. This is what keeps the admin Storage tab
+    current: `AdminStatsService.recalculate_repo_sizes` is the only other
+    writer of these columns and it runs only when an administrator asks.
+
+    Mutates the repo without committing — the caller already commits, so the
+    size lands in the same transaction as the health and sync-state updates
+    rather than needing a session of its own.
+
+    Errors are contained rather than propagated. `_index_repo`'s except branch
+    marks the whole sync failed, and by this point health, contributors and
+    sync state are all computed; discarding them because one directory would
+    not stat is a bad trade. A size that stays stale is visible in the UI as
+    its own `size_computed_at`, which is the milder failure.
+    """
+    if not repo.local_path:
+        return
+
+    try:
+        size = await _git_service.get_repo_size(repo.local_path)
+    except Exception:
+        logger.warning(
+            "Could not measure clone size for %s (%s)",
+            repo.name,
+            repo.local_path,
+            exc_info=True,
+        )
+        return
+
+    if size is None:
+        # None is "the path is not there", never "zero bytes". Leaving the
+        # previous numbers in place matches the recalculate path: an unmounted
+        # volume must not wipe the fleet's measurement history.
+        return
+
+    repo.size_bytes = size["total"]
+    repo.git_size_bytes = size["git"]
+    # Aware, because the column is DateTime(timezone=True) — unlike
+    # last_synced_at below, which is naive by existing convention.
+    repo.size_computed_at = datetime.now(timezone.utc)
+
+
 async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: str | None = None) -> None:
     """Clone (or fetch) a repo, parse commits, upsert contributors, update health."""
     from app.db.database import async_session_maker
@@ -254,6 +300,8 @@ async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: s
             repo.last_synced_at = datetime.utcnow()
             if commits:
                 repo.last_commit_at = max(c["date"] for c in commits)
+
+            await _measure_clone_size(repo)
 
             raised = await notify_health_change(
                 db,

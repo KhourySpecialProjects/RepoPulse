@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 
 import {
   getAdminOverview,
@@ -8,7 +9,8 @@ import {
   getAdminStorage,
   recalculateAdminStorage,
 } from '@/services/api'
-import type { AdminRepoSizeSort } from '@/types'
+import { formatBytes } from '@/lib/formatBytes'
+import type { AdminRecalculateResult, AdminRepoSizeSort } from '@/types'
 
 /**
  * Query keys for the admin dashboard.
@@ -73,15 +75,45 @@ export function useAdminRepoStorage(params?: {
   })
 }
 
+/**
+ * Summarise a recalculate for a toast.
+ *
+ * `measured` on its own is the number that misleads: a run over five repos
+ * that measures three is reported identically to one over three that measured
+ * all of them. Both shortfalls therefore get named, and only when non-zero —
+ * a healthy instance should read as one clean clause, not a list of zeros.
+ */
+function recalculateSummary(result: AdminRecalculateResult): string {
+  const parts = [
+    `Measured ${result.measured} of ${result.requested} repo${
+      result.requested === 1 ? '' : 's'
+    } · ${formatBytes(result.total_bytes)}`,
+  ]
+  if (result.skipped_missing > 0) {
+    parts.push(
+      `${result.skipped_missing} clone${
+        result.skipped_missing === 1 ? '' : 's'
+      } missing`,
+    )
+  }
+  if (result.failed > 0) {
+    parts.push(`${result.failed} failed`)
+  }
+  return parts.join(' · ')
+}
+
 export function useRecalculateAdminStorage() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: recalculateAdminStorage,
-    onSuccess: () => {
+    onSuccess: (result) => {
       // Recalculate is synchronous, so by the time this fires the new sizes
       // are already readable — invalidating everything under `admin` picks up
       // both the summary totals and the per-repo list.
       queryClient.invalidateQueries({ queryKey: adminKeys.all })
+      toast.success(recalculateSummary(result))
     },
+    onError: () =>
+      toast.error('Could not measure clone sizes. Please try again.'),
   })
 }

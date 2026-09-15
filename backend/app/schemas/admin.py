@@ -307,3 +307,213 @@ class RecalculateResult(BaseModel):
     total_bytes: int
     duration_ms: int
     computed_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Pipeline health
+#
+# This block answers "is the application working", not "how are the students
+# doing". The distinction matters: an instructor wants the green/yellow/red
+# spread, while an admin wants to know whether the scoring pipeline ran at
+# all. So health data appears here only as coverage — `unknown` status and a
+# NULL health_score — and never as a performance breakdown.
+# ---------------------------------------------------------------------------
+
+
+class SyncStateCounts(BaseModel):
+    """Current Repo.sync_status across the instance, zero-filled.
+
+    All three states always present: a `failed` key that disappears when
+    nothing is failing would make a healthy instance and a broken query look
+    identical to the client.
+    """
+
+    idle: int = 0
+    syncing: int = 0
+    failed: int = 0
+
+
+class SyncErrorGroup(BaseModel):
+    """Repos grouped by identical `sync_error`.
+
+    Grouped rather than listed because the shape of the failure is the
+    diagnosis. One bad credential or one unreachable host reads as a single
+    row with a count of twelve, instead of twelve rows an admin has to
+    compare by eye to notice they are the same fault.
+
+    `example_repo_name` gives somewhere to start looking without widening the
+    response into a full per-repo list — /admin/attention is that list.
+    """
+
+    error: str
+    repos: int
+    example_repo_name: str
+    last_seen: datetime | None = None
+
+
+class AgeBucket(BaseModel):
+    """One bucket of an ordered age histogram.
+
+    `never` is deliberately a bucket rather than a zero: a repo that has never
+    synced is not "synced a very long time ago", and averaging it in either
+    direction would misstate the fleet.
+    """
+
+    key: Literal["lt1d", "1to3d", "3to7d", "7to30d", "gt30d", "never"]
+    label: str
+    repos: int
+
+
+class CoverageGap(BaseModel):
+    """Rows missing data that a working pipeline would have filled.
+
+    Always carries its own `total`. The denominators genuinely differ per gap
+    — orphan directories are counted against directories on disk, not against
+    repo rows — and a bar drawn against the wrong one would overstate the
+    problem.
+    """
+
+    key: Literal[
+        "no_health_score",
+        "unknown_health",
+        "unmeasured_clone",
+        "missing_clone",
+        "orphan_directory",
+        "unattributed_summary",
+    ]
+    label: str
+    affected: int
+    total: int
+
+
+class DeliveryHealth(BaseModel):
+    """Notification email delivery.
+
+    `emailed_at IS NULL` is a silent failure by construction: nothing else
+    records that a send was attempted and lost, so an undelivered count is the
+    only evidence a misconfigured transport leaves behind.
+
+    `users_with_deliverable_transport` mirrors
+    NotificationSetting.is_deliverable (email_enabled AND has_transport_config)
+    rather than just counting rows — a settings row with email switched off is
+    a deliberate opt-out, not a fault.
+    """
+
+    notifications_in_window: int
+    delivered: int
+    undelivered: int
+    users_with_deliverable_transport: int
+    users_total: int
+
+
+class AdminPipeline(BaseModel):
+    window_days: int
+    sync_state: SyncStateCounts
+    sync_errors: list[SyncErrorGroup]
+    # Over last_synced_at (when we last pulled), never last_commit_at (when a
+    # student last pushed). Only the former is an operations metric.
+    sync_age: list[AgeBucket]
+    coverage: list[CoverageGap]
+    delivery: DeliveryHealth
+    generated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Growth
+# ---------------------------------------------------------------------------
+
+
+class GrowthPoint(BaseModel):
+    """New rows on one day.
+
+    Every day in the window is present, zero-filled server-side. A client that
+    infers the missing days draws a line straight through the gaps, and a gap
+    in an instance-growth chart is exactly the thing worth seeing.
+    """
+
+    day: date
+    repos: int = 0
+    users: int = 0
+    collections: int = 0
+    summaries: int = 0
+    commit_classifications: int = 0
+    notes: int = 0
+    notifications: int = 0
+
+
+class GrowthDelta(BaseModel):
+    """A measured change, never a modelled one.
+
+    `added_in_previous_window` is the honest basis for a "vs previous N days"
+    chip: both figures are counts of rows whose creation timestamp falls in a
+    real interval. No rate is extrapolated and no trend is fitted, because
+    nothing in the schema would support one.
+    """
+
+    metric: Literal[
+        "repos",
+        "users",
+        "collections",
+        "contributors",
+        "summaries",
+        "commit_classifications",
+        "notes",
+        "notifications",
+    ]
+    current_total: int
+    added_in_window: int
+    added_in_previous_window: int
+
+
+class AdminGrowth(BaseModel):
+    window_days: int
+    daily: list[GrowthPoint]
+    deltas: list[GrowthDelta]
+    generated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Attention
+# ---------------------------------------------------------------------------
+
+AttentionCode = Literal[
+    "sync_failed",
+    "never_synced",
+    "stale_sync",
+    "clone_missing",
+    "unmeasured",
+    "no_health_data",
+]
+
+
+class AttentionReason(BaseModel):
+    code: AttentionCode
+    label: str
+
+
+class AttentionRepo(BaseModel):
+    """A repo with at least one operational fault.
+
+    Reasons are operational only. There is deliberately no `health_red`: a
+    failing student project is an instructor's problem, and putting it in an
+    admin's action queue would bury the faults only an admin can fix.
+    """
+
+    id: uuid.UUID
+    name: str
+    collection_id: uuid.UUID
+    collection_name: str
+    sync_status: str
+    sync_error: str | None = None
+    last_synced_at: datetime | None = None
+    local_path: str | None = None
+    reasons: list[AttentionReason]
+    severity: int
+
+
+class AdminAttention(BaseModel):
+    items: list[AttentionRepo]
+    total: int
+    limit: int
+    offset: int
+    generated_at: datetime

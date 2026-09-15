@@ -242,3 +242,107 @@ async def test_list_clone_directories_accepts_an_explicit_root(
     found = await service.list_clone_directories(str(tmp_path))
 
     assert found == [os.path.normpath(str(tmp_path / "c" / "r"))]
+
+
+# ---------------------------------------------------------------------------
+# Clone-shape guards
+#
+# A naive depth-2 scan reported 10 orphaned clones against a real repo root
+# that held exactly two: one project had been cloned one level too shallow,
+# so its own subdirectories (api/, app/, docs/, .git/, ...) were each counted
+# as a separate repo with no database row.
+# ---------------------------------------------------------------------------
+
+
+async def test_list_clone_directories_counts_a_shallow_clone_once(
+    tmp_path: Path,
+) -> None:
+    """A clone at depth 1 is one clone, not one per subdirectory."""
+    project = tmp_path / "DataDucksDB"
+    _init_repo(project)
+    for child in ("api", "app", "database-files", "datasets", "docs", "ml-src"):
+        (project / child).mkdir()
+
+    found = await service.list_clone_directories(str(tmp_path))
+
+    assert found == [os.path.normpath(str(project))]
+
+
+async def test_list_clone_directories_finds_shallow_and_nested_clones_together(
+    tmp_path: Path,
+) -> None:
+    """The real repo root has both shapes at once."""
+    shallow = tmp_path / "DataDucksDB"
+    _init_repo(shallow)
+    (shallow / "app").mkdir()
+    nested = tmp_path / "cs101" / "project-a"
+    nested.mkdir(parents=True)
+    _init_repo(nested)
+
+    found = await service.list_clone_directories(str(tmp_path))
+
+    assert found == sorted(
+        [os.path.normpath(str(shallow)), os.path.normpath(str(nested))]
+    )
+
+
+async def test_list_clone_directories_skips_dot_directories(
+    tmp_path: Path,
+) -> None:
+    """A clone is never named .cache or .ipynb_checkpoints.
+
+    Counting hidden directories inflated the orphan count by one apiece.
+    Deliberately no .git here — that would make the collection folder itself
+    a clone, which the guard below covers instead.
+    """
+    collection = tmp_path / "cs101"
+    (collection / "project-a").mkdir(parents=True)
+    (collection / ".cache").mkdir()
+    (collection / ".ipynb_checkpoints").mkdir()
+
+    found = await service.list_clone_directories(str(tmp_path))
+
+    assert found == [os.path.normpath(str(collection / "project-a"))]
+
+
+async def test_a_dot_git_at_collection_level_makes_the_collection_the_clone(
+    tmp_path: Path,
+) -> None:
+    """The shallow-clone guard wins over descending into children.
+
+    A folder holding .git is a clone whatever else is inside it, so it is
+    reported once rather than having its children listed. This is the
+    DataDucksDB case: the children are the project's own directories.
+    """
+    collection = tmp_path / "cs101"
+    (collection / "project-a").mkdir(parents=True)
+    (collection / ".git").mkdir()
+
+    found = await service.list_clone_directories(str(tmp_path))
+
+    assert found == [os.path.normpath(str(collection))]
+
+
+async def test_list_clone_directories_skips_a_dot_directory_at_the_root(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".claude" / "settings").mkdir(parents=True)
+    (tmp_path / "cs101" / "project-a").mkdir(parents=True)
+
+    found = await service.list_clone_directories(str(tmp_path))
+
+    assert found == [os.path.normpath(str(tmp_path / "cs101" / "project-a"))]
+
+
+async def test_list_clone_directories_treats_a_git_file_as_a_clone(
+    tmp_path: Path,
+) -> None:
+    """A worktree or submodule records .git as a file, not a directory."""
+    project = tmp_path / "worktree-style"
+    project.mkdir()
+    (project / ".git").write_text("gitdir: /elsewhere/.git/worktrees/x\n")
+    (project / "src").mkdir()
+
+    found = await service.list_clone_directories(str(tmp_path))
+
+    assert found == [os.path.normpath(str(project))]
