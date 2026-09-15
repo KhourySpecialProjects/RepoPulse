@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -175,7 +176,7 @@ async def test_commit_activity_skips_repos_without_local_path(
     db_session: AsyncSession,
     test_user,
 ) -> None:
-    """Repos with no local_path are skipped; result is empty activity list."""
+    """A repo with no clone and no snapshot contributes nothing."""
     resp = await test_client.post(
         "/api/v1/collections",
         headers=auth_headers,
@@ -212,7 +213,7 @@ async def test_commit_activity_silently_skips_broken_git_repo(
     db_session: AsyncSession,
     test_user,
 ) -> None:
-    """If parse_commits raises an exception, that repo is skipped silently."""
+    """A broken clone with no snapshot behind it contributes nothing."""
     resp = await test_client.post(
         "/api/v1/collections",
         headers=auth_headers,
@@ -315,3 +316,182 @@ async def test_contextual_activity_authorized_collection(test_client, auth_heade
     assert missing.status_code == 404
     anonymous = await test_client.get(f'/api/v1/collections/{collection_id}/contextual-activity')
     assert anonymous.status_code in (401, 403)
+
+
+# ── Snapshot fallback ────────────────────────────────────────────────────────
+#
+# The dashboard graph and the collection chart both read this endpoint, and it
+# was the only commit reader still going straight to the clone with no fallback:
+# `get_repo_commits` and `collect_activity` already drop back to the last synced
+# snapshot. On any machine that never did the clone — a fresh container, a
+# recreated bind mount, a seeded database — that made the graph read flat zero
+# while the commits table beside it showed history.
+
+
+async def _snapshot(db_session: AsyncSession, repo_id: uuid.UUID) -> None:
+    from app.services import commit_snapshot_service
+
+    await commit_snapshot_service.store(
+        db_session,
+        repo_id,
+        [
+            {**commit, "date": datetime.fromisoformat(commit["date"]), "branches": [commit["branch"]], "origin_branch": commit["branch"]}
+            for commit in FAKE_COMMITS
+        ],
+    )
+    await db_session.flush()
+
+
+async def _collection(test_client: AsyncClient, auth_headers: dict, label: str) -> str:
+    resp = await test_client.post(
+        "/api/v1/collections",
+        headers=auth_headers,
+        json={"name": label, "local_folder_name": f"{label}-{uuid.uuid4().hex[:6]}"},
+    )
+    assert resp.status_code == 201
+    return resp.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_commit_activity_falls_back_to_snapshot_when_the_clone_is_unreadable(
+    test_client: AsyncClient,
+    auth_headers: dict,
+    db_session: AsyncSession,
+    test_user,
+) -> None:
+    coll_id = await _collection(test_client, auth_headers, "fallback")
+
+    repo = Repo(
+        id=uuid.uuid4(),
+        collection_id=uuid.UUID(coll_id),
+        github_url="https://github.com/test/unreadable",
+        name="unreadable",
+        local_path="/nonexistent/clone",
+        health_status="unknown",
+    )
+    db_session.add(repo)
+    await db_session.flush()
+    await _snapshot(db_session, repo.id)
+
+    with patch(
+        "app.api.routes.collections._git_service.parse_commits",
+        new=AsyncMock(side_effect=Exception("not a git repository")),
+    ):
+        resp = await test_client.get(
+            f"/api/v1/collections/{coll_id}/commit-activity",
+            headers=auth_headers,
+        )
+
+    assert resp.status_code == 200
+    # Same aggregation as a live clone: 2 commits on the 1st, 1 on the 3rd.
+    assert resp.json()["activity"] == [
+        {"date": "2025-01-01", "count": 2},
+        {"date": "2025-01-03", "count": 1},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_commit_activity_uses_the_snapshot_when_there_is_no_clone_path(
+    test_client: AsyncClient,
+    auth_headers: dict,
+    db_session: AsyncSession,
+    test_user,
+) -> None:
+    """A pathless repo must not be filtered out of the query, or its snapshot
+    can never be reached."""
+    coll_id = await _collection(test_client, auth_headers, "pathless")
+
+    repo = Repo(
+        id=uuid.uuid4(),
+        collection_id=uuid.UUID(coll_id),
+        github_url="https://github.com/test/pathless",
+        name="pathless",
+        local_path=None,
+        health_status="unknown",
+    )
+    db_session.add(repo)
+    await db_session.flush()
+    await _snapshot(db_session, repo.id)
+
+    resp = await test_client.get(
+        f"/api/v1/collections/{coll_id}/commit-activity",
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["activity"] == [
+        {"date": "2025-01-01", "count": 2},
+        {"date": "2025-01-03", "count": 1},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_commit_activity_prefers_the_live_clone_over_the_snapshot(
+    test_client: AsyncClient,
+    auth_headers: dict,
+    db_session: AsyncSession,
+    test_user,
+) -> None:
+    """The clone stays the source of truth; the snapshot is only a fallback."""
+    coll_id = await _collection(test_client, auth_headers, "prefers-live")
+
+    repo = Repo(
+        id=uuid.uuid4(),
+        collection_id=uuid.UUID(coll_id),
+        github_url="https://github.com/test/live",
+        name="live",
+        local_path="/repos/live",
+        health_status="unknown",
+    )
+    db_session.add(repo)
+    await db_session.flush()
+    await _snapshot(db_session, repo.id)
+
+    live = [dict(FAKE_COMMITS[0], hash="live001", date="2025-06-09T10:00:00")]
+    with patch(
+        "app.api.routes.collections._git_service.parse_commits",
+        new=AsyncMock(return_value=live),
+    ):
+        resp = await test_client.get(
+            f"/api/v1/collections/{coll_id}/commit-activity",
+            headers=auth_headers,
+        )
+
+    assert resp.status_code == 200
+    # Only the clone's commit — the snapshot's three are not mixed in.
+    assert resp.json()["activity"] == [{"date": "2025-06-09", "count": 1}]
+
+
+@pytest.mark.asyncio
+async def test_commit_activity_still_dedupes_across_the_fallback(
+    test_client: AsyncClient,
+    auth_headers: dict,
+    db_session: AsyncSession,
+    test_user,
+) -> None:
+    """Two repos sharing a fork's history must not double-count it."""
+    coll_id = await _collection(test_client, auth_headers, "dedupe-fallback")
+
+    for name in ("fork-a", "fork-b"):
+        repo = Repo(
+            id=uuid.uuid4(),
+            collection_id=uuid.UUID(coll_id),
+            github_url=f"https://github.com/test/{name}",
+            name=name,
+            local_path=None,
+            health_status="unknown",
+        )
+        db_session.add(repo)
+        await db_session.flush()
+        await _snapshot(db_session, repo.id)
+
+    resp = await test_client.get(
+        f"/api/v1/collections/{coll_id}/commit-activity",
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["activity"] == [
+        {"date": "2025-01-01", "count": 2},
+        {"date": "2025-01-03", "count": 1},
+    ]
