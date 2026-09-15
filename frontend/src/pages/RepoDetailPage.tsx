@@ -801,6 +801,24 @@ export function RepoDetailPage() {
     )
   }, [searchParams])
 
+  // Arriving from workspace search for a person: open the page already filtered
+  // to them, so the reader sees that person's commits rather than an
+  // unexplained repo. Cleared like `?note=` so a reload drops the filter.
+  useEffect(() => {
+    const targetContributor = searchParams.get('contributor')
+    if (!targetContributor) return
+
+    setSelectedContributorIds(new Set([targetContributor]))
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current)
+        next.delete('contributor')
+        return next
+      },
+      { replace: true }
+    )
+  }, [searchParams])
+
   // Reset to page 0 when filters change
   useEffect(() => {
     setCommitPage(0)
