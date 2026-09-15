@@ -56,7 +56,7 @@ class OllamaAdapter(LLMService):
             # nothing to run — an instance on Ollama should not look idle. The
             # quota still counts these; an admin who switches to Ollama and
             # wants them uncapped raises the limit, which is one number.
-            self.usage.add(
+            self.usage.record_call(
                 int(data.get("prompt_eval_count") or 0),
                 int(data.get("eval_count") or 0),
             )

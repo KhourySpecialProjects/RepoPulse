@@ -134,6 +134,7 @@ export function AdminOverviewTab({ onNavigate }: Props) {
           isError={llmQuery.isError}
           isPlaceholder={llmQuery.isFetching && !llmQuery.isLoading}
           onRetry={() => llmQuery.refetch()}
+          onNavigate={onNavigate}
         />
       </div>
 
