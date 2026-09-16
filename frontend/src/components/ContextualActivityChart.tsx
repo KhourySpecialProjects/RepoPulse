@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { Area, AreaChart, CartesianGrid, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { TrickleProgress } from '@/components/ui/trickle-progress'
@@ -30,9 +31,26 @@ function ChartLoading() {
   )
 }
 
-export function ContextualActivityChart({ collectionId, repoId, children, actions, selectedContributorIds = [] }: { collectionId: string; repoId: string; children?: ReactNode; actions?: ReactNode; selectedContributorIds?: string[] }) {
+export function ContextualActivityChart({ collectionId, repoId, children, actions, selectedContributorIds = [], expanded = true, onToggle }: {
+  collectionId: string
+  repoId: string
+  children?: ReactNode
+  actions?: ReactNode
+  selectedContributorIds?: string[]
+  /** Whether the graph is showing. State lives on the page, which persists it per repo. */
+  expanded?: boolean
+  /**
+   * Makes the card collapsible. Omitted, the title stays plain text and the
+   * graph is always open — which is how this component is rendered in its
+   * older tests, and keeps it usable outside RepoDetailPage.
+   */
+  onToggle?: () => void
+}) {
   const { data, isLoading, isError, refetch } = useContextualActivity(collectionId)
   const [range, setRange] = useState('30')
+  // Scoped to the repo so two of these on one page could not both claim the
+  // same aria-controls target.
+  const contentId = `commit-activity-${repoId}`
   const repo = data?.repositories.find(r => r.id === repoId)
   const students = repo?.students.filter(s => selectedContributorIds.includes(s.id)) ?? []
   const allSelected = !selectedContributorIds.length || (Boolean(repo?.students.length) && students.length === repo?.students.length)
@@ -52,18 +70,55 @@ export function ContextualActivityChart({ collectionId, repoId, children, action
   const normalPoint = annotations.length === 0 ? points[points.length - 1] : undefined
   return <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Commit Activity</CardTitle>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {actions}
-          <select aria-label="Activity range" value={range} onChange={e => setRange(e.target.value)} className="rounded border bg-background p-2 text-sm">
-            <option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="all">All history</option>
-          </select>
+      {/* space-y-1 rather than the card default's 1.5: the pills sit directly
+          under the title and read as part of the same block. */}
+      <CardHeader className="space-y-1">
+        {/* One row — title left, controls right. They were stacked, and since
+            the controls were `justify-end` the space beneath the title was
+            left blank. */}
+        <div
+          data-testid="activity-header-row"
+          className="flex flex-wrap items-center justify-between gap-2"
+        >
+          <CardTitle className="text-base">Commit Activity</CardTitle>
+          {/* `actions` stays put when collapsed: Check In is not part of the
+              graph, and it is the reason most visits to this page happen.
+              The chevron is last, so it lands on the card's right edge like
+              the one on every SidebarPanel. */}
+          <div className="flex flex-wrap items-center gap-2">
+            {actions}
+            {expanded && (
+              <select aria-label="Activity range" value={range} onChange={e => setRange(e.target.value)} className="rounded border bg-background p-2 text-sm">
+                <option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="all">All history</option>
+              </select>
+            )}
+            {onToggle && (
+              <button
+                type="button"
+                onClick={onToggle}
+                aria-expanded={expanded}
+                aria-controls={contentId}
+                /* Names the section, not just the gesture: an icon-only
+                   control reading "Collapse" tells a screen-reader user
+                   nothing about what collapses. */
+                aria-label={`${expanded ? 'Collapse' : 'Expand'} Commit Activity`}
+                className="rounded p-1 text-muted-foreground hover:text-brand-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+              >
+                {expanded
+                  ? <ChevronUp className="h-4 w-4" />
+                  : <ChevronDown className="h-4 w-4" />}
+              </button>
+            )}
+          </div>
         </div>
         {children}
-        <p className="text-xs text-muted-foreground">UTC daily counts. Hover highlighted points for context. Quiet periods: 3+ days; bursts: 10+ commits and at least 3× the preceding week’s daily average. Comparisons use other readable repositories in this collection with history before the interval. Patterns suggest a check-in, not a conclusion about effort.</p>
+        {/* Explains the markers, so it goes with them. */}
+        {expanded && <p className="text-xs text-muted-foreground">UTC daily counts. Hover highlighted points for context. Quiet periods: 3+ days; bursts: 10+ commits and at least 3× the preceding week’s daily average. Comparisons use other readable repositories in this collection with history before the interval. Patterns suggest a check-in, not a conclusion about effort.</p>}
       </CardHeader>
-      <CardContent>
+      {/* Unmounted rather than `hidden`, unlike SidebarPanel: recharts
+          measures its container, and a hidden chart measures zero and then
+          has to re-render on expand anyway. */}
+      {expanded && <CardContent id={contentId}>
         {isLoading ? <ChartLoading /> : isError ? <p role="alert">Could not load activity. <button onClick={() => refetch()} className="underline">Retry</button></p> : !repo?.available ? <p>Repository history unavailable. Sync the repository and try again.</p> : !repo.activity.length ? <p>No commit history available.</p> : <>
           {/* Drawn from the last sync's snapshot, not the clone. */}
           {repo.stale && <p className="mb-2 text-xs text-amber-700">Showing the last synced history — the local clone could not be read.</p>}
@@ -106,7 +161,7 @@ export function ContextualActivityChart({ collectionId, repoId, children, action
             ))}
           </ul>
         </>}
-      </CardContent>
+      </CardContent>}
     </Card>
   </motion.div>
 }
