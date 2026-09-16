@@ -52,7 +52,7 @@ export function ContextualActivityChart({ collectionId, repoId, children, action
   const normalPoint = annotations.length === 0 ? points[points.length - 1] : undefined
   return <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
     <Card>
-      <CardHeader>
+      <CardHeader className="p-4 pb-2">
         <CardTitle className="text-base">Commit Activity</CardTitle>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {actions}
@@ -63,7 +63,7 @@ export function ContextualActivityChart({ collectionId, repoId, children, action
         {children}
         <p className="text-xs text-muted-foreground">UTC daily counts. Hover highlighted points for context. Quiet periods: 3+ days; bursts: 10+ commits and at least 3× the preceding week’s daily average. Comparisons use other readable repositories in this collection with history before the interval. Patterns suggest a check-in, not a conclusion about effort.</p>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-4 pt-0">
         {isLoading ? <ChartLoading /> : isError ? <p role="alert">Could not load activity. <button onClick={() => refetch()} className="underline">Retry</button></p> : !repo?.available ? <p>Repository history unavailable. Sync the repository and try again.</p> : !repo.activity.length ? <p>No commit history available.</p> : <>
           {/* Drawn from the last sync's snapshot, not the clone. */}
           {repo.stale && <p className="mb-2 text-xs text-amber-700">Showing the last synced history — the local clone could not be read.</p>}
@@ -91,7 +91,7 @@ export function ContextualActivityChart({ collectionId, repoId, children, action
           </div>
           {/* Every kind is listed whether or not it is on the chart today, so
               the legend reads as a key rather than a changing summary. */}
-          <ul aria-label="Marker legend" className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <ul aria-label="Marker legend" className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5">
             {ACTIVITY_LEGEND.map(entry => (
                 <li key={entry.key} className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   {/* Same dark ring the markers wear, so the swatch is the
