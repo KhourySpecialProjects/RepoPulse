@@ -1275,6 +1275,8 @@ export function RepoDetailPage() {
                   activityOverride={graphActivityOverride}
                   filterLabel={graphFilterLabel}
                   highlightDate={selectedDate || undefined}
+                  expanded={activityExpanded}
+                  onToggle={toggleActivity}
                   actions={<>
                         <button
                           onClick={handleCheckIn}
@@ -1923,6 +1925,7 @@ export function RepoDetailPage() {
                     also renders a clickable chip for its own branch, so
                     `getByRole('button', { name: 'feature/auth' })` matched two
                     elements and could not be scoped to the filter. */}
+                {allCommitsLoading ? <FilterPlaceholder /> : (
                 <div
                   role="group"
                   aria-label="Filter by commit branch"

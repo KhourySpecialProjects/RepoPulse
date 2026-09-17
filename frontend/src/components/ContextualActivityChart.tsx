@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { Area, AreaChart, CartesianGrid, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { TrickleProgress } from '@/components/ui/trickle-progress'
@@ -41,12 +42,14 @@ function ChartLoading() {
   )
 }
 
-export function ContextualActivityChart({ collectionId, repoId, children, actions, selectedContributorIds = [], activityOverride = null, filterLabel, highlightDate }: {
+export function ContextualActivityChart({ collectionId, repoId, children, actions, selectedContributorIds = [], activityOverride = null, filterLabel, highlightDate, expanded = true, onToggle }: {
   collectionId: string
   repoId: string
   children?: ReactNode
   actions?: ReactNode
   selectedContributorIds?: string[]
+  expanded?: boolean
+  onToggle?: () => void
   /**
    * A pre-filtered daily series that replaces the repo's own history.
    *
