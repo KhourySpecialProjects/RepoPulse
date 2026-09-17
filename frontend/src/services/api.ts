@@ -73,10 +73,23 @@ apiClient.interceptors.request.use((config) => {
   return config
 })
 
+/**
+ * Endpoints where a 401 is the answer to credentials the user just typed, not
+ * a session that expired. Signing out and reloading the page on one of those
+ * would throw away the caller's own error message before it could be read —
+ * the login form would blank itself the instant you got the password wrong.
+ */
+const CREDENTIAL_ENDPOINTS = ['/auth/login', '/auth/dev-login', '/auth/account-setup']
+
+function answersSubmittedCredentials(url: string | undefined): boolean {
+  if (!url) return false
+  return CREDENTIAL_ENDPOINTS.some((endpoint) => url.startsWith(endpoint))
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && !answersSubmittedCredentials(error.config?.url)) {
       localStorage.removeItem('auth_token')
       localStorage.removeItem('auth_user')
       window.location.href = '/login'

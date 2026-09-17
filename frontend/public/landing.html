@@ -441,7 +441,7 @@ dialog::backdrop{background:#0f172a5c;backdrop-filter:blur(2px)}
         <li class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Search across repositories and people, typos included</li>
         <li class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Open any repository in GitHub or VS&nbsp;Code</li>
         <li class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Instructor, TA and admin roles</li>
-        <li class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Runs locally on Docker Compose</li>
+        <li class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Self-hosted on your own infrastructure</li>
         <li class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Seeded demo data, so the dashboard works on day one</li>
       </ul>
     </div>
@@ -502,7 +502,7 @@ dialog::backdrop{background:#0f172a5c;backdrop-filter:blur(2px)}
           <div>
             <h3>Evidence, not impressions.</h3>
             <p>
-              Every score traces back to commits in a clone sitting on your own machine, scored the
+              Every score traces back to commits in a clone RepoPulse keeps, scored the
               same way each week. Every AI overview is stored with the model and timestamp behind
               it, so a summary is always something you can check rather than something you have to
               trust.
@@ -595,7 +595,8 @@ dialog::backdrop{background:#0f172a5c;backdrop-filter:blur(2px)}
       Built by <b>Awad Buisir</b>, <b>Jaylen Zeng</b>, <b>Brady Cai</b> and <b>Spiros Halkias</b>.
     </p>
     <p class="fine-print">
-      Git history is read from clones on your own machine. Only the context you send for an AI
+      Git history is read from clones on the machine running RepoPulse. Only the context you send
+      for an AI
       Overview leaves it, and it goes to the model provider configured in Settings.
     </p>
   </div>
@@ -623,17 +624,19 @@ dialog::backdrop{background:#0f172a5c;backdrop-filter:blur(2px)}
     <div class="help-item">
       <h3>Getting started</h3>
       <ol>
-        <li>Start the stack with <code>docker compose up</code> and open <code>localhost:5173</code>.</li>
-        <li>Log in. In dev mode the login screen offers instructor, TA and admin profiles with no password.</li>
-        <li>Create a collection, paste your repository URLs, and sync. Health scores appear once the first sync finishes.</li>
+        <li>Sign in, then create a collection for your course or your cohort.</li>
+        <li>Paste the GitHub URLs of your teams' repositories into it and sync. Each one is
+          cloned and its full history read.</li>
+        <li>Health scores and the workspace pulse appear once the first sync finishes. Open any
+          repository from there for its commits, its contributors and your notes.</li>
       </ol>
     </div>
     <div class="help-item">
       <h3>Do I need a GitHub token?</h3>
       <p>
-        No. Cloning and analysis use git directly, so there is no API rate limit to work around.
-        AI Overviews are the one part that needs a key: set <code>ANTHROPIC_API_KEY</code> in
-        <code>.env</code> and pick a model in Settings.
+        No. Cloning and analysis use git directly, so there is no API rate limit to work around
+        and nothing to authorize. AI Overviews are the one part that calls out to a model
+        provider, and Settings is where you choose which model and what it is asked to look for.
       </p>
     </div>
     <div class="help-item">
