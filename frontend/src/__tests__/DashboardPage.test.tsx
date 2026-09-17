@@ -144,6 +144,9 @@ function setup(
 ) {
   const all = opts?.notifications ?? []
   server.use(
+    http.get('/api/v1/notifications/reminders', () =>
+      HttpResponse.json({ items: reminders, total: reminders.length })
+    ),
     http.get('/api/v1/collections', () =>
       HttpResponse.json({ items: [collection], total: 1, limit: 50, offset: 0 })
     ),

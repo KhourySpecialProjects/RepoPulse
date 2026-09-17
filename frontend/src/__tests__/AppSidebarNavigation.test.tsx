@@ -89,3 +89,33 @@ describe('AppSidebar — RepoPulse logo navigates to the home page', () => {
   })
 })
 
+describe('AppSidebar — signing out', () => {
+  it('leaves the visitor at the login form, not the public landing page', async () => {
+    // Signing out only clears the session: whatever route it happened on
+    // decides what comes next. At '/' that is the landing page, which exists
+    // for people who have not signed in — not for someone who just signed out
+    // and may well want straight back in.
+    renderSidebar('/')
+    await waitFor(() => expect(screen.getByText('CS 101 Fall 2025')).toBeInTheDocument())
+    expect(currentPath()).toBe('/')
+
+    fireEvent.click(screen.getByRole('button', { name: /Log out/ }))
+
+    expect(currentPath()).toBe('/login')
+  })
+})
+
+describe('HomePage', () => {
+  it('renders an intentionally blank page', () => {
+    const { container } = render(
+      <MemoryRouter initialEntries={['/']}>
+        <HomePage />
+      </MemoryRouter>
+    )
+
+    const page = container.querySelector('[data-testid="home-page"]') as HTMLElement
+    expect(page).not.toBeNull()
+    // Blank for now — a placeholder to build on, with no content to assert
+    expect(page.textContent).toBe('')
+  })
+})

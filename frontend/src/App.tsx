@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import { useAuth } from '@/hooks/useAuth'
 import { LoginPage } from '@/pages/LoginPage'
+import { LandingPage } from '@/pages/LandingPage'
 import { AccountSetupPage } from '@/pages/AccountSetupPage'
 import { NotificationsPage } from '@/pages/NotificationsPage'
 import { CollectionsPage } from '@/pages/CollectionsPage'
@@ -20,15 +21,19 @@ interface ProtectedRouteProps {
   children: React.ReactNode
 }
 
+function Resolving() {
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+    </div>
+  )
+}
+
 function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { isAuthenticated, isLoading } = useAuth()
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-      </div>
-    )
+    return <Resolving />
   }
 
   if (!isAuthenticated) {
@@ -38,7 +43,24 @@ function ProtectedRoute({ children }: ProtectedRouteProps) {
   return <>{children}</>
 }
 
-function AppRoutes() {
+/**
+ * `/` is the one route with two audiences. Signed in it is the dashboard;
+ * signed out it is the landing page, rather than the login form a deep link
+ * into the app still gets. The stored session is read asynchronously, so the
+ * unresolved state has to wait here — treating it as "signed out" would throw
+ * every returning visitor out to marketing and back on each reload.
+ */
+export function HomeRoute() {
+  const { isAuthenticated, isLoading } = useAuth()
+
+  if (isLoading) {
+    return <Resolving />
+  }
+
+  return isAuthenticated ? <DashboardPage /> : <LandingPage />
+}
+
+export function AppRoutes() {
   const location = useLocation()
   const { isAuthenticated } = useAuth()
 
@@ -49,18 +71,11 @@ function AppRoutes() {
           path="/login"
           element={isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />}
         />
+        <Route path="/" element={<HomeRoute />} />
         {/* Public, and deliberately not redirected when already signed in the
             way /login is: an admin checking a link they just generated should
             reach the page, which warns them before replacing their session. */}
         <Route path="/account-setup" element={<AccountSetupPage />} />
-        <Route
-          path="/"
-          element={
-            <ProtectedRoute>
-              <DashboardPage />
-            </ProtectedRoute>
-          }
-        />
         <Route
           path="/collections"
           element={

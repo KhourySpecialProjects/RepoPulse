@@ -156,8 +156,29 @@ describe('averageHealthSignals', () => {
       repo({ id: 'c', health_score: null }),
     ])
 
-    expect(signals.find(s => s.key === 'distribution')?.value).toBe(0.5)
-    expect(signals.find(s => s.key === 'recency')?.value).toBe(2)
+    expect(signals.find(s => s.key === 'distribution')?.value).toBe(25)
+    expect(signals.find(s => s.key === 'recency')?.value).toBe(100)
+  })
+
+  it('reports the average out of 100, not on the backend 0-2 scale', () => {
+    // The backend grades each signal 0, 1 or 2. That scale is an internal
+    // detail; everything user-facing is a score out of 100, matching the
+    // composite badge.
+    const signals = averageHealthSignals([repo({ health_score: score({ recency: 1 }) })])
+
+    expect(signals.find(s => s.key === 'recency')?.value).toBe(50)
+    expect(signals.every(s => s.value >= 0 && s.value <= 100)).toBe(true)
+  })
+
+  it('rounds to a whole score rather than a long fraction', () => {
+    const signals = averageHealthSignals([
+      repo({ id: 'a', health_score: score({ distribution: 0 }) }),
+      repo({ id: 'b', health_score: score({ distribution: 0 }) }),
+      repo({ id: 'c', health_score: score({ distribution: 1 }) }),
+    ])
+
+    // (0 + 0 + 1) / 3 = 0.333 of 2 = 16.67 → 17
+    expect(signals.find(s => s.key === 'distribution')?.value).toBe(17)
   })
 
   it('treats a missing participation score as zero, matching the pills', () => {

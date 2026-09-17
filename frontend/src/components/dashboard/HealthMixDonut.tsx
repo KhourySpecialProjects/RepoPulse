@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { GitBranch } from 'lucide-react'
 import { healthMix } from '@/lib/dashboardInsights'
 import { HEALTH_STATUS_LABELS } from '@/components/HealthBadge'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useBackState } from '@/hooks/useBackTarget'
 import { cn } from '@/lib/utils'
 import type { HealthStatus, Repo } from '@/types'
@@ -26,6 +27,7 @@ export function HealthMixDonut({ repos, className, loading, failed, selectedStat
   const backState = useBackState()
 
   return (
+    <TooltipProvider delayDuration={0}>
     <section aria-label="Health mix" className={cn('flex min-h-64 min-w-0 flex-col rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm xl:min-h-0', className)}>
       <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Health mix</h2><span className="text-[10px] font-medium uppercase tracking-widest text-slate-400">Explore</span></div>
       {loading || failed ? <p className="my-auto text-center text-xs text-slate-500">{loading ? 'Loading health data…' : 'Health data is unavailable.'}</p> : <>
@@ -53,10 +55,23 @@ export function HealthMixDonut({ repos, className, loading, failed, selectedStat
         <div className="min-h-0 flex-shrink-0 border-t border-slate-100 pt-2">
           <p className="mb-2 text-[10px] text-slate-400">Repository map · select a tile</p>
           <nav aria-label="Repository health map" className="flex max-h-12 flex-wrap gap-1 overflow-y-auto">
-            {repos.map(repo => <Link key={repo.id} to={`/repos/${repo.id}`} state={backState} title={`${repo.name} · ${HEALTH_STATUS_LABELS[repo.health_status]}`} aria-label={`${repo.name} · ${HEALTH_STATUS_LABELS[repo.health_status]}`} className={cn('flex h-5 w-5 items-center justify-center rounded-md border transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-brand-500', TILE_CLASS[repo.health_status])}><GitBranch className="h-2.5 w-2.5" /></Link>)}
+            {repos.map(repo => {
+              const label = `${repo.name} · ${HEALTH_STATUS_LABELS[repo.health_status]}`
+              return (
+                <Tooltip key={repo.id}>
+                  <TooltipTrigger asChild>
+                    <Link to={`/repos/${repo.id}`} state={backState} title={label} aria-label={label} className={cn('flex h-5 w-5 items-center justify-center rounded-md border transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-indigo-500', TILE_CLASS[repo.health_status])}>
+                      <GitBranch className="h-2.5 w-2.5" />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">{label}</TooltipContent>
+                </Tooltip>
+              )
+            })}
           </nav>
         </div>
       </>}
     </section>
+    </TooltipProvider>
   )
 }
