@@ -486,8 +486,7 @@ export function RepoDetailPage() {
   // remember their state per repo, open by default.
   const [activityExpanded, toggleActivity] = usePersistedPanel(id, 'activity-expanded')
   const [branchFilterExpanded, toggleBranchFilter] = usePersistedPanel(id, 'branch-filter-expanded')
-  const [typeFilterExpanded, toggleTypeFilter] = usePersistedPanel(id, 'type-filter-expanded')
-  const [dateFilterExpanded, toggleDateFilter] = usePersistedPanel(id, 'date-filter-expanded')
+  const [typeDateExpanded, toggleTypeDate] = usePersistedPanel(id, 'type-date-filter-expanded')
   const [contributorsExpanded, toggleContributors] = usePersistedPanel(id, 'contributors-expanded')
   const [selectedContributorIds, setSelectedContributorIds] = useState<Set<string>>(new Set())
   const [editingContributorId, setEditingContributorId] = useState<string | null>(null)
@@ -560,9 +559,8 @@ export function RepoDetailPage() {
   const patchRepoMutation = usePatchRepo()
   const { data: prStats } = usePRStats(id ?? '')
   const PR_PAGE_SIZE = 10
-  const [prStateFilter, setPrStateFilter] = useState<string | undefined>(undefined)
   const [prPage, setPrPage] = useState(0)
-  const { data: prList } = usePullRequests(id ?? '', prStateFilter, PR_PAGE_SIZE, prPage * PR_PAGE_SIZE)
+  const { data: prList } = usePullRequests(id ?? '', undefined, PR_PAGE_SIZE, prPage * PR_PAGE_SIZE)
   const syncPRsMutation = useSyncPullRequests(id ?? '')
   const classifyMutation = useClassifyCommits(id ?? '')
 
@@ -1596,25 +1594,173 @@ export function RepoDetailPage() {
               panel has room to travel as you scroll. */}
           <div className="min-w-0 self-stretch flex flex-col gap-4 lg:col-start-1 lg:row-start-1">
 
+            <div className="flex flex-col gap-4" aria-label="Commit filters" role="group">
+            {(allCommitsLoading || (allCommitsData?.items.length ?? 0) > 0) && (
+              <SidebarPanel
+                title="Type and Date"
+                icon={Tag}
+                id="type-date-filter-content"
+                expanded={typeDateExpanded}
+                onToggle={toggleTypeDate}
+              >
+                <div className="flex flex-col gap-4">
+                  <div>
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">Type</p>
+                {allCommitsLoading ? <FilterPlaceholder /> : (
+                /* role/aria-label so tests and screen readers can tell this
+                   group apart — "All" appears in the Branch panel and the
+                   chart range selector too. */
+                <div
+                  role="group"
+                  aria-label="Filter by commit type"
+                  className="flex flex-wrap items-center gap-1.5"
+                >
+                  <button
+                    onClick={() => setSelectedTypes(new Set())}
+                    className={cn(
+                      'text-xs px-2 py-0.5 rounded border transition-colors',
+                      selectedTypes.size === 0
+                        ? 'bg-slate-700 text-white border-slate-700'
+                        : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                    )}
+                  >
+                    All
+                  </button>
+                  {/* Each chip wears its own type's colour, so this group is
+                      also the legend for the commit row tints. */}
+                  {COMMIT_TYPE_FILTERS.map((value) => {
+                    const style = commitTypeStyle(value)
+                    const active = selectedTypes.has(value)
+                    return (
+                      <button
+                        key={value}
+                        onClick={() => toggleType(value)}
+                        aria-pressed={active}
+                        className={cn(
+                          'text-xs px-2 py-0.5 rounded border transition-colors',
+                          active ? style.chipActive : style.chipIdle
+                        )}
+                      >
+                        {style.label}
+                      </button>
+                    )
+                  })}
+                </div>
+                )}
+                  </div>
+                  <div>
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">Date</p>
+                {allCommitsLoading ? <FilterPlaceholder /> : (
+                <div
+                  role="group"
+                  aria-label="Filter by commit date"
+                  className="flex flex-wrap items-center gap-1.5"
+                >
+                  {/* "All" is the first option rather than a separate reset
+                      button, so this panel starts with the same affordance as
+                      the Branch and Type panels above it. */}
+                  <select
+                    aria-label="Filter commits by date"
+                    value={selectedDate}
+                    onChange={e => setSelectedDate(e.target.value)}
+                    className={cn(
+                      'text-xs px-2 py-0.5 rounded border transition-colors focus:outline-none focus:border-brand-400',
+                      selectedDate
+                        ? 'bg-brand-600 text-white border-brand-600'
+                        : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                    )}
+                  >
+                    <option value="">All</option>
+                    {commitDates.map(d => (
+                      <option key={d} value={d}>{formatMonthDay(d)}</option>
+                    ))}
+                  </select>
+                  <span className="text-xs italic text-gray-400">
+                    *only showing dates with commits
+                  </span>
+                </div>
+                )}
+                  </div>
+                </div>
+              </SidebarPanel>
+            )}
+
+            {(allCommitsLoading || allBranches.length > 0) && (
+              <SidebarPanel
+                title="Branch"
+                icon={GitBranch}
+                id="branch-filter-content"
+                expanded={branchFilterExpanded}
+                onToggle={toggleBranchFilter}
+              >
+                {/* role/aria-label to match the Type and Date panels below.
+                    Without it this group was unaddressable: every commit row
+                    also renders a clickable chip for its own branch, so
+                    `getByRole('button', { name: 'feature/auth' })` matched two
+                    elements and could not be scoped to the filter. */}
+                {allCommitsLoading ? <FilterPlaceholder /> : (
+                <div
+                  role="group"
+                  aria-label="Filter by commit branch"
+                  className="flex flex-wrap items-center gap-1.5"
+                >
+                  <button
+                    onClick={() => setSelectedBranches(new Set())}
+                    className={cn(
+                      'text-xs px-2 py-0.5 rounded border transition-colors',
+                      selectedBranches.size === 0
+                        ? 'bg-brand-600 text-white border-brand-600'
+                        : 'bg-brand-50 text-brand-700 border-brand-200 hover:bg-brand-100'
+                    )}
+                  >
+                    All
+                  </button>
+                  {(showAllBranches ? allBranches : allBranches.slice(0, MAX_BRANCH_CHIPS)).map(b => (
+                    <button
+                      key={b}
+                      onClick={() => toggleBranch(b)}
+                      className={cn(
+                        'text-xs px-2 py-0.5 rounded border font-mono transition-colors',
+                        selectedBranches.has(b)
+                          ? 'bg-brand-600 text-white border-brand-600'
+                          : 'bg-brand-50 text-brand-700 border-brand-200 hover:bg-brand-100'
+                      )}
+                    >
+                      {b}
+                    </button>
+                  ))}
+                  {allBranches.length > MAX_BRANCH_CHIPS && (
+                    <button
+                      onClick={() => setShowAllBranches(v => !v)}
+                      className="text-xs px-2 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
+                    >
+                      {showAllBranches ? 'Show less' : `+${allBranches.length - MAX_BRANCH_CHIPS} more`}
+                    </button>
+                  )}
+                </div>
+                )}
+              </SidebarPanel>
+            )}
+
+            </div>
+
             {/* Pull Requests panel */}
-            <div className={cn('shrink-0 bg-card rounded-xl border border-border', PANEL_PADDING)}>
-              <h2 className="text-sm font-semibold">
+            <section
+              aria-label="Pull Requests"
+              className={cn('shrink-0 bg-card rounded-xl border border-border shadow-sm', PANEL_PADDING)}
+            >
+<div className="flex flex-wrap items-center gap-2">              <h2 className="text-sm font-semibold">
                 <button
                   type="button"
                   onClick={togglePullRequests}
                   aria-expanded={pullRequestsExpanded}
                   aria-controls="pull-requests-content"
-                  className="flex w-full items-center gap-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                  className="flex items-center gap-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
                 >
                   <GitPullRequest className="h-4 w-4 text-muted-foreground" />
                   Pull Requests
-                  {pullRequestsExpanded
-                    ? <ChevronUp className="ml-auto h-4 w-4" />
-                    : <ChevronDown className="ml-auto h-4 w-4" />}
                 </button>
-              </h2>
-              <div id="pull-requests-content" hidden={!pullRequestsExpanded}>
-              <div className="flex items-center gap-2 mt-2 mb-2">
+              </h2>              <div hidden={!pullRequestsExpanded} className={cn("ml-auto items-center gap-2", pullRequestsExpanded && "flex")}>
                 <button
                   onClick={() => syncPRsMutation.mutate()}
                   disabled={syncPRsMutation.isPending || !hasToken}
@@ -1632,27 +1778,17 @@ export function RepoDetailPage() {
                     {prStats.total_count}
                   </span>
                 )}
-              </div>
+              </div><button
+                type="button"
+                aria-label={`${pullRequestsExpanded ? 'Collapse' : 'Expand'} pull requests`}
+                aria-expanded={pullRequestsExpanded}
+                onClick={togglePullRequests}
+                className="ml-auto shrink-0 rounded p-1 hover:bg-brand-50 focus-visible:ring-2 focus-visible:ring-brand-400"
+              >
+                {pullRequestsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </button></div>
+              <div id="pull-requests-content" hidden={!pullRequestsExpanded} className="mt-2">
 
-              {/* State filter */}
-              {prStats && prStats.total_count > 0 && (
-                <div className="flex gap-1.5 mb-2">
-                  {(['all', 'open', 'merged', 'closed'] as const).map(s => (
-                    <button
-                      key={s}
-                      onClick={() => { setPrStateFilter(s === 'all' ? undefined : s); setPrPage(0) }}
-                      className={cn(
-                        'flex-1 py-0.5 rounded text-xs font-medium transition-colors capitalize',
-                        (s === 'all' ? !prStateFilter : prStateFilter === s)
-                          ? 'bg-brand-100 text-brand-700'
-                          : 'text-muted-foreground hover:text-foreground hover:bg-brand-100'
-                      )}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              )}
 
               {/* PR list */}
               {!prStats || prStats.total_count === 0 ? (
@@ -1722,44 +1858,31 @@ export function RepoDetailPage() {
                 </div>
               )}
               </div>
-            </div>
+            </section>
 
-            {/* Contributors and the three filters ride along as the commit
-                list scrolls — all four are useless out of reach of the rows
-                they describe. One sticky wrapper rather than four, so they
-                travel as a block instead of piling up at the same offset,
-                and it scrolls internally when the stack outgrows the
-                viewport (otherwise its lower panels become unreachable). */}
+            {/* Contributors remain separate from the commit filters. */}
             <div className="sticky top-6 flex max-h-[calc(100vh-3rem)] flex-col gap-4 overflow-y-auto">
             {/* Contributors panel */}
             <div className={cn('shrink-0 bg-card rounded-xl border border-border', PANEL_PADDING)}>
-              {/* Header is the toggle and nothing else, so its chevron lands on
-                  the same right edge as every other panel's. Expected and the
-                  merge buttons moved into the body below — they cannot sit in
-                  this row, because nesting controls inside the toggle button
-                  would be invalid and would swallow their clicks. */}
-              <h2 className="text-sm font-semibold">
+
+<div className="flex flex-wrap items-center gap-2">              <h2 className="text-sm font-semibold">
                 <button
                   type="button"
                   onClick={toggleContributors}
                   aria-expanded={contributorsExpanded}
                   aria-controls="contributors-content"
-                  className="flex w-full items-center gap-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                  className="flex items-center gap-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
                 >
                   <User className="h-4 w-4 text-muted-foreground" />
                   Contributors
-                  {contributorsExpanded
-                    ? <ChevronUp className="ml-auto h-4 w-4" />
-                    : <ChevronDown className="ml-auto h-4 w-4" />}
                 </button>
-              </h2>
-
-              {/* No cap here — the sticky wrapper scrolls the whole stack, and
-                  a scroll region inside a scroll region is miserable to use. */}
-              <div id="contributors-content" hidden={!contributorsExpanded} className="mt-2">
-              <div className="mb-2 flex flex-wrap items-center justify-end gap-1.5">
-                <span className="text-xs text-muted-foreground">Expected:</span>
+              </h2><div hidden={!contributorsExpanded} className={cn("ml-auto items-center gap-2", contributorsExpanded && "flex")}>              {sortedContributors.length > 0 && <label className="flex items-center gap-1 whitespace-nowrap text-xs">
+                <input type="checkbox" aria-label="Select all contributors" checked={selectedContributorIds.size === sortedContributors.length}
+                  onChange={e => { setSelectedContributorIds(new Set(e.target.checked ? sortedContributors.map(c => c.id) : [])); setShowMerge(false) }} className="accent-brand-600" />
+                Select all
+              </label>}<label className="flex items-center gap-1">                <span className="text-xs text-muted-foreground">Expected:</span>
                 <input
+                  aria-label="Expected contributors"
                   type="number"
                   min={contributors?.length ?? 1}
                   value={expectedCount}
@@ -1769,6 +1892,20 @@ export function RepoDetailPage() {
                   placeholder="—"
                   className="w-10 text-xs text-center border border-border rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white"
                 />
+</label></div><button
+                type="button"
+                aria-label={`${contributorsExpanded ? 'Collapse' : 'Expand'} contributors`}
+                aria-expanded={contributorsExpanded}
+                onClick={toggleContributors}
+                className="ml-auto shrink-0 rounded p-1 hover:bg-brand-50 focus-visible:ring-2 focus-visible:ring-brand-400"
+              >
+                {contributorsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </button></div>
+
+              {/* No cap here — the sticky wrapper scrolls the whole stack, and
+                  a scroll region inside a scroll region is miserable to use. */}
+              <div id="contributors-content" hidden={!contributorsExpanded} className="mt-2">
+              <div className="mb-2 flex flex-wrap items-center justify-end gap-1.5">
                 {selectedMergedContributor && (
                   <button
                     onClick={handleUnmerge}
@@ -1815,11 +1952,7 @@ export function RepoDetailPage() {
                 </div>
               )}
 
-              {sortedContributors.length > 0 && <label className="mb-2 flex items-center gap-2 text-sm">
-                <input type="checkbox" aria-label="Select all contributors" checked={selectedContributorIds.size === sortedContributors.length}
-                  onChange={e => { setSelectedContributorIds(new Set(e.target.checked ? sortedContributors.map(c => c.id) : [])); setShowMerge(false) }} className="accent-brand-600" />
-                Select all
-              </label>}
+
               {!sortedContributors.length ? (
                 <p className="text-xs text-muted-foreground text-center py-4">No contributors found.</p>
               ) : (
@@ -1901,166 +2034,6 @@ export function RepoDetailPage() {
               </div>{/* end contributors-content */}
             </div>
 
-            {/* Commit filters. Each is its own section rather than a row in the
-                Commits card.
-
-                Rendered while the commit list is still loading, then hidden if
-                it turns out there is nothing to filter. Two separate rules:
-                the panels used to appear only once `allCommitsData` arrived,
-                and since the page body paints immediately they popped in a
-                beat later and shoved this column down on every refresh. The
-                original reason for the condition — an empty Branch panel is a
-                dead header — still holds for a repo with no commits, which is
-                why the check is `loading || has data` rather than dropped. */}
-            {(allCommitsLoading || allBranches.length > 0) && (
-              <SidebarPanel
-                title="Branch"
-                icon={GitBranch}
-                id="branch-filter-content"
-                expanded={branchFilterExpanded}
-                onToggle={toggleBranchFilter}
-              >
-                {/* role/aria-label to match the Type and Date panels below.
-                    Without it this group was unaddressable: every commit row
-                    also renders a clickable chip for its own branch, so
-                    `getByRole('button', { name: 'feature/auth' })` matched two
-                    elements and could not be scoped to the filter. */}
-                {allCommitsLoading ? <FilterPlaceholder /> : (
-                <div
-                  role="group"
-                  aria-label="Filter by commit branch"
-                  className="flex flex-wrap items-center gap-1.5"
-                >
-                  <button
-                    onClick={() => setSelectedBranches(new Set())}
-                    className={cn(
-                      'text-xs px-2 py-0.5 rounded border transition-colors',
-                      selectedBranches.size === 0
-                        ? 'bg-brand-600 text-white border-brand-600'
-                        : 'bg-brand-50 text-brand-700 border-brand-200 hover:bg-brand-100'
-                    )}
-                  >
-                    All
-                  </button>
-                  {(showAllBranches ? allBranches : allBranches.slice(0, MAX_BRANCH_CHIPS)).map(b => (
-                    <button
-                      key={b}
-                      onClick={() => toggleBranch(b)}
-                      className={cn(
-                        'text-xs px-2 py-0.5 rounded border font-mono transition-colors',
-                        selectedBranches.has(b)
-                          ? 'bg-brand-600 text-white border-brand-600'
-                          : 'bg-brand-50 text-brand-700 border-brand-200 hover:bg-brand-100'
-                      )}
-                    >
-                      {b}
-                    </button>
-                  ))}
-                  {allBranches.length > MAX_BRANCH_CHIPS && (
-                    <button
-                      onClick={() => setShowAllBranches(v => !v)}
-                      className="text-xs px-2 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
-                    >
-                      {showAllBranches ? 'Show less' : `+${allBranches.length - MAX_BRANCH_CHIPS} more`}
-                    </button>
-                  )}
-                </div>
-                )}
-              </SidebarPanel>
-            )}
-
-            {(allCommitsLoading || (allCommitsData?.items.length ?? 0) > 0) && (
-              <SidebarPanel
-                title="Type"
-                icon={Tag}
-                id="type-filter-content"
-                expanded={typeFilterExpanded}
-                onToggle={toggleTypeFilter}
-              >
-                {allCommitsLoading ? <FilterPlaceholder /> : (
-                /* role/aria-label so tests and screen readers can tell this
-                   group apart — "All" appears in the Branch panel and the
-                   chart range selector too. */
-                <div
-                  role="group"
-                  aria-label="Filter by commit type"
-                  className="flex flex-wrap items-center gap-1.5"
-                >
-                  <button
-                    onClick={() => setSelectedTypes(new Set())}
-                    className={cn(
-                      'text-xs px-2 py-0.5 rounded border transition-colors',
-                      selectedTypes.size === 0
-                        ? 'bg-slate-700 text-white border-slate-700'
-                        : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
-                    )}
-                  >
-                    All
-                  </button>
-                  {/* Each chip wears its own type's colour, so this group is
-                      also the legend for the commit row tints. */}
-                  {COMMIT_TYPE_FILTERS.map((value) => {
-                    const style = commitTypeStyle(value)
-                    const active = selectedTypes.has(value)
-                    return (
-                      <button
-                        key={value}
-                        onClick={() => toggleType(value)}
-                        aria-pressed={active}
-                        className={cn(
-                          'text-xs px-2 py-0.5 rounded border transition-colors',
-                          active ? style.chipActive : style.chipIdle
-                        )}
-                      >
-                        {style.label}
-                      </button>
-                    )
-                  })}
-                </div>
-                )}
-              </SidebarPanel>
-            )}
-
-            {(allCommitsLoading || commitDates.length > 0) && (
-              <SidebarPanel
-                title="Date"
-                icon={Calendar}
-                id="date-filter-content"
-                expanded={dateFilterExpanded}
-                onToggle={toggleDateFilter}
-              >
-                {allCommitsLoading ? <FilterPlaceholder /> : (
-                <div
-                  role="group"
-                  aria-label="Filter by commit date"
-                  className="flex flex-wrap items-center gap-1.5"
-                >
-                  {/* "All" is the first option rather than a separate reset
-                      button, so this panel starts with the same affordance as
-                      the Branch and Type panels above it. */}
-                  <select
-                    aria-label="Filter commits by date"
-                    value={selectedDate}
-                    onChange={e => setSelectedDate(e.target.value)}
-                    className={cn(
-                      'text-xs px-2 py-0.5 rounded border transition-colors focus:outline-none focus:border-brand-400',
-                      selectedDate
-                        ? 'bg-brand-600 text-white border-brand-600'
-                        : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
-                    )}
-                  >
-                    <option value="">All</option>
-                    {commitDates.map(d => (
-                      <option key={d} value={d}>{formatMonthDay(d)}</option>
-                    ))}
-                  </select>
-                  <span className="text-xs italic text-gray-400">
-                    *only showing dates with commits
-                  </span>
-                </div>
-                )}
-              </SidebarPanel>
-            )}
             </div>
 
           </div>{/* end sidebar column */}

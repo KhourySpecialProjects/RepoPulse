@@ -140,7 +140,7 @@ describe('RepoDetailPage — commit date filter', () => {
     await waitFor(() => expect(screen.getByText('feat: first on day one')).toBeInTheDocument())
 
     // Its own collapsible sidebar section now, so the heading is the toggle.
-    expect(screen.getByRole('button', { name: 'Date' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: 'Type and Date' })).toHaveAttribute('aria-expanded', 'true')
     expect(dateInput()).toBeInTheDocument()
   })
 
@@ -148,14 +148,14 @@ describe('RepoDetailPage — commit date filter', () => {
     setupHandlers()
     renderPage()
     await waitFor(() => expect(screen.getByText('feat: first on day one')).toBeInTheDocument())
-    const toggle = screen.getByRole('button', { name: 'Date' })
+    const toggle = screen.getByRole('button', { name: 'Type and Date' })
 
     fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    expect(document.getElementById('date-filter-content')).toHaveAttribute('hidden')
+    expect(document.getElementById('type-date-filter-content')).toHaveAttribute('hidden')
 
     fireEvent.click(toggle)
-    expect(document.getElementById('date-filter-content')).not.toHaveAttribute('hidden')
+    expect(document.getElementById('type-date-filter-content')).not.toHaveAttribute('hidden')
   })
 
   it('shows every commit until a date is chosen', async () => {
