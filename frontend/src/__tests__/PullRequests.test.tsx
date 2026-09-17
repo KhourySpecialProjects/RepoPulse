@@ -125,7 +125,7 @@ describe('Pull Requests — PRStats row', () => {
     await waitFor(() => expect(screen.getByText('Fetch PRs')).toBeInTheDocument())
   })
 
-  it('shows the total PR count and state controls when data is available', async () => {
+  it('shows the total PR count when data is available', async () => {
     server.use(
       http.get('/api/v1/repos/:id', () => HttpResponse.json(mockRepo)),
       http.get('/api/v1/repos/:id/pull-requests/stats', () => HttpResponse.json(mockPRStats)),
@@ -135,8 +135,6 @@ describe('Pull Requests — PRStats row', () => {
     await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
     const panel = screen.getByRole('heading', { name: 'Pull Requests' }).parentElement!
     expect(await within(panel).findByText('15')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^merged$/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^open$/i })).toBeInTheDocument()
   })
 
   it('renders the PR list when the average merge time is unavailable', async () => {
@@ -184,7 +182,7 @@ describe('Pull Requests — PR list section', () => {
     await waitFor(() => expect(screen.getByText('[Draft]')).toBeInTheDocument())
   })
 
-  it('filters PRs by state when tab is clicked', async () => {
+  it('shows all PR states without state filter buttons', async () => {
     server.use(
       http.get('/api/v1/repos/:id', () => HttpResponse.json(mockRepo)),
       http.get('/api/v1/repos/:id/pull-requests/stats', () => HttpResponse.json(mockPRStats)),
@@ -207,14 +205,11 @@ describe('Pull Requests — PR list section', () => {
     await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
     await waitFor(() => expect(screen.getByText('feat: add user authentication')).toBeInTheDocument())
 
-    // Click the "open" filter tab
-    const openTab = screen.getByRole('button', { name: /^open$/i })
-    fireEvent.click(openTab)
+    expect(screen.queryByRole('button', { name: /^open$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^merged$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^closed$/i })).not.toBeInTheDocument()
+    expect(screen.getByText('fix: resolve database connection issue')).toBeInTheDocument()
 
-    await waitFor(() => {
-      expect(screen.queryByText('feat: add user authentication')).not.toBeInTheDocument()
-      expect(screen.getByText('fix: resolve database connection issue')).toBeInTheDocument()
-    })
   })
 
   it('does not render PR list section when total is 0', async () => {

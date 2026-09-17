@@ -1,50 +1,61 @@
 import axios from 'axios'
 import type {
-  TokenResponse,
-  Collection,
-  CreateCollectionData,
-  UpdateCollectionData,
-  Repo,
-  HealthScore,
-  Contributor,
-  UnmergeContributorsResponse,
-  Note,
-  CreateNoteData,
-  UpdateNoteData,
-  Summary,
-  GenerateSummaryData,
+  AdminAttention,
+  AdminLlmUsage,
+  AdminOverview,
+  AdminPipeline,
+  AdminRecalculateResult,
+  AdminRepoSizeSort,
+  AdminRepoStorageItem,
+  AdminStorageSummary,
+  AdminSystemStatus,
   AppSettings,
-  UpdateSettingsData,
-  PaginatedResponse,
+  ChangePasswordData,
+  ClassifyCommitsResponse,
+  Collection,
+  CollectionAccessEntry,
+  CollectionCommitActivity,
+  CommitQualityResponse,
   CommitsResponse,
+  Contributor,
+  CreateCollectionData,
+  CreateNoteData,
+  CreateUserData,
+  CreateUserResponse,
+  GenerateSummaryData,
   GetCommitsParams,
   GetNotesParams,
-  UserDetail,
-  CreateUserData,
-  UpdateUserData,
-  PatchMeData,
-  ChangePasswordData,
-  CollectionAccessEntry,
+  HealthScore,
+  LlmConfig,
+  Note,
   NoteComment,
   Notification,
   NotificationListResponse,
   NotificationPreferences,
-  UpdateNotificationPreferencesData,
-  ReminderListResponse,
-  RecentlyDeletedListResponse,
-  CommitQualityResponse,
-  ClassifyCommitsResponse,
   PRListResponse,
   PRStats,
   PRSyncResponse,
-  AdminStorageSummary,
-  AdminRepoStorageItem,
-  AdminRepoSizeSort,
-  AdminRecalculateResult,
-  AdminOverview,
-  AdminSystemStatus,
-  AdminLlmUsage,
-  CollectionCommitActivity,
+  PaginatedResponse,
+  PatchMeData,
+  RecentlyDeletedListResponse,
+  ReminderListResponse,
+  Repo,
+  Summary,
+  SetupLink,
+  SetupTokenInfo,
+  TokenQuota,
+  TokenResponse,
+  TokenUsageSummary,
+  UnmergeContributorsResponse,
+  UpdateCollectionData,
+  UpdateLlmConfigData,
+  UpdateNoteData,
+  UpdateNotificationPreferencesData,
+  UpdateSettingsData,
+  UpdateUserData,
+  UserDetail,
+  UserTokenUsage,
+  UserTokenUsageListResponse,
 } from '@/types'
 
 const apiClient = axios.create({
@@ -95,6 +106,32 @@ export async function devLogin(userId: string): Promise<TokenResponse> {
 
 export async function login(email: string, password: string): Promise<TokenResponse> {
   const response = await apiClient.post<TokenResponse>('/auth/login', { email, password }, {
+    signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
+  })
+  return response.data
+}
+
+/**
+ * Check an account setup link and find out who it belongs to. Rejects with a
+ * 400 (never a 401) when the link is unusable, so the response interceptor
+ * above does not redirect the recipient away from the setup page.
+ */
+export async function verifySetupToken(token: string): Promise<SetupTokenInfo> {
+  const response = await apiClient.post<SetupTokenInfo>('/auth/account-setup/verify', { token }, {
+    signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
+  })
+  return response.data
+}
+
+/** Redeem a setup link, setting the password and signing the user in. */
+export async function completeAccountSetup(
+  token: string,
+  newPassword: string
+): Promise<TokenResponse> {
+  const response = await apiClient.post<TokenResponse>('/auth/account-setup/complete', {
+    token,
+    new_password: newPassword,
+  }, {
     signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
   })
   return response.data
@@ -183,11 +220,6 @@ export async function getRepoContributors(id: string): Promise<Contributor[]> {
 }
 
 // Contributors
-export async function getContributor(id: string): Promise<Contributor> {
-  const response = await apiClient.get<Contributor>(`/contributors/${id}`)
-  return response.data
-}
-
 export async function updateContributor(id: string, displayName: string): Promise<Contributor> {
   const response = await apiClient.put<Contributor>(`/contributors/${id}`, { display_name: displayName })
   return response.data
@@ -200,11 +232,6 @@ export async function mergeContributors(ids: string[], displayName: string): Pro
 
 export async function unmergeContributor(id: string): Promise<UnmergeContributorsResponse> {
   const response = await apiClient.post<UnmergeContributorsResponse>(`/contributors/${id}/unmerge`)
-  return response.data
-}
-
-export async function getContributorAliases(id: string): Promise<Contributor> {
-  const response = await apiClient.get<Contributor>(`/contributors/${id}/aliases`)
   return response.data
 }
 
@@ -262,6 +289,59 @@ export async function updateSettings(data: UpdateSettingsData): Promise<AppSetti
   return response.data
 }
 
+/** The signed-in user's own AI token usage. Any role may read this. */
+export async function getMyTokenUsage(): Promise<TokenQuota> {
+  const response = await apiClient.get<TokenQuota>('/settings/token-usage')
+  return response.data
+}
+
+// Shared LLM configuration and token limits (admin only)
+export async function getLlmConfig(): Promise<LlmConfig> {
+  const response = await apiClient.get<LlmConfig>('/admin/llm-config')
+  return response.data
+}
+
+export async function updateLlmConfig(data: UpdateLlmConfigData): Promise<LlmConfig> {
+  const response = await apiClient.patch<LlmConfig>('/admin/llm-config', data)
+  return response.data
+}
+
+export async function getTokenUsageSummary(): Promise<TokenUsageSummary> {
+  const response = await apiClient.get<TokenUsageSummary>(
+    '/admin/token-usage/summary'
+  )
+  return response.data
+}
+
+export async function getTokenUsage(params?: {
+  limit?: number
+  offset?: number
+}): Promise<UserTokenUsageListResponse> {
+  const response = await apiClient.get<UserTokenUsageListResponse>(
+    '/admin/token-usage',
+    { params }
+  )
+  return response.data
+}
+
+/**
+ * Set or clear one user's monthly allowance.
+ *
+ * `null` clears the override so the user follows the instance default; `0`
+ * revokes their AI access. The parameter is required so those two cannot be
+ * confused with an accidental omission.
+ */
+export async function setUserTokenLimit(
+  userId: string,
+  monthlyTokenLimit: number | null
+): Promise<UserTokenUsage> {
+  const response = await apiClient.patch<UserTokenUsage>(
+    `/admin/users/${userId}/token-limit`,
+    { monthly_token_limit: monthlyTokenLimit }
+  )
+  return response.data
+}
+
 // Users
 export async function getUsers(params?: { collection_id?: string }): Promise<UserDetail[]> {
   const res = await apiClient.get<{ items: UserDetail[]; total: number }>('/users', { params })
@@ -283,8 +363,8 @@ export async function changePassword(data: ChangePasswordData): Promise<UserDeta
   return res.data
 }
 
-export async function createUser(data: CreateUserData): Promise<UserDetail> {
-  const res = await apiClient.post<UserDetail>('/users', data)
+export async function createUser(data: CreateUserData): Promise<CreateUserResponse> {
+  const res = await apiClient.post<CreateUserResponse>('/users', data)
   return res.data
 }
 
@@ -297,8 +377,13 @@ export async function deleteUser(id: string): Promise<void> {
   await apiClient.delete(`/users/${id}`)
 }
 
-export async function resetUserPassword(id: string, newPassword: string): Promise<void> {
-  await apiClient.post(`/users/${id}/reset-password`, { new_password: newPassword })
+/**
+ * Mint a fresh setup link for an existing user — this is how a password gets
+ * reset. The admin hands the link over instead of choosing a password.
+ */
+export async function generateSetupLink(id: string): Promise<SetupLink> {
+  const res = await apiClient.post<SetupLink>(`/users/${id}/setup-link`)
+  return res.data
 }
 
 // Collection access
@@ -537,6 +622,22 @@ export async function getAdminSystem(): Promise<AdminSystemStatus> {
 export async function getAdminLlmUsage(days = 30): Promise<AdminLlmUsage> {
   const res = await apiClient.get<AdminLlmUsage>('/admin/llm-usage', {
     params: { days },
+  })
+  return res.data
+}
+
+export async function getAdminPipeline(): Promise<AdminPipeline> {
+  const res = await apiClient.get<AdminPipeline>('/admin/pipeline')
+  return res.data
+}
+
+export async function getAdminAttention(params?: {
+  limit?: number
+  offset?: number
+  stale_after_days?: number
+}): Promise<AdminAttention> {
+  const res = await apiClient.get<AdminAttention>('/admin/attention', {
+    params,
   })
   return res.data
 }

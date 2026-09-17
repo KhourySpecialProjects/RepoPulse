@@ -9,6 +9,51 @@ export type CommitQualityScore = 'good' | 'ok' | 'bad'
 /** `unclassified` is a filter value only — it never appears on a commit. */
 export type CommitTypeFilter = CommitType | 'unclassified'
 
+/**
+ * The repo page's commit filters, as decoded from the query string.
+ *
+ * Empty means "All" for each of them — there is no separate "all" value, so a
+ * shared link only ever carries the filters that are actually narrowing the
+ * view. Read-only because these are derived from the URL, never mutated in
+ * place: a writer builds a fresh set and hands it back.
+ */
+export interface CommitFilters {
+  branches: ReadonlySet<string>
+  types: ReadonlySet<CommitTypeFilter>
+  /** A single local calendar day, `YYYY-MM-DD`; `''` is the All option. */
+  date: string
+  contributorIds: ReadonlySet<string>
+}
+
+/**
+ * The values a filter param is allowed to take, so a link that has rotted —
+ * a deleted branch, a contributor id destroyed by a merge — can be ignored
+ * rather than filtering the table to nothing.
+ *
+ * `null` means "not knowable yet", and the URL is trusted verbatim. It has to
+ * be a nullable set rather than a loading flag: `isLoading` is false both on
+ * error and on cached-but-empty data, either of which would throw away a
+ * perfectly good param.
+ */
+export interface CommitFilterOptions {
+  branches: ReadonlySet<string> | null
+  dates: ReadonlySet<string> | null
+  contributorIds: ReadonlySet<string> | null
+}
+
+/** A `useState`-shaped setter, so the filters read like the state they replaced. */
+export type SetCommitFilterValue<T> = (
+  next: ReadonlySet<T> | ((prev: ReadonlySet<T>) => ReadonlySet<T>)
+) => void
+
+export interface CommitFilterControls {
+  filters: CommitFilters
+  setBranches: SetCommitFilterValue<string>
+  setTypes: SetCommitFilterValue<CommitTypeFilter>
+  setDate: (next: string) => void
+  setContributorIds: SetCommitFilterValue<string>
+}
+
 export interface CommitActivityPoint {
   date: string // YYYY-MM-DD
   count: number
@@ -165,13 +210,116 @@ export interface AppSettings {
   id: string
   user_id: string
   repo_root_directory: string
-  llm_provider: string
-  llm_model: string
-  anthropic_api_key_configured: boolean
-  ollama_base_url: string | null
   health_thresholds: Record<string, unknown> | null
   /** Instructor rubric added to the built-in criteria. '' means no addendum. */
   commit_evaluation_criteria: string
+  /**
+   * The model the instance is configured to use. Read-only here — the
+   * provider, the model and the API key are one instance-wide setting only an
+   * administrator can change (see LlmConfig). Shown so a user knows what will
+   * run without needing admin rights.
+   */
+  llm_model: string
+}
+
+/**
+ * One user's AI token allowance for the current calendar month.
+ *
+ * `limit` and `remaining` are null together, and only for an administrator,
+ * who is never metered. Branch on `unlimited` rather than on null.
+ */
+export interface TokenQuota {
+  /** Calendar month the usage counts against, e.g. '2026-09'. */
+  period: string
+  used: number
+  limit: number | null
+  remaining: number | null
+  unlimited: boolean
+  exceeded: boolean
+}
+
+/** The instance-wide LLM configuration. Admin-only. */
+export interface LlmConfig {
+  id: string
+  llm_provider: 'anthropic' | 'ollama'
+  llm_model: string
+  /** True when a key is available, from the database or the environment. */
+  anthropic_api_key_configured: boolean
+  /** True when the working key comes from ANTHROPIC_API_KEY, not the panel. */
+  anthropic_api_key_from_env: boolean
+  ollama_base_url: string | null
+  default_monthly_token_limit: number
+  /**
+   * USD per million tokens, set by an administrator. Serialised as a decimal
+   * string so no precision is lost in transit. Null means no rate is set,
+   * which is reported as cost unavailable rather than as zero.
+   */
+  input_price_per_mtok: string | null
+  output_price_per_mtok: string | null
+  updated_at: string | null
+}
+
+export interface UpdateLlmConfigData {
+  llm_provider?: 'anthropic' | 'ollama'
+  llm_model?: string
+  /** null clears the stored key and falls back to ANTHROPIC_API_KEY. */
+  anthropic_api_key?: string | null
+  ollama_base_url?: string | null
+  default_monthly_token_limit?: number
+  /** null clears the rate, which stops a cost being reported at all. */
+  input_price_per_mtok?: string | null
+  output_price_per_mtok?: string | null
+}
+
+/**
+ * Instance-wide token spend for a month, and what it cost.
+ *
+ * Everything but the rates is measured: the token counts come from what the
+ * provider reported per call. Replaces the old LLM Usage tab's "Token usage
+ * and cost" card, which could only report that nothing was recorded.
+ */
+export interface TokenUsageSummary {
+  period: string
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  /** Successful calls. A failed call writes no usage row. */
+  calls: number
+  models: string[]
+  input_price_per_mtok: string | null
+  output_price_per_mtok: string | null
+  /** Null when either rate is unset — an unknown cost, not a free one. */
+  estimated_cost_usd: string | null
+  /**
+   * True when more than one model spent tokens this period. One
+   * instance-wide rate pair cannot price two models, so the total is
+   * approximate and has to be labelled as such.
+   */
+  mixed_models: boolean
+}
+
+/** A row of the admin token-usage table. */
+export interface UserTokenUsage {
+  user_id: string
+  display_name: string
+  email: string
+  role: UserRole
+  used: number
+  limit: number | null
+  remaining: number | null
+  unlimited: boolean
+  exceeded: boolean
+  /**
+   * This user's own override, or null when they follow the instance default.
+   * Distinct from `limit`, the resolved effective number — both are needed to
+   * tell "500,000 (default)" from "500,000 (set for this user)".
+   */
+  override: number | null
+}
+
+export interface UserTokenUsageListResponse
+  extends PaginatedResponse<UserTokenUsage> {
+  period: string
 }
 
 export interface PaginatedResponse<T> {
@@ -235,13 +383,6 @@ export interface UpdateNoteData {
   is_archived?: boolean
 }
 
-export interface UserSummary {
-  id: string
-  display_name: string
-  email: string
-  role: string
-}
-
 export interface UserDetail {
   id: string
   email: string
@@ -256,8 +397,31 @@ export interface CreateUserData {
   email: string
   display_name: string
   role: 'instructor' | 'ta' | 'admin'
-  password: string
   github_token?: string
+}
+
+/**
+ * A one-time account setup link. The token is readable only in the response
+ * that mints it — the server stores just a hash — so it has to be handed over
+ * before the dialog closes.
+ */
+export interface SetupLink {
+  token: string
+  /** Relative; prefix with the current origin to get a shareable URL. */
+  setup_path: string
+  expires_at: string
+}
+
+export interface CreateUserResponse {
+  user: UserDetail
+  setup: SetupLink
+}
+
+/** What the setup page learns about a link before anyone has signed in. */
+export interface SetupTokenInfo {
+  email: string
+  display_name: string
+  expires_at: string
 }
 
 export interface UpdateUserData {
@@ -371,12 +535,15 @@ export interface GenerateSummaryData {
   summary_type: SummaryType
 }
 
+/**
+ * What a user may change about their own settings.
+ *
+ * No provider, model or API key: those moved to the admin-only LlmConfig.
+ * The backend ignores them if sent, so their absence here is the type
+ * catching it at compile time instead.
+ */
 export interface UpdateSettingsData {
   repo_root_directory?: string
-  llm_provider?: string
-  llm_model?: string
-  anthropic_api_key?: string
-  ollama_base_url?: string | null
   health_thresholds?: Record<string, unknown> | null
   commit_evaluation_criteria?: string
 }
@@ -674,8 +841,18 @@ export interface AdminSystemStatus {
   git_version: string | null
 }
 
+/**
+ * The LLM features that spend tokens, and so the series the volume graph
+ * stacks. `commit_quality` was invisible while call volume came from a union
+ * over the summaries and commit-classification tables.
+ */
+export type AdminLlmUsageKind =
+  | 'summary'
+  | 'commit_classification'
+  | 'commit_quality'
+
 export interface AdminLlmModelUsage {
-  kind: 'summary' | 'commit_classification'
+  kind: AdminLlmUsageKind
   model: string
   calls: number
   first_at: string | null
@@ -684,29 +861,138 @@ export interface AdminLlmModelUsage {
 
 export interface AdminLlmDailyUsage {
   day: string
-  kind: string
-  calls: number
-}
-
-export interface AdminLlmOwnerUsage {
-  user_id: string
-  display_name: string
+  kind: AdminLlmUsageKind
   calls: number
 }
 
 /**
- * Deliberately carries no cost and no failure count — neither is derivable
- * from what the backend persists. See the LlmUsage schema docstring.
+ * Provider call volume. `total_calls` counts requests, summed from the per-call
+ * count on each usage row — not rows in an artefact table, which is what made
+ * a 222-commit Classify run report 222 calls against six batched requests.
+ *
+ * Deliberately carries no cost and no failure count, and no per-user
+ * attribution: cost and per-user limits are on the AI Settings tab, priced
+ * from measured tokens. See the LlmUsage schema docstring.
  */
 export interface AdminLlmUsage {
   window_days: number
   total_calls: number
   by_model: AdminLlmModelUsage[]
   daily: AdminLlmDailyUsage[]
-  by_collection_owner: AdminLlmOwnerUsage[]
-  unattributed_summaries: number
   models_in_use: string[]
   retired_models_in_use: string[]
   current_default_model: string
+  generated_at: string
+}
+
+// ---------------------------------------------------------------------------
+// Admin pipeline health
+//
+// This block answers "is the application working", not "how are the students
+// doing". Health data appears only as coverage — unknown status and a null
+// health_score both mean the scoring pipeline did not run. The
+// green/yellow/red spread is an instructor concern and is not served here.
+// ---------------------------------------------------------------------------
+
+/** All three states always present, zero-filled. */
+export interface AdminSyncStateCounts {
+  idle: number
+  syncing: number
+  failed: number
+}
+
+/**
+ * Repos grouped by identical sync_error.
+ *
+ * Grouped because the shape of the failure is the diagnosis: twelve repos
+ * failing on one credential is one problem, not twelve.
+ */
+export interface AdminSyncErrorGroup {
+  error: string
+  repos: number
+  example_repo_name: string
+  last_seen: string | null
+}
+
+export type AdminAgeBucketKey =
+  | 'lt1d'
+  | '1to3d'
+  | '3to7d'
+  | '7to30d'
+  | 'gt30d'
+  | 'never'
+
+/** `never` is its own bucket, not an infinite age — it sits off the ramp. */
+export interface AdminAgeBucket {
+  key: AdminAgeBucketKey
+  label: string
+  repos: number
+}
+
+export type AdminCoverageGapKey =
+  | 'no_health_score'
+  | 'unknown_health'
+  | 'unmeasured_clone'
+  | 'missing_clone'
+  | 'orphan_directory'
+  | 'unattributed_summary'
+
+/** Always carries its own `total`: the denominators genuinely differ per gap. */
+export interface AdminCoverageGap {
+  key: AdminCoverageGapKey
+  label: string
+  affected: number
+  total: number
+}
+
+export interface AdminPipeline {
+  sync_state: AdminSyncStateCounts
+  sync_errors: AdminSyncErrorGroup[]
+  /** Over last_synced_at (when we pulled), never last_commit_at. */
+  sync_age: AdminAgeBucket[]
+  coverage: AdminCoverageGap[]
+  generated_at: string
+}
+
+// ---------------------------------------------------------------------------
+// Admin attention
+// ---------------------------------------------------------------------------
+
+/**
+ * Operational codes only. There is deliberately no `health_red`: a failing
+ * student project is an instructor's problem, and listing it here would bury
+ * the faults only an admin can fix.
+ */
+export type AdminAttentionCode =
+  | 'sync_failed'
+  | 'never_synced'
+  | 'stale_sync'
+  | 'clone_missing'
+  | 'unmeasured'
+  | 'no_health_data'
+
+export interface AdminAttentionReason {
+  code: AdminAttentionCode
+  label: string
+}
+
+export interface AdminAttentionRepo {
+  id: string
+  name: string
+  collection_id: string
+  collection_name: string
+  sync_status: string
+  sync_error: string | null
+  last_synced_at: string | null
+  local_path: string | null
+  reasons: AdminAttentionReason[]
+  severity: number
+}
+
+export interface AdminAttention {
+  items: AdminAttentionRepo[]
+  total: number
+  limit: number
+  offset: number
   generated_at: string
 }

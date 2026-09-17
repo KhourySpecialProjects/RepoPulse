@@ -71,33 +71,27 @@ const defaultProps = {
 }
 
 describe('NotesDrawer', () => {
-  it('shows its notes straight away, with nothing to click first', () => {
+  it('starts closed and toggles open and closed from the edge button', () => {
     render(<NotesDrawer {...defaultProps} />)
-
-    expect(screen.getByText('This is a test note')).toBeInTheDocument()
-    expect(screen.getByTestId('note-form')).toBeInTheDocument()
-  })
-
-  it('has no tab, close, or pin control', () => {
-    render(<NotesDrawer {...defaultProps} />)
-
-    expect(screen.queryByTitle('Open notes')).not.toBeInTheDocument()
-    expect(screen.queryByTitle('Close')).not.toBeInTheDocument()
-    expect(screen.queryByTitle('Pin open')).not.toBeInTheDocument()
-    expect(screen.queryByTitle('Unpin')).not.toBeInTheDocument()
+    expect(screen.getByTestId('notes-panel')).not.toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Open notes' }))
+    expect(screen.getByTestId('notes-panel')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Close notes' })).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Close notes' }))
+    expect(screen.getByTestId('notes-panel')).not.toBeVisible()
   })
 
   it('keeps its heading and note count', () => {
     render(<NotesDrawer {...defaultProps} noteCount={3} />)
 
-    expect(screen.getByText('Notes')).toBeInTheDocument()
+    expect(screen.getAllByText('Notes')[0]).toBeInTheDocument()
     expect(screen.getByText('3')).toBeInTheDocument()
   })
 
   it('shows no count badge when there are no notes', () => {
     render(<NotesDrawer {...defaultProps} noteCount={0} notes={[]} />)
 
-    expect(screen.getByText('Notes')).toBeInTheDocument()
+    expect(screen.getAllByText('Notes')[0]).toBeInTheDocument()
     expect(screen.queryByText('0')).not.toBeInTheDocument()
   })
 

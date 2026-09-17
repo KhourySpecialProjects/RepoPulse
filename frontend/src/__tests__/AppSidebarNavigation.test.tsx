@@ -4,7 +4,6 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AppSidebar } from '@/components/AppSidebar'
-import { HomePage } from '@/pages/HomePage'
 import { SidebarContext } from '@/contexts/SidebarContext'
 
 vi.mock('@/hooks/useAuth', () => ({

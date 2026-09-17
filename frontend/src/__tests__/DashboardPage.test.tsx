@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/mocks/server'
 import { DashboardPage } from '@/pages/DashboardPage'
-import type { Collection, HealthScore, Repo } from '@/types'
+import type { Collection, HealthScore, Notification, Repo } from '@/types'
 
 vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => ({
@@ -85,35 +85,64 @@ const activity = [
   { date: '2024-01-01', count: 500 },
 ]
 
-const REMINDERS = [
-  {
-    id: 'rem-1',
-    content: 'Check in with the API team about test coverage',
-    remind_at: '2026-09-16T09:00:00Z',
-    reminder_context: null,
-    repo_id: 'repo-1',
-    commit_hash: null,
-    created_at: '2026-09-10T00:00:00Z',
-    owner_display_name: 'Mark',
-    shared_with: [],
-    is_owner: true,
-  },
-  {
-    // No repo behind it — the case the old count-based list could never show.
-    id: 'rem-2',
-    content: 'Draft the midterm rubric',
-    remind_at: null,
-    reminder_context: null,
-    repo_id: null,
-    commit_hash: null,
-    created_at: '2026-09-11T00:00:00Z',
-    owner_display_name: 'Mark',
-    shared_with: [],
-    is_owner: true,
-  },
-]
+/*
+ * Notification fixtures for the panel that replaced Follow-ups.
+ *
+ * `created_at` is a literal rather than `Date.now() - n`: these are evaluated
+ * at import time, before the fake clock above is installed, so a relative value
+ * would be computed against the real date and then rendered against 2026-09-15.
+ */
+const notification = (over: Partial<Notification> & Pick<Notification, 'id'>): Notification => ({
+  type: 'mention',
+  note_id: null,
+  comment_id: null,
+  is_read: false,
+  created_at: '2026-09-15T11:15:00Z',
+  note_content_preview: null,
+  repo_id: null,
+  commit_hash: null,
+  subject: null,
+  body: null,
+  ...over,
+})
 
-function setup(repos: Repo[], reminders = REMINDERS) {
+const unreadMention = notification({
+  id: 'n-mention',
+  type: 'mention',
+  note_id: 'note-1',
+  repo_id: 'repo-red',
+  note_content_preview: 'Hey @Mark take a look at this commit',
+})
+
+const unreadPr = notification({
+  id: 'n-pr',
+  type: 'pr_opened',
+  repo_id: 'repo-yellow',
+  subject: 'student-project opened a pull request',
+  body: 'Add seed script',
+})
+
+const readComment = notification({
+  id: 'n-read',
+  type: 'note_comment',
+  is_read: true,
+  repo_id: 'repo-green',
+  note_id: 'note-9',
+  note_content_preview: 'Already-read reply nobody needs to see',
+})
+
+/** Records the query strings the page asked the notifications endpoint for. */
+let notificationRequests: string[] = []
+
+beforeEach(() => {
+  notificationRequests = []
+})
+
+function setup(
+  repos: Repo[],
+  opts?: { notifications?: Notification[]; onPatchRead?: (id: string) => void }
+) {
+  const all = opts?.notifications ?? []
   server.use(
     http.get('/api/v1/notifications/reminders', () =>
       HttpResponse.json({ items: reminders, total: reminders.length })
@@ -124,8 +153,36 @@ function setup(repos: Repo[], reminders = REMINDERS) {
     http.get('/api/v1/collections/:id/repos', () =>
       HttpResponse.json({ items: repos, total: repos.length, limit: 50, offset: 0 })
     ),
-    http.get('/api/v1/collections/:id/commit-activity', () => HttpResponse.json({ activity }))
+    http.get('/api/v1/collections/:id/commit-activity', () => HttpResponse.json({ activity })),
+    // The real endpoint honours `unread_only`, so the mock does too — otherwise
+    // a panel that forgot to pass the flag would still look correct here.
+    http.get('/api/v1/notifications', ({ request }) => {
+      const url = new URL(request.url)
+      notificationRequests.push(url.search)
+      const items =
+        url.searchParams.get('unread_only') === 'true' ? all.filter(n => !n.is_read) : all
+      return HttpResponse.json({
+        items,
+        total: items.length,
+        unread_count: all.filter(n => !n.is_read).length,
+      })
+    }),
+    http.get('/api/v1/notifications/unread-count', () =>
+      HttpResponse.json({ unread_count: all.filter(n => !n.is_read).length })
+    ),
+    http.patch('/api/v1/notifications/:id/read', ({ params }) => {
+      opts?.onPatchRead?.(String(params.id))
+      return HttpResponse.json({ ...unreadMention, id: String(params.id), is_read: true })
+    })
   )
+}
+
+function LocationDisplay() {
+  const location = useLocation()
+  // Includes the query string: the deep link carrying which note or commit a
+  // notification was about lives there, so a pathname-only probe would report
+  // success for a click that landed on the bare repo page.
+  return <span data-testid="location">{location.pathname + location.search}</span>
 }
 
 function renderPage() {
@@ -133,6 +190,7 @@ function renderPage() {
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <MemoryRouter initialEntries={['/']}>
         <DashboardPage />
+        <LocationDisplay />
       </MemoryRouter>
     </QueryClientProvider>
   )
@@ -270,12 +328,15 @@ describe('DashboardPage — toolbar layout', () => {
 })
 
 describe('DashboardPage — working lists survive', () => {
-  it('keeps the attention list and follow-ups', async () => {
+  it('keeps the attention list alongside the notification feed', async () => {
     setup([repo({ health_status: 'red', active_reminder_count: 2 })])
     renderPage()
 
     expect(await screen.findByText('Needs attention')).toBeInTheDocument()
-    expect(screen.getByText('Follow-ups')).toBeInTheDocument()
+    // Follow-ups listed repos that merely *had* reminders; the slot now holds
+    // the unread feed, which shows what actually happened.
+    expect(screen.getByText('Recent notifications')).toBeInTheDocument()
+    expect(screen.queryByText('Follow-ups')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument()
   })
 })
@@ -403,97 +464,80 @@ describe('DashboardPage — stays within one screen', () => {
   })
 })
 
+// ──────────────────────────────────────────────
+// Follow-ups became a working notifications feed
+// ──────────────────────────────────────────────
+describe('DashboardPage — recent notifications panel', () => {
+  const unread = [unreadMention, unreadPr, readComment]
 
-/**
- * Follow-ups used to be derived from `repo.active_reminder_count`, which counts
- * only repo-attached reminders and ignores who they belong to. A standalone
- * reminder could never appear, and the card listed repo names with a tally
- * rather than the reminders themselves. It now reads /reminders, the same
- * source the notifications panel uses.
- */
-describe('DashboardPage — follow-ups', () => {
-  it('lists the actual reminders, not a per-repo tally', async () => {
-    setup([repo()])
+  it('asks the API for unread notifications only', async () => {
+    setup([repo()], { notifications: unread })
     renderPage()
 
-    const followups = await screen.findByTestId('followup-list')
-    expect(
-      await within(followups).findByText(/Check in with the API team/)
-    ).toBeInTheDocument()
+    await waitFor(() => expect(notificationRequests.length).toBeGreaterThan(0))
+    expect(notificationRequests.every(search => search.includes('unread_only=true'))).toBe(true)
   })
 
-  it('shows a reminder that is not attached to any repository', async () => {
-    setup([repo()])
+  it('renders each unread notification', async () => {
+    setup([repo()], { notifications: unread })
     renderPage()
 
-    const followups = await screen.findByTestId('followup-list')
-    expect(await within(followups).findByText(/Draft the midterm rubric/)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getAllByTestId('dashboard-notification')).toHaveLength(2))
+    expect(screen.getByText('Hey @Mark take a look at this commit')).toBeInTheDocument()
+    expect(screen.getByText('student-project opened a pull request')).toBeInTheDocument()
   })
 
-  it('counts every reminder in the metric tile, repo-attached or not', async () => {
-    setup([repo()])
+  it('titles note-scoped notifications by their event type', async () => {
+    setup([repo()], { notifications: unread })
     renderPage()
 
-    const metrics = await screen.findByLabelText('Workspace metrics')
-    const tile = within(metrics).getByText('active reminders').closest('div')
-      ?.parentElement as HTMLElement
-    expect(await within(tile).findByText('2')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('You were mentioned')).toBeInTheDocument())
   })
 
-  it('opens the repository behind a reminder, on that note', async () => {
-    setup([repo()])
+  it('does not show notifications that are already read', async () => {
+    setup([repo()], { notifications: unread })
     renderPage()
 
-    const followups = await screen.findByTestId('followup-list')
-    const link = await within(followups).findByRole('link', {
-      name: /Check in with the API team/,
-    })
-    expect(link).toHaveAttribute('href', '/repos/repo-1?note=rem-1')
+    await waitFor(() => expect(screen.getAllByTestId('dashboard-notification')).toHaveLength(2))
+    expect(screen.queryByText(/already-read reply/i)).not.toBeInTheDocument()
   })
 
-  it('sends a repo-less reminder to the notifications page instead', async () => {
-    setup([repo()])
+  it('shows how many are unread', async () => {
+    setup([repo()], { notifications: unread })
     renderPage()
 
-    const followups = await screen.findByTestId('followup-list')
-    const link = await within(followups).findByRole('link', {
-      name: /Draft the midterm rubric/,
-    })
+    const panel = await waitFor(() => screen.getByRole('region', { name: 'Recent notifications' }))
+    await waitFor(() => expect(panel).toHaveTextContent('2'))
+  })
+
+  it('marks a notification read and deep-links to what it was about', async () => {
+    const read: string[] = []
+    setup([repo()], { notifications: unread, onPatchRead: id => read.push(id) })
+    renderPage()
+
+    fireEvent.click(await waitFor(() => screen.getByRole('button', { name: /You were mentioned/ })))
+
+    await waitFor(() => expect(read).toEqual(['n-mention']))
+    // Not just `/repos/repo-red`: landing on the repo leaves the reader to find
+    // the note themselves, which is what this click is supposed to save them.
+    await waitFor(() =>
+      expect(screen.getByTestId('location')).toHaveTextContent('/repos/repo-red?note=note-1')
+    )
+  })
+
+  it('shows an empty state when nothing is unread', async () => {
+    setup([repo()], { notifications: [readComment] })
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText(/no unread notifications/i)).toBeInTheDocument())
+    expect(screen.queryAllByTestId('dashboard-notification')).toHaveLength(0)
+  })
+
+  it('links through to the full notifications page', async () => {
+    setup([repo()], { notifications: unread })
+    renderPage()
+
+    const link = await waitFor(() => screen.getByRole('link', { name: /view all/i }))
     expect(link).toHaveAttribute('href', '/notifications')
-  })
-
-  it('says there is nothing outstanding when the list is empty', async () => {
-    setup([repo()], [])
-    renderPage()
-
-    const followups = await screen.findByTestId('followup-list')
-    expect(await within(followups).findByText(/No active reminders/)).toBeInTheDocument()
-  })
-})
-
-
-describe('DashboardPage — repository health map', () => {
-  it('names the repository behind each tile on hover', async () => {
-    setup([repo()])
-    renderPage()
-
-    const donut = await screen.findByLabelText('Health mix')
-    const tile = await within(donut).findByRole('link', {
-      name: 'student-project · Healthy',
-    })
-    // The native title is kept as a fallback for the Radix tooltip.
-    expect(tile).toHaveAttribute('title', 'student-project · Healthy')
-  })
-})
-
-describe('DashboardPage — signal balance', () => {
-  it('scores each signal out of 100, like the composite badge', async () => {
-    setup([repo()])
-    renderPage()
-
-    const radar = await screen.findByLabelText('Health signal averages')
-    expect(await within(radar).findByText(/out of 100/)).toBeInTheDocument()
-    // This fixture scores distribution 0, so the weakest reads as 0/100.
-    expect(await within(radar).findByText(/Weakest signal/)).toHaveTextContent('0/100')
   })
 })

@@ -160,17 +160,19 @@ describe('AppSidebar collapse — closes off page content', () => {
 })
 
 describe('AppSidebar collapse — expand arrow matches the app theme', () => {
-  it('renders the expand arrow in the indigo theme colour', async () => {
+  it('renders the expand arrow in the brand theme colour', async () => {
     renderSidebar()
     await waitFor(() => expect(screen.getByText('CS 101 Fall 2025')).toBeInTheDocument())
 
     fireEvent.click(collapseBtn())
 
-    // Indigo matches the active nav item, commit links and course tags
+    // Brand purple matches the active nav item, commit links and course tags.
+    // Hover goes darker rather than sideways into the magenta accent, which
+    // does not clear AA against white text.
     const cls = expandBtn().className
-    expect(cls).toMatch(/bg-indigo-600/)
+    expect(cls).toMatch(/bg-brand-600/)
     expect(cls).toMatch(/text-white/)
-    expect(cls).toMatch(/hover:bg-indigo-700/)
+    expect(cls).toMatch(/hover:bg-brand-700/)
   })
 
   it('renders the expand arrow as its own raised box', async () => {

@@ -423,6 +423,54 @@ async def test_concurrency_is_capped() -> None:
     assert llm.peak_in_flight <= MAX_CONCURRENCY
 
 
+async def test_reported_usage_counts_one_call_per_batch() -> None:
+    """What the admin call-volume graph ultimately plots.
+
+    The route charges `classifier.usage` to the user, so the call count has to
+    survive the trip out of the service — one call per chunk, not one per
+    commit and not one per request.
+    """
+    class CountingLLM(RecordingLLM):
+        """Reports usage the way a real adapter does: once per generate."""
+
+        async def generate(
+            self, prompt: str, system: str | None = None, max_tokens: int = 1024
+        ) -> str:
+            answer = await super().generate(prompt, system, max_tokens)
+            self.usage.record_call(input_tokens=100, output_tokens=20)
+            return answer
+
+    llm = CountingLLM(_parity_responder)
+    service = CommitClassifierService(lambda: llm)
+
+    commits = [_commit(f"{i:040d}", f"commit {i}") for i in range(BATCH_SIZE * 3)]
+    await service.classify(commits)
+
+    assert len(llm.prompts) == 3
+    assert service.usage.calls == 3
+    assert service.usage.total_tokens == 360
+
+
+async def test_reported_calls_are_zero_when_no_llm_was_needed() -> None:
+    """A fully rule-decided run must not register as call volume."""
+    service = CommitClassifierService(CountingFactory(None))
+
+    results = await service.classify(
+        [
+            _commit(
+                "b" * 40,
+                "Merge pull request #1 from acme/topic",
+                # A type-only pass: with a score still wanted the commit would
+                # be batched anyway, and no LLM would mean no answer.
+                needs_score=False,
+            )
+        ]
+    )
+
+    assert results[0].source == "rules"
+    assert service.usage.calls == 0
+
+
 async def test_one_failing_chunk_does_not_poison_the_others() -> None:
     def responder(prompt: str) -> str:
         if '"commit 40"' in prompt:

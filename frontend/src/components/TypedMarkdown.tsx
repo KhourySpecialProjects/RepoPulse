@@ -63,7 +63,7 @@ export function TypedMarkdown({
       {typing && (
         <span
           aria-hidden
-          className="ml-0.5 inline-block h-4 w-[2px] translate-y-0.5 animate-pulse bg-violet-500 align-text-bottom motion-reduce:hidden"
+          className="ml-0.5 inline-block h-4 w-[2px] translate-y-0.5 animate-pulse bg-orchid-500 align-text-bottom motion-reduce:hidden"
         />
       )}
     </div>

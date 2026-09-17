@@ -436,12 +436,14 @@ async def seed() -> None:
         # ------------------------------------------------------------------
         # AppSettings for each user
         # ------------------------------------------------------------------
+        # No provider, model or API key here any more: those are one
+        # instance-wide row an administrator owns, and `get_llm_config`
+        # creates it from the environment on first read. Seeding it would
+        # hide the fact that a fresh install already works.
         for user_id in [USER_MARK, USER_TA, USER_ADMIN]:
             app_settings = AppSettings(
                 user_id=user_id,
                 repo_root_directory=SEED_REPOS_BASE,
-                llm_provider="anthropic",
-                llm_model=settings.DEFAULT_LLM_MODEL,
             )
             db.add(app_settings)
 

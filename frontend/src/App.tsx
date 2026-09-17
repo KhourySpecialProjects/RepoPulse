@@ -4,6 +4,7 @@ import { AnimatePresence } from 'framer-motion'
 import { useAuth } from '@/hooks/useAuth'
 import { LoginPage } from '@/pages/LoginPage'
 import { LandingPage } from '@/pages/LandingPage'
+import { AccountSetupPage } from '@/pages/AccountSetupPage'
 import { NotificationsPage } from '@/pages/NotificationsPage'
 import { CollectionsPage } from '@/pages/CollectionsPage'
 import { DashboardPage } from '@/pages/DashboardPage'
@@ -71,6 +72,10 @@ export function AppRoutes() {
           element={isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />}
         />
         <Route path="/" element={<HomeRoute />} />
+        {/* Public, and deliberately not redirected when already signed in the
+            way /login is: an admin checking a link they just generated should
+            reach the page, which warns them before replacing their session. */}
+        <Route path="/account-setup" element={<AccountSetupPage />} />
         <Route
           path="/collections"
           element={

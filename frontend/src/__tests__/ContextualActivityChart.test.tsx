@@ -2,6 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import { vi, it, expect, afterEach } from 'vitest'
 import type { ReactNode } from 'react'
 import { ContextualActivityChart } from '@/components/ContextualActivityChart'
+import { ACTIVITY_LEGEND, MARKER_RING } from '@/lib/activityContext'
 vi.mock('@/hooks/useContextualActivity', () => ({ useContextualActivity: () => ({ data: { repositories: [{ id: 'repo', name: 'Repo', available: true, activity: [{ date: '2026-09-01', count: 1 }], students: [{ id: 'alice', name: 'Alice', activity: [{ date: '2026-09-01', count: 1 }] }] }] }, isLoading: false }) }))
 // Recharts needs a measurable container, which jsdom cannot provide, so stub the
 // pieces we assert on and let the rest render as inert markers.
@@ -29,7 +30,12 @@ it('follows contributor IDs and restores the full graph', () => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date('2026-09-10T12:00:00Z'))
   const { rerender } = render(<ContextualActivityChart collectionId="collection" repoId="repo" selectedContributorIds={['alice']} />)
-  expect(screen.getByLabelText('Activity range').parentElement).toHaveClass('justify-end')
+  // The controls share the title's row and are pushed right by that row's
+  // justify-between, rather than by a justify-end on their own container as
+  // they were when they sat on a line of their own.
+  expect(
+    screen.getByLabelText('Activity range').closest('[data-testid="activity-header-row"]')
+  ).toHaveClass('justify-between')
   expect(screen.queryByLabelText('Student activity')).not.toBeInTheDocument()
   expect(screen.getByText('Alice — commits per day')).toBeInTheDocument()
   // Context strings used to be listed in <details> panels under the graph. Those
@@ -51,6 +57,15 @@ it('draws a smoothed curve while keeping the contextual markers', () => {
   vi.setSystemTime(new Date('2026-09-10T12:00:00Z'))
   render(<ContextualActivityChart collectionId="collection" repoId="repo" />)
   expect(areaProps[0]?.type).toBe('monotone')
-  // Yellow: this fixture's only marker is a quiet stretch.
-  expect(referenceDotProps.some(p => p.fill === '#eab308')).toBe(true)
+  // Against the legend's own palette rather than a literal hex, so a colour
+  // change reads as a colour change and not as a broken chart.
+  expect(
+    referenceDotProps.some(p => ACTIVITY_LEGEND.some(e => e.color === p.fill)),
+  ).toBe(true)
+  // Colour is never the only channel. Each marker wears the ring that keeps
+  // it legible over the area fill, and the legend beside the chart carries
+  // the text labels — which is why that legend is not optional.
+  expect(
+    referenceDotProps.filter(p => p.r).every(p => p.stroke === MARKER_RING),
+  ).toBe(true)
 })

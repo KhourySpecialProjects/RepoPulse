@@ -174,7 +174,7 @@ export function DashboardSearch({
                   onClick={() => go(hit)}
                   className={cn(
                     'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors',
-                    index === cursor ? 'bg-indigo-50' : 'hover:bg-slate-50'
+                    index === cursor ? 'bg-brand-50' : 'hover:bg-slate-50'
                   )}
                 >
                   <hit.Icon className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" />
@@ -210,7 +210,7 @@ export function DashboardSearch({
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={onKeyDown}
-        className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-8 text-xs font-medium placeholder:font-normal placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-8 text-xs font-medium placeholder:font-normal placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
       />
       {query !== '' && (
         <button
@@ -240,7 +240,7 @@ export function DashboardSearch({
               No matches for <span className="font-medium">“{query.trim()}”</span>
             </li>
           )}
-          {renderGroup('Maybe you meant', suggestionHits, 'text-indigo-500')}
+          {renderGroup('Maybe you meant', suggestionHits, 'text-brand-500')}
           {hits.length === 0 && (
             <li className="px-3 py-3 text-xs text-slate-500">
               {peopleLoading ? 'Searching people…' : `No matches for “${query.trim()}”`}

@@ -1,8 +1,9 @@
 import { useCallback, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowUpRight, GitBranch, Bell, GitCommit, AlertTriangle, RefreshCw, X, ArrowRight, Layers, CheckCircle2 } from 'lucide-react'
 import { HealthBadge, HEALTH_STATUS_LABELS } from '@/components/HealthBadge'
+import { NotificationIcon } from '@/components/NotificationIcon'
 import { MetricTile } from '@/components/dashboard/MetricTile'
 import { WorkspacePulseChart } from '@/components/dashboard/WorkspacePulseChart'
 import { HealthMixDonut } from '@/components/dashboard/HealthMixDonut'
@@ -13,19 +14,23 @@ import { DashboardSearch } from '@/components/dashboard/DashboardSearch'
 import { useDashboard } from '@/hooks/useDashboard'
 import { useReminders } from '@/hooks/useNotifications'
 import { useWorkspacePeople } from '@/hooks/useWorkspacePeople'
+import { useMarkNotificationRead, useNotifications } from '@/hooks/useNotifications'
 import {
   activityTrend,
   averageHealthSignals,
   buildInsights,
   mergeDailyActivity,
 } from '@/lib/dashboardInsights'
+import { feedTitleFor } from '@/lib/notificationEvents'
+import { notificationTarget } from '@/lib/notificationTarget'
+import { formatTimeAgo } from '@/lib/time'
 import { cn } from '@/lib/utils'
-import type { HealthStatus, Repo } from '@/types'
+import type { HealthStatus, Notification, Repo } from '@/types'
 import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
 import { useBackState } from '@/hooks/useBackTarget'
 
-const card = 'rounded-2xl border border-slate-200/80 bg-white shadow-sm'
-const listBody = 'min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto'
+const card = 'rounded-2xl border border-border bg-white shadow-sm'
+const listBody = 'min-h-0 flex-1 divide-y divide-border overflow-y-auto'
 
 const tileGrid = { hidden: {}, visible: { transition: { staggerChildren: 0.05 } } }
 
@@ -53,11 +58,87 @@ function reminderTone(remindAt: string | null): string {
   if (days <= 1) return 'bg-amber-50 text-amber-700'
   return 'bg-violet-50 text-violet-700'
 }
+/** How many unread items the panel lists before deferring to the full page. */
+const NOTIFICATION_LIMIT = 8
 
 function lastCommit(repo: Repo) {
   return repo.last_commit_at
     ? new Date(repo.last_commit_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
     : 'never'
+}
+
+/**
+ * The unread half of the notification feed, in the slot Follow-ups held.
+ *
+ * Fetches on its own rather than taking props, so the dashboard's fan-out over
+ * every collection's repos never holds up the inbox — they load independently.
+ *
+ * Shows no email-delivery marker: the relay was removed with migration 0007, so
+ * `Notification` no longer carries `emailed_at`.
+ */
+function RecentNotificationsPanel() {
+  const navigate = useNavigate()
+  const { data, isPending, isError } = useNotifications({ unread_only: true, limit: NOTIFICATION_LIMIT })
+  const markRead = useMarkNotificationRead()
+
+  const items = data?.items ?? []
+  // The feed is capped at NOTIFICATION_LIMIT rows but the badge reports the
+  // real backlog, so a ninth unread item is not silently invisible.
+  const unread = data?.unread_count ?? 0
+
+  async function open(notification: Notification) {
+    await markRead.mutateAsync(notification.id)
+    const target = notificationTarget(notification)
+    if (target) navigate(target)
+  }
+
+  return (
+    <section aria-label="Recent notifications" className={cn(card, 'flex h-64 min-h-0 flex-col xl:h-auto')}>
+      <div className="flex flex-shrink-0 items-center justify-between gap-2 px-4 pt-3 pb-2">
+        <h2 className="text-sm font-semibold">Recent notifications</h2>
+        <div className="flex items-center gap-2">
+          {unread > 0 && (
+            <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-700 tabular-nums">
+              {unread}
+            </span>
+          )}
+          <Link to="/notifications" className="text-[11px] font-medium text-brand-600 hover:underline">View all →</Link>
+        </div>
+      </div>
+      <div data-testid="notification-list" className={listBody}>
+        {!isPending && !isError && items.map(notification => (
+          <button
+            key={notification.id}
+            type="button"
+            data-testid="dashboard-notification"
+            onClick={() => open(notification)}
+            className="group flex w-full items-start gap-2 px-4 py-3 text-left transition-colors hover:bg-brand-50"
+          >
+            <NotificationIcon type={notification.type} className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <span className="min-w-0 flex-1">
+              {/* Repo events carry their own subject; note-scoped ones use the
+                  per-type title and quote the note underneath. */}
+              <span className="block truncate text-xs font-medium group-hover:text-brand-700">{notification.subject ?? feedTitleFor(notification.type)}</span>
+              {(notification.note_content_preview ?? notification.body) && (
+                <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{notification.note_content_preview ?? notification.body}</span>
+              )}
+              <span className="mt-1 block text-[10px] text-muted-foreground">{formatTimeAgo(notification.created_at)}</span>
+            </span>
+            {/* Unread marker — an accent, not a warning, so it reads brand. */}
+            <span className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-orchid-500" />
+          </button>
+        ))}
+        {isPending || isError ? (
+          <p className="px-4 py-3 text-xs text-muted-foreground">{isPending ? 'Loading notifications…' : 'Notifications are unavailable.'}</p>
+        ) : !items.length && (
+          <div className="flex h-full flex-col items-center justify-center gap-2 p-5 text-center">
+            <Bell className="h-7 w-7 text-brand-300" />
+            <p className="text-xs text-muted-foreground">No unread notifications.</p>
+          </div>
+        )}
+      </div>
+    </section>
+  )
 }
 
 export function DashboardPage() {
@@ -95,7 +176,7 @@ export function DashboardPage() {
   )
 
   return (
-    <div className="flex h-screen flex-col overflow-y-auto bg-slate-50 text-foreground xl:overflow-hidden [@media(max-height:680px)]:overflow-y-auto">
+    <div className="flex h-screen flex-col overflow-y-auto bg-background text-foreground xl:overflow-hidden [@media(max-height:680px)]:overflow-y-auto">
       {/* Symmetric outer tracks, so the search sits on the page's centre line
           rather than in the middle of whatever the title and controls leave. */}
       <div
@@ -115,12 +196,12 @@ export function DashboardPage() {
           className="w-full md:w-72 lg:w-96"
         />
         <div className="flex min-w-0 flex-wrap items-center gap-2 md:justify-end">
-          <select aria-label="Collection scope" value={collectionId} onChange={event => { setCollectionId(event.target.value); setHealthFilter(null) }} className="h-9 max-w-48 rounded-lg border border-slate-200 bg-slate-50 pl-3 pr-7 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+          <select aria-label="Collection scope" value={collectionId} onChange={event => { setCollectionId(event.target.value); setHealthFilter(null) }} className="h-9 max-w-48 rounded-lg border border-border bg-background pl-3 pr-7 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
             <option value="">All collections</option>
             {collections.map(collection => <option key={collection.id} value={collection.id}>{collection.name}</option>)}
           </select>
-          <button type="button" aria-label="Refresh dashboard" title="Refresh dashboard" disabled={refreshing} onClick={() => void refresh()} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 transition-colors hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"><RefreshCw className={cn('h-4 w-4', refreshing && 'motion-safe:animate-spin')} /></button>
-          <Link to="/collections" className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700">View collections <ArrowUpRight className="h-4 w-4" /></Link>
+          <button type="button" aria-label="Refresh dashboard" title="Refresh dashboard" disabled={refreshing} onClick={() => void refresh()} className="rounded-lg border border-border bg-white p-2 text-muted-foreground transition-colors hover:bg-brand-50 focus-visible:ring-2 focus-visible:ring-brand-500 disabled:opacity-50"><RefreshCw className={cn('h-4 w-4', refreshing && 'motion-safe:animate-spin')} /></button>
+          <Link to="/collections" className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-brand-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-brand-700">View collections <ArrowUpRight className="h-4 w-4" /></Link>
         </div>
       </div>
 
@@ -148,7 +229,7 @@ export function DashboardPage() {
             label={`repos · ${selected.length} collection${selected.length === 1 ? '' : 's'}`}
             value={failed ? '—' : repos.length}
             icon={GitBranch}
-            accent="indigo"
+            accent="brand"
             loading={loading}
           />
           <MetricTile
@@ -182,9 +263,9 @@ export function DashboardPage() {
         </motion.section>
 
         {!loading && !failed && collections.length === 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-indigo-200 bg-indigo-50 p-5">
-            <div className="flex items-center gap-3"><Layers className="h-6 w-6 text-indigo-500" /><p className="text-sm text-indigo-950">Every project starts somewhere. Bring your first cohort together.</p></div>
-            <Link className="inline-flex items-center gap-2 text-sm font-semibold text-indigo-700" to="/collections">Create your first collection <ArrowRight className="h-4 w-4" /></Link>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand-200 bg-brand-50 p-5">
+            <div className="flex items-center gap-3"><Layers className="h-6 w-6 text-brand-500" /><p className="text-sm text-brand-950">Every project starts somewhere. Bring your first cohort together.</p></div>
+            <Link className="inline-flex items-center gap-2 text-sm font-semibold text-brand-700" to="/collections">Create your first collection <ArrowRight className="h-4 w-4" /></Link>
           </div>
         )}
         <div className="grid flex-1 gap-4 sm:grid-cols-2 xl:min-h-0 xl:grid-cols-4 xl:grid-rows-[minmax(260px,1.15fr)_minmax(180px,1fr)]">
@@ -205,7 +286,7 @@ export function DashboardPage() {
           <section className={cn(card, 'flex h-64 min-h-0 flex-col xl:h-auto', insights.length === 0 && 'xl:col-span-2')}>
             <div className="flex flex-shrink-0 items-center justify-between gap-2 px-4 pt-3 pb-2">
               <h2 className="text-sm font-semibold">{healthFilter ? `${HEALTH_STATUS_LABELS[healthFilter]} repositories` : 'Needs attention'}</h2>
-              {healthFilter && <button aria-label="Clear health filter" onClick={() => setHealthFilter(null)} className="rounded p-1 text-slate-500 hover:bg-slate-100"><X className="h-3 w-3" /></button>}
+              {healthFilter && <button aria-label="Clear health filter" onClick={() => setHealthFilter(null)} className="rounded p-1 text-muted-foreground hover:bg-brand-50"><X className="h-3 w-3" /></button>}
               <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 tabular-nums">
                 {loading || failed ? '—' : reviewRepos.length}
               </span>
@@ -216,15 +297,15 @@ export function DashboardPage() {
                   key={repo.id}
                   to={`/repos/${repo.id}`}
                   state={backState}
-                  className="group flex items-center justify-between gap-2 px-4 py-3 transition-colors hover:bg-indigo-50/50"
+                  className="group flex items-center justify-between gap-2 px-4 py-3 transition-colors hover:bg-brand-50/50"
                 >
-                  <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium group-hover:text-indigo-700" title={repo.name}>{repo.name}</span><span className="mt-1 block text-[10px] text-slate-400">Last commit {lastCommit(repo)}</span></span>
+                  <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium group-hover:text-brand-700" title={repo.name}>{repo.name}</span><span className="mt-1 block text-[10px] text-muted-foreground">Last commit {lastCommit(repo)}</span></span>
 
                   <HealthBadge status={repo.health_status} className="flex-shrink-0 scale-90" />
                 </Link>
               ))}
-              {loading || failed ? <p className="px-4 py-3 text-xs text-slate-500">{loading ? 'Loading repositories…' : 'Repository data is unavailable.'}</p> : !reviewRepos.length && (
-                <div className="flex h-full flex-col items-center justify-center gap-2 p-5 text-center"><CheckCircle2 className="h-7 w-7 text-emerald-500" /><p className="text-xs text-slate-500">{healthFilter ? 'No repositories with this status.' : 'Nothing flagged. Looking good.'}</p></div>
+              {loading || failed ? <p className="px-4 py-3 text-xs text-muted-foreground">{loading ? 'Loading repositories…' : 'Repository data is unavailable.'}</p> : !reviewRepos.length && (
+                <div className="flex h-full flex-col items-center justify-center gap-2 p-5 text-center"><CheckCircle2 className="h-7 w-7 text-emerald-500" /><p className="text-xs text-muted-foreground">{healthFilter ? 'No repositories with this status.' : 'Nothing flagged. Looking good.'}</p></div>
               )}
             </div>
           </section>

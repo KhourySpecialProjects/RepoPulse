@@ -93,14 +93,31 @@ class GitService:
         return str(Path(settings.REPO_ROOT_DIR) / collection_folder_name / repo_name)
 
     async def list_clone_directories(self, root: str | None = None) -> list[str]:
-        """Every {root}/{collection}/{repo} directory — exactly depth 2.
+        """Every clone directory under the repo root.
 
-        Depth 2 is what clone_path writes, so anything shallower or deeper is
-        not a clone. Used to reconcile disk against the database.
+        `clone_path` writes {root}/{collection}/{repo}, so depth 2 is the
+        expected layout. Two departures from a naive depth-2 scan, because
+        both produced badly wrong drift reports against a real repo root:
+
+          * A directory that is itself a clone is reported as one clone, even
+            at depth 1. Cloning one level too shallow otherwise made the
+            scan enumerate the project's own subdirectories — api/, app/,
+            docs/ — as that many separate phantom repos.
+          * Dot-directories are skipped. A clone is never named `.git` or
+            `.claude`, and counting them inflated the orphan count further.
         """
         return await asyncio.to_thread(
             self._list_clone_directories_sync, root or settings.REPO_ROOT_DIR
         )
+
+    @staticmethod
+    def _is_clone(path: str) -> bool:
+        """A working clone has a .git entry.
+
+        Not is_dir: a worktree or submodule records .git as a *file* holding
+        a gitdir pointer, and either is still a clone.
+        """
+        return os.path.exists(os.path.join(path, ".git"))
 
     def _list_clone_directories_sync(self, root: str) -> list[str]:
         found: list[str] = []
@@ -109,12 +126,20 @@ class GitService:
                 for collection in collections:
                     if not collection.is_dir(follow_symlinks=False):
                         continue
+                    if collection.name.startswith("."):
+                        continue
+                    # Shelved one level too shallow: report the clone itself
+                    # rather than descending into its contents.
+                    if self._is_clone(collection.path):
+                        found.append(os.path.normpath(collection.path))
+                        continue
                     try:
                         with os.scandir(collection.path) as repos:
                             found.extend(
                                 os.path.normpath(repo.path)
                                 for repo in repos
                                 if repo.is_dir(follow_symlinks=False)
+                                and not repo.name.startswith(".")
                             )
                     except OSError:
                         continue

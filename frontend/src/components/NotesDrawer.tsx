@@ -1,18 +1,11 @@
-import { useEffect } from 'react'
-import { FileText, Archive, Trash2, CheckSquare, Square, GitCommit } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { FileText, Archive, Trash2, CheckSquare, Square, GitCommit, ChevronRight } from 'lucide-react'
 import { NoteForm, type NoteFormValues } from '@/components/NoteForm'
 import { NoteComments } from '@/components/NoteComments'
 import { cn } from '@/lib/utils'
 import type { Note, UserDetail } from '@/types'
 
-/**
- * The repo's notes, rendered inline as a permanent column.
- *
- * Previously a three-state drawer: an edge tab, a sliding overlay, and a
- * pinned inline mode, with the pin persisted per repo in localStorage. Reading
- * notes cost a click every visit, and the pin was a preference with no wrong
- * answer that the user still had to find. The panel is simply always here now.
- */
+/** Collapsible notes panel anchored to the right edge. */
 interface NotesDrawerProps {
   notes: Note[] | undefined
   noteCount: number
@@ -44,7 +37,7 @@ function renderNoteContent(content: string) {
     if (part.startsWith('@') && part.length > 1) {
       const name = part.slice(1).replace(/_/g, ' ')
       return (
-        <span key={i} className="inline-flex items-center bg-violet-100 text-violet-700 rounded px-1 py-0.5 text-xs font-medium">
+        <span key={i} className="inline-flex items-center bg-orchid-100 text-orchid-700 rounded px-1 py-0.5 text-xs font-medium">
           @{name}
         </span>
       )
@@ -66,12 +59,16 @@ export function NotesDrawer({
   onScrollToCommit,
   highlightNoteId,
 }: NotesDrawerProps) {
+  const [open, setOpen] = useState(Boolean(highlightNoteId))
+  useEffect(() => {
+    if (highlightNoteId) setOpen(true)
+  }, [highlightNoteId])
   useEffect(() => {
     if (!highlightNoteId) return
     document
       .getElementById(`note-${highlightNoteId}`)
       ?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
-  }, [highlightNoteId, notes])
+  }, [highlightNoteId, notes, open])
 
   const visibleNotes = notes?.filter(n => showArchivedNotes ? true : !n.is_archived) ?? []
   const hasArchivedNotes = notes?.some(n => n.is_archived) ?? false
@@ -118,7 +115,7 @@ export function NotesDrawer({
                   // Ring rather than a background tint: notes already use
                   // background to mean archived, and the two would blend.
                   note.id === highlightNoteId &&
-                    '-mx-2 rounded-md px-2 ring-2 ring-indigo-400'
+                    '-mx-2 rounded-md px-2 ring-2 ring-brand-400'
                 )}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -160,7 +157,7 @@ export function NotesDrawer({
                 <div className="flex items-center justify-between gap-2 mt-1.5">
                   <div className="flex items-center gap-1.5">
                     <div
-                      className="h-5 w-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-semibold flex-shrink-0 cursor-default"
+                      className="h-5 w-5 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-[10px] font-semibold flex-shrink-0 cursor-default"
                       title={note.author_display_name}
                     >
                       {note.author_display_name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
@@ -170,7 +167,7 @@ export function NotesDrawer({
                   {note.commit_hash && (
                     <button
                       onClick={() => onScrollToCommit(note.commit_hash!)}
-                      className="flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700 font-mono transition-colors"
+                      className="flex items-center gap-1 text-xs text-brand-500 hover:text-brand-700 font-mono transition-colors"
                       title="Jump to commit"
                     >
                       <GitCommit className="h-3 w-3" />
@@ -194,23 +191,49 @@ export function NotesDrawer({
     </div>
   )
 
-  // Sticky rather than fixed: it is a column of the page now, so it scrolls
-  // with the content until it reaches the top and then holds.
   return (
-    <div
-      data-testid="notes-panel"
-      className="w-80 flex-shrink-0 sticky top-6 self-start max-h-[calc(100vh-3rem)] flex flex-col bg-white rounded-xl border border-gray-200 overflow-hidden"
-    >
-      <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2 flex-shrink-0">
+    <div className={cn(
+      'sticky top-6 self-start shrink-0 transition-[width] duration-200 motion-reduce:transition-none',
+      open ? 'w-80 max-w-[calc(100vw-4rem)]' : 'w-0'
+    )}>
+      {!open && <button
+        type="button"
+        aria-label="Open notes"
+        aria-expanded={open}
+        aria-controls="repo-notes-panel"
+        onClick={() => setOpen(value => !value)}
+        className="fixed right-0 top-40 z-40 flex h-24 w-9 items-center justify-center rounded-l-2xl border border-r-0 border-border bg-white text-sm font-semibold text-muted-foreground shadow-md transition-colors hover:bg-brand-50 hover:text-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+      >
+        <span className="-rotate-90 whitespace-nowrap">Notes</span>
+      </button>}
+      <div
+        id="repo-notes-panel"
+        data-testid="notes-panel"
+        hidden={!open}
+        className={cn('max-h-[calc(100vh-9rem)] flex-col bg-white rounded-xl border border-border overflow-hidden shadow-sm', open && 'flex')}
+      >
+      <div className="px-4 py-3 border-b border-border flex items-center gap-2 flex-shrink-0">
         <FileText className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-sm font-semibold">Notes</h2>
+        <button
+          type="button"
+          aria-label="Close notes"
+          aria-expanded={open}
+          aria-controls="repo-notes-panel"
+          onClick={() => setOpen(false)}
+          className="order-last ml-auto rounded p-1 text-muted-foreground hover:bg-brand-50 hover:text-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+          title="Collapse notes"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
         {noteCount > 0 && (
-          <span className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full px-2 py-0.5 font-medium">
+          <span className="text-xs bg-brand-100 text-brand-700 border border-brand-200 rounded-full px-2 py-0.5 font-medium">
             {noteCount}
           </span>
         )}
       </div>
       {notesBody}
+      </div>
     </div>
   )
 }

@@ -9,6 +9,7 @@ import {
 } from 'recharts'
 import { averageHealthSignals, SIGNAL_SCORE_MAX } from '@/lib/dashboardInsights'
 import { cn } from '@/lib/utils'
+import { BRAND } from '@/lib/theme'
 import type { Repo } from '@/types'
 
 /** The shape Recharts hands a custom tooltip, narrowed to what is used. */
@@ -73,9 +74,9 @@ export function HealthSignalRadar({ repos, className, loading, failed }: { repos
               <Tooltip content={<SignalTooltip />} />
               <Radar
                 dataKey="value"
-                stroke="#4f46e5"
+                stroke={BRAND.violet}
                 strokeWidth={2}
-                fill="#6366f1"
+                fill={BRAND.violet}
                 fillOpacity={0.25}
               />
             </RadarChart>
@@ -84,7 +85,7 @@ export function HealthSignalRadar({ repos, className, loading, failed }: { repos
       </div>
 
       {!loading && !failed && weakest && (
-        <p className="mt-2 rounded-lg bg-indigo-50/60 px-2 py-2 text-[11px] text-slate-500">
+        <p className="mt-2 rounded-lg bg-brand-50/60 px-2 py-2 text-[11px] text-slate-500">
           Weakest signal:{' '}
           <span className="font-medium text-foreground">{weakest.label}</span> at{' '}
           {weakest.value}/{SIGNAL_SCORE_MAX}.

@@ -36,11 +36,11 @@ export function WorkspaceInsights({
       initial="hidden"
       animate="visible"
       className={cn(
-        'flex flex-col min-h-56 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-white p-4 shadow-sm xl:min-h-0',
+        'flex flex-col min-h-56 rounded-2xl border border-brand-100 bg-gradient-to-br from-brand-50 via-white to-white p-4 shadow-sm xl:min-h-0',
         className
       )}
     >
-      <h2 className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-indigo-500" />What stands out</h2>
+      <h2 className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-brand-500" />What stands out</h2>
 
       <ul className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto">
         {insights.map(insight => {

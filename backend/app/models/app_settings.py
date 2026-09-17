@@ -6,11 +6,22 @@ from sqlalchemy import ForeignKey, JSON, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.config import settings
 from app.db.database import Base
 
 
 class AppSettings(Base):
+    """Per-user preferences.
+
+    Notably *not* here any more: llm_provider, llm_model, anthropic_api_key
+    and ollama_base_url. Which model the instance talks to and which key pays
+    for it are instance-wide and admin-only — see models/llm_config.py.
+    Migration 0010 dropped those four columns rather than leaving them unread,
+    so there is exactly one place a model id or a key can come from.
+
+    The grading rubric below stays per-user: it is the instructor's editorial
+    judgement about their own students, not a billing or provider concern.
+    """
+
     __tablename__ = "app_settings"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -22,13 +33,7 @@ class AppSettings(Base):
     repo_root_directory: Mapped[str] = mapped_column(
         String(500), default="/repos"
     )
-    llm_provider: Mapped[str] = mapped_column(String(100), default="anthropic")
-    llm_model: Mapped[str] = mapped_column(
-        String(200), default=settings.DEFAULT_LLM_MODEL
-    )
     health_thresholds: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    anthropic_api_key: Mapped[str | None] = mapped_column(String(500), nullable=True, default=None)
-    ollama_base_url: Mapped[str | None] = mapped_column(String(500), nullable=True, default=None)
     # The instructor's optional grading rubric, as an ADDENDUM to the built-in
     # criteria in commit_classifier_service — not a replacement for them.
     # Defaults to empty rather than to a seeded rubric: with no text here the

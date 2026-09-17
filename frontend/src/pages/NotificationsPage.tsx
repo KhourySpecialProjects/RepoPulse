@@ -1,20 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import {
-  AtSign,
-  Clock,
-  FolderMinus,
-  FolderPlus,
-  GitMerge,
-  GitPullRequest,
-  HeartPulse,
-  MessageSquare,
-  Trash2,
-  RotateCcw,
-  Undo2,
-  Check,
-  Mail,
-} from 'lucide-react'
+import { Trash2, RotateCcw, Undo2, Check, Mail } from 'lucide-react'
 import {
   useNotifications,
   useUnreadCount,
@@ -32,8 +18,10 @@ import {
 } from '@/hooks/useNotifications'
 import { ActiveRemindersPanel, ICON_BUTTON_CLASS } from '@/components/ActiveRemindersPanel'
 import { EmptyInboxMascot } from '@/components/EmptyInboxMascot'
+import { NotificationIcon } from '@/components/NotificationIcon'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { formatTimeAgo } from '@/lib/time'
 import { feedTitleFor } from '@/lib/notificationEvents'
 import { notificationTarget } from '@/lib/notificationTarget'
 import { useBackState } from '@/hooks/useBackTarget'
@@ -48,29 +36,6 @@ const containerVariants = {
 const itemVariants = {
   hidden: { opacity: 0, y: 12 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.2 } },
-}
-
-function formatTimeAgo(isoStr: string): string {
-  const ms = Date.now() - new Date(isoStr).getTime()
-  const minutes = Math.floor(ms / 60000)
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
-}
-
-function NotificationIcon({ type }: { type: Notification['type'] }) {
-  if (type === 'mention') return <AtSign className="h-5 w-5 text-violet-500" />
-  if (type === 'reminder') return <Clock className="h-5 w-5 text-amber-500" />
-  if (type === 'repo_health_declined')
-    return <HeartPulse className="h-5 w-5 text-red-500" />
-  if (type === 'pr_opened') return <GitPullRequest className="h-5 w-5 text-sky-500" />
-  if (type === 'pr_merged') return <GitMerge className="h-5 w-5 text-emerald-500" />
-  if (type === 'repo_added') return <FolderPlus className="h-5 w-5 text-emerald-500" />
-  if (type === 'repo_removed') return <FolderMinus className="h-5 w-5 text-red-500" />
-  return <MessageSquare className="h-5 w-5 text-indigo-500" />
 }
 
 const SECTION_CLASS = 'mb-8 overflow-hidden rounded-xl border border-border bg-white'
@@ -133,7 +98,7 @@ function RecentlyDeletedSection() {
                 type="button"
                 onClick={() => restore(item)}
                 title={`Restore ${item.label}`}
-                className={cn(ICON_BUTTON_CLASS, 'hover:bg-indigo-50 hover:text-indigo-600')}
+                className={cn(ICON_BUTTON_CLASS, 'hover:bg-brand-50 hover:text-brand-600')}
               >
                 <RotateCcw className="h-5 w-5" />
               </button>
@@ -261,7 +226,7 @@ export function NotificationsPage() {
                   data-testid="notification-row"
                   className={cn(
                     'flex items-start gap-3 border-b border-border/40 px-5 py-4 transition-colors last:border-0 hover:bg-muted/40',
-                    !notif.is_read && 'bg-indigo-50/50'
+                    !notif.is_read && 'bg-brand-50/50'
                   )}
                 >
                   <button

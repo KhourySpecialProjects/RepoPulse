@@ -1,6 +1,6 @@
 import { ContextualActivityChart } from '@/components/ContextualActivityChart'
 import { useState, useEffect, useMemo, Fragment, type ComponentType, type ReactNode } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { TrickleProgress } from '@/components/ui/trickle-progress'
 import { ArrowLeft, ExternalLink, Code2, GitBranch, Tag, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed, TriangleAlert } from 'lucide-react'
@@ -11,6 +11,7 @@ import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '@/hooks/u
 import { useUsers, useCurrentUser } from '@/hooks/useUsers'
 import { useAuth } from '@/hooks/useAuth'
 import { useBackTarget } from '@/hooks/useBackTarget'
+import { useCommitFilterParams } from '@/hooks/useCommitFilterParams'
 import { HealthBadge } from '@/components/HealthBadge'
 import { HealthSignalPills } from '@/components/HealthSignalPills'
 import { CommitScorePill } from '@/components/CommitScorePill'
@@ -30,7 +31,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
-import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
+import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS, SECTION_GAP, PANEL_PADDING } from '@/lib/layout'
 import {
   COMMIT_TYPE_FILTERS,
   commitRowClass,
@@ -40,6 +41,7 @@ import {
 import { toast } from 'sonner'
 import type {
   ClassifyCommitsResponse,
+  Commit,
   CreateNoteData,
   Summary,
   Contributor,
@@ -134,7 +136,7 @@ function GenerateSummaryButton({
         <Sparkles
           className={cn(
             'h-4 w-4 transition-colors',
-            isPending ? 'text-violet-600' : 'group-hover:text-violet-600'
+            isPending ? 'text-orchid-600' : 'group-hover:text-orchid-600'
           )}
         />
       </motion.span>
@@ -157,6 +159,33 @@ function GenerateSummaryButton({
  * Mirrors the Pull Requests panel's chrome so the sidebar reads as one stack
  * rather than a set of one-off boxes. That panel keeps its own markup because
  * it also persists its open state per repo; everything else shares this. */
+/**
+ * Stands in for a filter's chips while the commit list loads.
+ *
+ * Chip-shaped and chip-sized, so the panel is the height it will settle at
+ * and swapping in the real controls moves nothing. Deliberately not an empty
+ * chip row: a row of live-looking buttons that cannot be clicked yet, then
+ * silently gains more, is worse than an obvious placeholder.
+ */
+function FilterPlaceholder() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading filters"
+      className="flex flex-wrap items-center gap-1.5"
+    >
+      {[10, 14, 8].map((w, i) => (
+        <span
+          key={i}
+          aria-hidden="true"
+          className="h-5 rounded border border-border bg-muted animate-pulse motion-reduce:animate-none"
+          style={{ width: `${w * 4}px` }}
+        />
+      ))}
+    </div>
+  )
+}
+
 function SidebarPanel({
   title, icon: Icon, id, expanded, onToggle, className, children,
 }: {
@@ -168,15 +197,18 @@ function SidebarPanel({
   className?: string
   children: ReactNode
 }) {
+  // bg-card, not bg-gray-50: the Pull Requests and Contributors panels in the
+  // same column are white, and a grey filter panel beside them read as a
+  // different kind of object rather than a peer.
   return (
-    <div className={cn('shrink-0 bg-gray-50 rounded-xl border border-border p-4', className)}>
+    <div className={cn('shrink-0 bg-card rounded-xl border border-border p-4', className)}>
       <h2 className="text-sm font-semibold">
         <button
           type="button"
           onClick={onToggle}
           aria-expanded={expanded}
           aria-controls={id}
-          className="flex w-full items-center gap-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+          className="flex w-full items-center gap-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
         >
           <Icon className="h-4 w-4 text-muted-foreground" />
           {title}
@@ -185,7 +217,7 @@ function SidebarPanel({
             : <ChevronDown className="ml-auto h-4 w-4" />}
         </button>
       </h2>
-      <div id={id} hidden={!expanded} className="mt-3">
+      <div id={id} hidden={!expanded} className="mt-2">
         {children}
       </div>
     </div>
@@ -194,8 +226,8 @@ function SidebarPanel({
 
 function CommitsLoading() {
   return (
-    <div role="status" aria-label="Loading commits" className="flex flex-col items-center justify-center gap-3 py-10">
-      <div aria-hidden="true" className="h-8 w-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin motion-reduce:animate-none" />
+    <div role="status" aria-label="Loading commits" className="flex flex-col items-center justify-center gap-2 py-8">
+      <div aria-hidden="true" className="h-8 w-8 rounded-full border-2 border-brand-500 border-t-transparent animate-spin motion-reduce:animate-none" />
       <p className="text-sm text-muted-foreground">Loading commits…</p>
       <TrickleProgress label="Commits loading progress" />
     </div>
@@ -213,7 +245,7 @@ function ContributorGenerateButton({ contributorId, repoId }: { contributorId: s
       })}
       disabled={generateMutation.isPending}
       aria-busy={generateMutation.isPending}
-      className="ml-auto flex items-center gap-0.5 text-muted-foreground hover:text-violet-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+      className="ml-auto flex items-center gap-1.5 text-muted-foreground hover:text-orchid-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
       title="Generate activity summary"
     >
       <Sparkles className={cn('h-3 w-3', generateMutation.isPending && 'animate-pulse motion-reduce:animate-none')} />
@@ -227,9 +259,9 @@ function ContributorSummaryDisplay({ contributorId }: { contributorId: string })
   const latest = summaries?.[0]
   if (!latest) return null
   return (
-    <div className="mt-1.5 rounded-md bg-violet-50 border border-violet-100 px-2.5 py-2">
+    <div className="mt-1.5 rounded-md bg-orchid-50 border border-orchid-100 px-2.5 py-2">
       <button
-        className="flex items-center gap-1 w-full text-left"
+        className="flex items-center gap-1.5 w-full text-left"
         onClick={() => setExpanded(v => !v)}
       >
         <p className="text-[10px] text-muted-foreground flex-1">
@@ -251,9 +283,9 @@ const SUMMARY_TYPE_LABELS: Record<string, string> = {
 }
 
 const SUMMARY_TYPE_COLORS: Record<string, string> = {
-  repo_overview: 'bg-indigo-100 text-indigo-700 border-indigo-200',
+  repo_overview: 'bg-brand-100 text-brand-700 border-brand-200',
   health_explanation: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  contributor_activity: 'bg-violet-100 text-violet-700 border-violet-200',
+  contributor_activity: 'bg-orchid-100 text-orchid-700 border-orchid-200',
 }
 
 function SummaryEntry({ summary }: { summary: Summary }) {
@@ -261,17 +293,17 @@ function SummaryEntry({ summary }: { summary: Summary }) {
   return (
     <div className="border border-border rounded-lg overflow-hidden">
       <button
-        className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+        className="w-full flex items-center gap-2 px-3 py-2 bg-brand-50 hover:bg-brand-100 transition-colors text-left"
         onClick={() => setExpanded(v => !v)}
       >
-        <span className={cn('text-xs font-medium border rounded-full px-2 py-0.5 flex-shrink-0', SUMMARY_TYPE_COLORS[summary.summary_type] ?? 'bg-gray-100 text-gray-700 border-gray-200')}>
+        <span className={cn('text-xs font-medium border rounded-full px-2 py-0.5 flex-shrink-0', SUMMARY_TYPE_COLORS[summary.summary_type] ?? 'bg-gray-100 text-gray-700 border-border')}>
           {SUMMARY_TYPE_LABELS[summary.summary_type] ?? summary.summary_type}
         </span>
         <span className="text-xs text-muted-foreground flex-1 truncate">{formatDateTime(summary.generated_at)} · {summary.model_used}</span>
         {expanded ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />}
       </button>
       {expanded && (
-        <div className="px-3 py-2.5">
+        <div className="px-3 py-2">
           <MarkdownContent content={summary.content} />
         </div>
       )}
@@ -310,14 +342,14 @@ function SummaryHistoryModal({
           <DialogTitle className="flex items-center gap-2">
             <History className="h-4 w-4 text-muted-foreground" />
             Summary History
-            <span className="text-sm font-normal text-muted-foreground ml-1">({summaries.length} total)</span>
+            <span className="text-sm font-normal text-muted-foreground ml-1.5">({summaries.length} total)</span>
           </DialogTitle>
         </DialogHeader>
 
         {summaries.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-8">No summaries generated yet.</p>
         ) : (
-          <div className="flex flex-col gap-6 mt-2">
+          <div className={cn('flex flex-col mt-2', SECTION_GAP)}>
 
             {/* Repo-level summaries */}
             {repoSummaries.length > 0 && (
@@ -365,17 +397,17 @@ function SummaryHistoryModal({
 
 function PRStatePill({ state }: { state: string }) {
   if (state === 'merged') return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 text-purple-700 border border-purple-200">
+    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-orchid-100 text-orchid-700 border border-orchid-200">
       <GitMerge className="h-2.5 w-2.5" /> Merged
     </span>
   )
   if (state === 'open') return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
+    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
       <GitPullRequest className="h-2.5 w-2.5" /> Open
     </span>
   )
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600 border border-gray-200">
+    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600 border border-border">
       <GitPullRequestClosed className="h-2.5 w-2.5" /> Closed
     </span>
   )
@@ -430,6 +462,7 @@ export function RepoDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
   // Held separately from `searchParams` so the banner survives the param being
   // cleared, and so it can be shown during the initial load when there are no
   // commits to scroll to yet.
@@ -441,23 +474,16 @@ export function RepoDetailPage() {
   const [highlightedCommitHash, setHighlightedCommitHash] = useState<string | null>(null)
   // Set when arriving from a notification about a note; opens the drawer on it.
   const [highlightedNoteId, setHighlightedNoteId] = useState<string | null>(null)
-  const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
-  const [selectedTypes, setSelectedTypes] = useState<Set<CommitTypeFilter>>(new Set())
-  // Empty string means "no date filter" — it is the "All" option's value. Held
-  // as YYYY-MM-DD so it compares directly against toLocalDateKey; the year is
-  // hidden in the label only, so days never collide across years.
-  const [selectedDate, setSelectedDate] = useState('')
   // Set when the backend answers `status: 'preview'` — holds the counts the
   // confirmation dialog quotes back to the user.
   const [classifyPreview, setClassifyPreview] = useState<ClassifyCommitsResponse | null>(null)
   const [showAllBranches, setShowAllBranches] = useState(false)
   // The commit filters and the contributor list each collapse independently and
   // remember their state per repo, open by default.
+  const [activityExpanded, toggleActivity] = usePersistedPanel(id, 'activity-expanded')
   const [branchFilterExpanded, toggleBranchFilter] = usePersistedPanel(id, 'branch-filter-expanded')
-  const [typeFilterExpanded, toggleTypeFilter] = usePersistedPanel(id, 'type-filter-expanded')
-  const [dateFilterExpanded, toggleDateFilter] = usePersistedPanel(id, 'date-filter-expanded')
+  const [typeDateExpanded, toggleTypeDate] = usePersistedPanel(id, 'type-date-filter-expanded')
   const [contributorsExpanded, toggleContributors] = usePersistedPanel(id, 'contributors-expanded')
-  const [selectedContributorIds, setSelectedContributorIds] = useState<Set<string>>(new Set())
   const [editingContributorId, setEditingContributorId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
   const [showMerge, setShowMerge] = useState(false)
@@ -519,6 +545,62 @@ export function RepoDetailPage() {
   // prefetch is a cache hit here rather than a second identical request.
   const { data: allCommitsData, isLoading: allCommitsLoading } = useRepoCommits(id ?? '', ALL_COMMITS_PARAMS)
   const { data: contributors, isLoading: contributorsLoading } = useRepoContributors(id ?? '')
+
+  // Distinct days that actually have commits, newest first to match the commit
+  // list's own order. Options rather than a calendar, so empty days can't be
+  // picked and the year can stay off the label.
+  const commitDates = useMemo(() => {
+    const keys = new Set((allCommitsData?.items ?? []).map(c => toLocalDateKey(c.date)))
+    return Array.from(keys).sort().reverse()
+  }, [allCommitsData])
+
+  // Owning branches only. Building this from `branches` listed every branch
+  // that merely contains a commit, so branches with no work of their own still
+  // got a chip that then matched most of the repo.
+  const allBranches = useMemo(() => {
+    const names = new Set<string>()
+    allCommitsData?.items.forEach(c => { if (c.origin_branch) names.add(c.origin_branch) })
+    return Array.from(names).sort()
+  }, [allCommitsData])
+
+  // The values each filter param may legally take. A link can rot — a branch
+  // gets deleted, a merge destroys a contributor id — and an unrecognised
+  // value is ignored rather than left filtering the table to nothing with no
+  // chip lit to explain it. `null` means "not loaded yet, trust the URL".
+  const branchOptions = useMemo(
+    () => (allCommitsData ? new Set(allBranches) : null),
+    [allCommitsData, allBranches]
+  )
+  const dateOptions = useMemo(
+    () => (allCommitsData ? new Set(commitDates) : null),
+    [allCommitsData, commitDates]
+  )
+  const contributorOptions = useMemo(
+    () => (contributors ? new Set(contributors.map(c => c.id)) : null),
+    [contributors]
+  )
+  const commitFilterOptions = useMemo(
+    () => ({ branches: branchOptions, dates: dateOptions, contributorIds: contributorOptions }),
+    [branchOptions, dateOptions, contributorOptions]
+  )
+
+  // The commit filters live in the query string, so the address bar always
+  // describes what is on screen and the URL can just be pasted to someone
+  // else. Named like the `useState` pairs they replaced — the call sites below
+  // are unchanged, including the functional-updater form.
+  const {
+    filters: commitFilters,
+    setBranches: setSelectedBranches,
+    setTypes: setSelectedTypes,
+    setDate: setSelectedDate,
+    setContributorIds: setSelectedContributorIds,
+  } = useCommitFilterParams(commitFilterOptions, () => setCommitPage(0))
+  const {
+    branches: selectedBranches,
+    types: selectedTypes,
+    date: selectedDate,
+    contributorIds: selectedContributorIds,
+  } = commitFilters
   const updateContributorMutation = useUpdateContributor(id ?? '')
   const mergeContributorsMutation = useMergeContributors(id ?? '')
   const unmergeContributorMutation = useUnmergeContributor(id ?? '')
@@ -528,9 +610,8 @@ export function RepoDetailPage() {
   const patchRepoMutation = usePatchRepo()
   const { data: prStats } = usePRStats(id ?? '')
   const PR_PAGE_SIZE = 10
-  const [prStateFilter, setPrStateFilter] = useState<string | undefined>(undefined)
   const [prPage, setPrPage] = useState(0)
-  const { data: prList } = usePullRequests(id ?? '', prStateFilter, PR_PAGE_SIZE, prPage * PR_PAGE_SIZE)
+  const { data: prList } = usePullRequests(id ?? '', undefined, PR_PAGE_SIZE, prPage * PR_PAGE_SIZE)
   const syncPRsMutation = useSyncPullRequests(id ?? '')
   const classifyMutation = useClassifyCommits(id ?? '')
 
@@ -640,23 +721,6 @@ export function RepoDetailPage() {
   const resolvedAuthor = (commit: { author_name: string; author_email: string }) =>
     emailToDisplayName[commit.author_email.toLowerCase()] ?? commit.author_name
 
-  // Distinct days that actually have commits, newest first to match the commit
-  // list's own order. Options rather than a calendar, so empty days can't be
-  // picked and the year can stay off the label.
-  const commitDates = useMemo(() => {
-    const keys = new Set((allCommitsData?.items ?? []).map(c => toLocalDateKey(c.date)))
-    return Array.from(keys).sort().reverse()
-  }, [allCommitsData])
-
-  // Owning branches only. Building this from `branches` listed every branch
-  // that merely contains a commit, so branches with no work of their own still
-  // got a chip that then matched most of the repo.
-  const allBranches = useMemo(() => {
-    const names = new Set<string>()
-    allCommitsData?.items.forEach(c => { if (c.origin_branch) names.add(c.origin_branch) })
-    return Array.from(names).sort()
-  }, [allCommitsData])
-
   function toggleBranch(branch: string) {
     setSelectedBranches(prev => {
       const next = new Set(prev)
@@ -675,10 +739,15 @@ export function RepoDetailPage() {
     })
   }
 
-  const filteredCommits = useMemo(() => {
+  // Two lists from one set of predicates. `filteredCommits` is what the table
+  // shows; `graphCommits` is the same minus the date filter, because the graph
+  // marks the selected day in place rather than collapsing to it — a one-point
+  // area chart carries no trend. Sharing the predicates is what keeps the two
+  // from drifting apart.
+  const { filteredCommits, graphCommits } = useMemo(() => {
     const allContributorsSelected = selectedContributorIds.size === 0 ||
       (contributors != null && contributors.length > 0 && contributors.every(contributor => selectedContributorIds.has(contributor.id)))
-    return (allCommitsData?.items ?? []).filter(c => {
+    const matchesExceptDate = (c: Commit) => {
       // Match the owning branch exactly. `c.branches.some(...)` matched any
       // branch *containing* the commit, so selecting `dev` returned all of
       // trunk's history too.
@@ -690,12 +759,54 @@ export function RepoDetailPage() {
       // "show me what still needs classifying" is expressible.
       const typeMatch =
         selectedTypes.size === 0 || selectedTypes.has(c.commit_type ?? 'unclassified')
+      return branchMatch && contributorMatch && typeMatch
+    }
+    const forGraph = (allCommitsData?.items ?? []).filter(matchesExceptDate)
+    return {
       // Exact calendar day, compared in the viewer's timezone so it agrees
       // with the date shown in the row.
-      const dateMatch = !selectedDate || toLocalDateKey(c.date) === selectedDate
-      return branchMatch && contributorMatch && typeMatch && dateMatch
-    })
+      filteredCommits: selectedDate
+        ? forGraph.filter(c => toLocalDateKey(c.date) === selectedDate)
+        : forGraph,
+      graphCommits: forGraph,
+    }
   }, [allCommitsData, selectedBranches, selectedContributorIds, contributors, emailToContributorId, selectedTypes, selectedDate])
+
+  /**
+   * The graph's series, or null to let it draw the repo's own history.
+   *
+   * Only overridden when Branch or Type is narrowing things. Contributor
+   * selection is left to the chart, which has per-student series from the
+   * activity endpoint covering the repo's full history — deriving it here
+   * instead would silently cap the graph at the 500 commits this page loads.
+   *
+   * Days are keyed in the viewer's timezone, matching the table and the date
+   * picker rather than the endpoint's UTC buckets. Under a filter the graph's
+   * job is to mirror the list below it, and disagreeing with it by a day at
+   * the midnight boundary would be the worse error.
+   */
+  const graphActivityOverride = useMemo(() => {
+    if (selectedBranches.size === 0 && selectedTypes.size === 0) return null
+    const counts = new Map<string, number>()
+    graphCommits.forEach(c => {
+      const key = toLocalDateKey(c.date)
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    })
+    return Array.from(counts, ([date, count]) => ({ date, count }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+  }, [graphCommits, selectedBranches, selectedTypes])
+
+  /** Names the active Branch/Type filters for the chart's series label. */
+  const graphFilterLabel = useMemo(() => {
+    const parts: string[] = []
+    if (selectedTypes.size > 0) {
+      parts.push(Array.from(selectedTypes).map(t => commitTypeStyle(t).label).join(' + '))
+    }
+    if (selectedBranches.size > 0) {
+      parts.push(`on ${Array.from(selectedBranches).join(', ')}`)
+    }
+    return parts.length > 0 ? parts.join(' ') : undefined
+  }, [selectedTypes, selectedBranches])
 
   const displayedCommits = filteredCommits.slice(
     commitPage * COMMITS_PER_PAGE,
@@ -802,8 +913,11 @@ export function RepoDetailPage() {
   }
 
   function handleScrollToCommit(hash: string) {
-    const allItems = allCommitsData?.items ?? []
-    const idx = allItems.findIndex(c => c.hash === hash)
+    // Index into the filtered list, not the full one: the table pages over
+    // `filteredCommits`, so with a filter active the full list's index names
+    // the wrong page. `-1` means the commit is hidden by the active filter, so
+    // leave the page where it is rather than jumping somewhere arbitrary.
+    const idx = filteredCommits.findIndex(c => c.hash === hash)
     if (idx !== -1) {
       const targetPage = Math.floor(idx / COMMITS_PER_PAGE)
       setCommitPage(targetPage)
@@ -830,7 +944,10 @@ export function RepoDetailPage() {
   // reload, does not silently drag the user back to this commit.
   useEffect(() => {
     const targetHash = searchParams.get('commit')
-    if (!targetHash || allCommitsLoading) return
+    // Also waits on the contributors, since they are what validates a
+    // `?contributor=` filter — jumping before that lands would look for the
+    // commit in a list still filtered by an id about to be discarded.
+    if (!targetHash || allCommitsLoading || contributorsLoading) return
 
     handleScrollToCommit(targetHash)
     setPendingCommitJump(null)
@@ -840,9 +957,11 @@ export function RepoDetailPage() {
         next.delete('commit')
         return next
       },
-      { replace: true }
+      // `state` carries the origin this page's back arrow is named after;
+      // navigate() drops it when it is not passed through.
+      { replace: true, state: location.state }
     )
-  }, [searchParams, allCommitsLoading])
+  }, [searchParams, allCommitsLoading, contributorsLoading])
 
   // Deep link from a notification about a note: `/repos/:id?note=<id>`. The
   // drawer opens on that note. Unlike the commit jump this needs nothing
@@ -861,32 +980,25 @@ export function RepoDetailPage() {
         next.delete('note')
         return next
       },
-      { replace: true }
+      { replace: true, state: location.state }
     )
   }, [searchParams])
 
-  // Arriving from workspace search for a person: open the page already filtered
-  // to them, so the reader sees that person's commits rather than an
-  // unexplained repo. Cleared like `?note=` so a reload drops the filter.
-  useEffect(() => {
-    const targetContributor = searchParams.get('contributor')
-    if (!targetContributor) return
+  // `?contributor=` is read by useCommitFilterParams like any other filter, so
+  // arriving from workspace search for a person opens the page filtered to
+  // them and the link keeps working when it is passed on. It used to be
+  // consumed and deleted on arrival, which meant a reload silently dropped the
+  // filter.
 
-    setSelectedContributorIds(new Set([targetContributor]))
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current)
-        next.delete('contributor')
-        return next
-      },
-      { replace: true }
-    )
-  }, [searchParams])
-
-  // Reset to page 0 when filters change
+  // Filter changes reset pagination at the write, in the hook's onChange.
+  // This covers only what no write can: a browser Back onto a filtered URL, or
+  // an options list landing late and narrowing the results out from under the
+  // current page.
   useEffect(() => {
-    setCommitPage(0)
-  }, [selectedBranches, selectedContributorIds, selectedTypes, selectedDate])
+    if (commitPage > 0 && commitPage * COMMITS_PER_PAGE >= filteredCommits.length) {
+      setCommitPage(0)
+    }
+  }, [commitPage, COMMITS_PER_PAGE, filteredCommits.length])
 
   useEffect(() => {
     if (repo?.expected_contributor_count != null) {
@@ -925,11 +1037,11 @@ export function RepoDetailPage() {
       }
     }
     return (
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1.5">
         <button
           disabled={commitPage === 0}
           onClick={() => setCommitPage(p => p - 1)}
-          className="text-xs px-2 h-7 rounded border transition-colors text-muted-foreground border-border hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="text-xs px-2 h-7 rounded border transition-colors text-muted-foreground border-border hover:border-brand-300 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Previous
         </button>
@@ -943,8 +1055,8 @@ export function RepoDetailPage() {
               className={cn(
                 'text-xs w-7 h-7 rounded border transition-colors',
                 p === commitPage
-                  ? 'bg-indigo-600 text-white border-indigo-600'
-                  : 'text-muted-foreground border-border hover:border-indigo-300'
+                  ? 'bg-brand-600 text-white border-brand-600'
+                  : 'text-muted-foreground border-border hover:border-brand-300'
               )}
             >
               {p + 1}
@@ -954,7 +1066,7 @@ export function RepoDetailPage() {
         <button
           disabled={commitPage >= totalCommitPages - 1}
           onClick={() => setCommitPage(p => p + 1)}
-          className="text-xs px-2 h-7 rounded border transition-colors text-muted-foreground border-border hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="text-xs px-2 h-7 rounded border transition-colors text-muted-foreground border-border hover:border-brand-300 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Next
         </button>
@@ -970,7 +1082,7 @@ export function RepoDetailPage() {
 
   if (repoLoading) {
     return (
-      <div className="px-6 py-8">
+      <div className={cn(PAGE_BODY_CLASS, 'pt-6')}>
         {/* Arriving from a reminder, say where we are going. An unexplained
             skeleton reads as a stall; naming the destination makes the same
             wait legible. */}
@@ -979,7 +1091,7 @@ export function RepoDetailPage() {
             data-testid="commit-jump-pending"
             className="mb-4 flex items-center gap-2 text-sm text-muted-foreground"
           >
-            <GitCommit className="h-4 w-4 flex-shrink-0 text-indigo-500" />
+            <GitCommit className="h-4 w-4 flex-shrink-0 text-brand-500" />
             Opening commit{' '}
             <span className="font-mono text-foreground">
               {pendingCommitJump.slice(0, 7)}
@@ -987,8 +1099,8 @@ export function RepoDetailPage() {
             …
           </p>
         )}
-        <div className="h-8 w-64 bg-muted rounded animate-pulse mb-4" />
-        <div className="h-4 w-40 bg-muted rounded animate-pulse mb-8" />
+        <div className="h-8 w-64 bg-muted rounded animate-pulse mb-2" />
+        <div className="h-4 w-40 bg-muted rounded animate-pulse mb-4" />
         <div className="h-64 bg-muted rounded-lg animate-pulse" />
       </div>
     )
@@ -996,7 +1108,7 @@ export function RepoDetailPage() {
 
   if (!repo) {
     return (
-      <div className="px-6 py-8">
+      <div className={cn(PAGE_BODY_CLASS, 'pt-6')}>
         <p className="text-muted-foreground">Repository not found.</p>
       </div>
     )
@@ -1008,7 +1120,7 @@ export function RepoDetailPage() {
       {isPageLoading && (
         <div className="fixed top-0 left-0 right-0 z-50 h-0.5 bg-transparent pointer-events-none">
           <div
-            className="h-full bg-indigo-500 transition-[width] duration-300 ease-out"
+            className="h-full bg-brand-500 transition-[width] duration-300 ease-out"
             style={{ width: `${loadProgress}%` }}
           />
         </div>
@@ -1018,7 +1130,7 @@ export function RepoDetailPage() {
       {pendingCommitJump && (
         <div
           data-testid="commit-jump-pending"
-          className="flex items-center gap-2 border-b border-indigo-100 bg-indigo-50 px-6 py-2 text-sm text-indigo-800"
+          className="flex items-center gap-2 border-b border-brand-100 bg-brand-50 px-6 py-2 text-sm text-brand-800"
         >
           <GitCommit className="h-4 w-4 flex-shrink-0" />
           Opening commit{' '}
@@ -1028,18 +1140,18 @@ export function RepoDetailPage() {
       {/* Clean white page header */}
       <div data-testid="page-header" className={PAGE_HEADER_CLASS}>
         <div className="grid w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4">
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
             <button
               onClick={backTarget.goBack}
               aria-label={backTarget.label}
               title={backTarget.label}
-              className="text-muted-foreground hover:text-indigo-600 transition-colors flex-shrink-0"
+              className="text-muted-foreground hover:text-brand-600 transition-colors flex-shrink-0"
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
-            <div className="flex min-w-0 items-center gap-3">
+            <div className="flex min-w-0 items-center gap-2">
                 <h1 className="min-w-0">
-                  <a href={repo.github_url} target="_blank" rel="noopener noreferrer" title="Open repository on GitHub" className="inline-flex max-w-full items-center gap-2 rounded-md border border-border px-3 py-1.5 text-2xl font-semibold text-foreground transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <a href={repo.github_url} target="_blank" rel="noopener noreferrer" title="Open repository on GitHub" className="inline-flex max-w-full items-center gap-2 rounded-md border border-border px-3 py-1 text-2xl font-semibold text-foreground transition-colors hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     <span className="truncate">{repo.name}</span>
                     <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   </a>
@@ -1079,7 +1191,7 @@ export function RepoDetailPage() {
                 <History className="h-4 w-4 mr-1.5" />
                 AI History
                 {(summaries?.length ?? 0) > 0 && (
-                  <span className="ml-1.5 bg-violet-100 text-violet-700 text-xs font-semibold rounded-full px-1.5 py-0.5 leading-none">
+                  <span className="ml-1.5 bg-orchid-100 text-orchid-700 text-xs font-semibold rounded-full px-2 py-0.5 leading-none">
                     {summaries!.length}
                   </span>
                 )}
@@ -1107,7 +1219,7 @@ export function RepoDetailPage() {
                 }}
                 loading={syncing || syncMutation.isPending} disabled={syncing || syncMutation.isPending || !hasToken}
                 title={!hasToken ? 'Add a GitHub token in your profile to enable syncing' : undefined}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                className="bg-brand-600 hover:bg-brand-700 text-white"
               >
                 <RefreshCw className={cn('h-4 w-4 mr-1.5', (syncing || syncMutation.isPending) && 'animate-spin motion-reduce:animate-none')} />
                 Sync
@@ -1126,21 +1238,21 @@ export function RepoDetailPage() {
         </div>
       </div>
 
-      {/* Body — content beside the notes column, which is always present */}
-      <div className={cn(PAGE_BODY_CLASS, 'flex flex-row items-start gap-6')}>
+      {/* Body — notes open separately from the right edge */}
+      <div className={cn(PAGE_BODY_CLASS, 'flex flex-row items-start gap-4')}>
 
         {/* Main sections column */}
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-4">
         {/* No "Overview" heading — the cards below are self-labelling. */}
 
         {/* AI Summary — spans the full width above the two columns */}
         <motion.div variants={sectionVariants} initial="hidden" animate="visible">
           <Card className="relative overflow-hidden">
             <SummaryLiquidBackground generating={generateSummaryMutation.isPending} />
-            <CardHeader className="relative z-10 pt-4 pb-2">
+            <CardHeader className="relative z-10 p-4 pb-2">
               <div className="flex items-center justify-between">
                 <button
-                  className="flex items-center gap-1.5 text-base font-semibold hover:text-indigo-600 transition-colors"
+                  className="flex items-center gap-1.5 text-base font-semibold hover:text-brand-600 transition-colors"
                   onClick={() => latestSummary && setSummaryExpanded(v => !v)}
                 >
                   AI Summary
@@ -1153,7 +1265,7 @@ export function RepoDetailPage() {
               </div>
             </CardHeader>
             {summaryExpanded && (
-            <CardContent className="relative z-10">
+            <CardContent className="relative z-10 p-4 pt-0">
               {(generateSummaryMutation.isPending || summariesLoading) && (
                 <LoadingContent label={summariesLoading ? 'Loading summary…' : ''} />
               )}
@@ -1166,7 +1278,7 @@ export function RepoDetailPage() {
                     animate={latestSummary.id === typingSummaryId}
                     onDone={() => setTypingSummaryId(null)}
                   />
-                  <p className="text-xs text-muted-foreground mt-3">
+                  <p className="text-xs text-muted-foreground mt-2">
                     Generated {formatDateTime(latestSummary.generated_at)} · {latestSummary.model_used}
                   </p>
                 </div>
@@ -1183,21 +1295,26 @@ export function RepoDetailPage() {
         {/* Two columns: sidebar (PRs + contributors) renders to the left of the
             main content via grid placement, so the DOM keeps main content first
             for screen readers and tab order. */}
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[20rem_minmax(0,1fr)] xl:grid-cols-[24rem_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[20rem_minmax(0,1fr)] xl:grid-cols-[24rem_minmax(0,1fr)]">
 
           {/* Main content column — commit activity + commits */}
-          <div className="min-w-0 flex flex-col gap-6 lg:col-start-2 lg:row-start-1">
+          <div className="min-w-0 flex flex-col gap-4 lg:col-start-2 lg:row-start-1">
 
             {/* Commit activity section */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible">
-              <div className="flex flex-col gap-5">
+              <div className={cn('flex flex-col', SECTION_GAP)}>
                 <ContextualActivityChart key={id} collectionId={repo.collection_id} repoId={repo.id}
                   selectedContributorIds={Array.from(selectedContributorIds)}
+                  activityOverride={graphActivityOverride}
+                  filterLabel={graphFilterLabel}
+                  highlightDate={selectedDate || undefined}
+                  expanded={activityExpanded}
+                  onToggle={toggleActivity}
                   actions={<>
                         <button
                           onClick={handleCheckIn}
                           title="Record a check-in now"
-                          className="flex items-center gap-1 text-xs px-2 py-1 rounded border text-indigo-600 border-indigo-200 bg-indigo-50 hover:bg-indigo-100 transition-colors"
+                          className="flex items-center gap-1.5 text-xs px-2 py-1 rounded border text-brand-600 border-brand-200 bg-brand-50 hover:bg-brand-100 transition-colors"
                         >
                           <ClipboardCheck className="h-3.5 w-3.5" />
                           <span>Check In</span>
@@ -1206,10 +1323,10 @@ export function RepoDetailPage() {
                           onClick={() => { setShowPastCheckIn(v => !v); setPastCheckInDate('') }}
                           title="Add a past check-in"
                           className={cn(
-                            'flex items-center gap-1 text-xs px-2 py-1 rounded border transition-colors mr-1',
+                            'flex items-center gap-1.5 text-xs px-2 py-1 rounded border transition-colors mr-1.5',
                             showPastCheckIn
-                              ? 'bg-indigo-100 text-indigo-700 border-indigo-300'
-                              : 'text-muted-foreground border-border hover:border-indigo-300'
+                              ? 'bg-brand-100 text-brand-700 border-brand-300'
+                              : 'text-muted-foreground border-border hover:border-brand-300'
                           )}
                         >
                           <CalendarPlus className="h-3.5 w-3.5" />
@@ -1217,7 +1334,10 @@ export function RepoDetailPage() {
 
                   </>}
                 >
-                  <HealthSignalPills health={healthScore} className="py-1" />
+                  {/* No py-1: the header's own spacing sets the gap, and the
+                      extra 4px top and bottom was the blank strip between the
+                      title row and these pills. */}
+                  <HealthSignalPills health={healthScore} />
                   {checkIns.length > 0 && <p className="text-xs text-muted-foreground">Last checked: {formatRelativeDays(checkIns[checkIns.length - 1])}</p>}
                     {showPastCheckIn && (
                       <div className="flex items-center gap-2 mt-2 pt-2 border-t">
@@ -1226,18 +1346,18 @@ export function RepoDetailPage() {
                           value={pastCheckInDate}
                           onChange={(e) => setPastCheckInDate(e.target.value)}
                           max={new Date().toISOString().slice(0, 16)}
-                          className="text-xs border border-border rounded px-2 py-1 flex-1 focus:outline-none focus:border-indigo-400"
+                          className="text-xs border border-border rounded px-2 py-1 flex-1 focus:outline-none focus:border-brand-400"
                         />
                         <button
                           onClick={handleAddPastCheckIn}
                           disabled={!pastCheckInDate}
-                          className="text-xs px-2 py-1 rounded border bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          className="text-xs px-2 py-1 rounded border bg-brand-600 text-white border-brand-600 hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                         >
                           Add
                         </button>
                         <button
                           onClick={() => setShowPastCheckIn(false)}
-                          className="text-xs px-2 py-1 rounded border text-muted-foreground border-border hover:border-indigo-300 transition-colors"
+                          className="text-xs px-2 py-1 rounded border text-muted-foreground border-border hover:border-brand-300 transition-colors"
                         >
                           Cancel
                         </button>
@@ -1251,7 +1371,7 @@ export function RepoDetailPage() {
             {/* Commits section */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible" transition={{ delay: 0.1 }}>
               <Card>
-                <CardHeader className="pt-4 pb-2 flex flex-row items-center justify-between space-y-0">
+                <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
                   <CardTitle className="text-base">Commits</CardTitle>
                   <Button
                     size="sm"
@@ -1273,7 +1393,7 @@ export function RepoDetailPage() {
                     )}
                   </Button>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-4 pt-0">
               {/* Checked before the empty case: while the query is in flight
                   allCommitsData is undefined, which used to render "No commits
                   found." at every page load. */}
@@ -1291,132 +1411,21 @@ export function RepoDetailPage() {
                       data-testid="commits-stale-notice"
                       className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
                     >
-                      <TriangleAlert className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                      <TriangleAlert className="mt-1.5 h-3.5 w-3.5 flex-shrink-0" />
                       <span>
                         Showing the last synced history — the local clone could
                         not be read. Sync the repository for anything newer.
                       </span>
                     </p>
                   )}
-                  <div className="flex flex-col gap-2">
-                    {allBranches.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="w-14 shrink-0 text-xs text-muted-foreground">Branch:</span>
-                        <button
-                          onClick={() => setSelectedBranches(new Set())}
-                          className={cn(
-                            'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                            selectedBranches.size === 0
-                              ? 'bg-indigo-600 text-white border-indigo-600'
-                              : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
-                          )}
-                        >
-                          All
-                        </button>
-                        {(showAllBranches ? allBranches : allBranches.slice(0, MAX_BRANCH_CHIPS)).map(b => (
-                          <button
-                            key={b}
-                            onClick={() => toggleBranch(b)}
-                            className={cn(
-                              'text-xs px-1.5 py-0.5 rounded border font-mono transition-colors',
-                              selectedBranches.has(b)
-                                ? 'bg-indigo-600 text-white border-indigo-600'
-                                : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
-                            )}
-                          >
-                            {b}
-                          </button>
-                        ))}
-                        {allBranches.length > MAX_BRANCH_CHIPS && (
-                          <button
-                            onClick={() => setShowAllBranches(v => !v)}
-                            className="text-xs px-1.5 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
-                          >
-                            {showAllBranches ? 'Show less' : `+${allBranches.length - MAX_BRANCH_CHIPS} more`}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {/* role/aria-label so tests and screen readers can tell this
-                        row apart — "All" appears in the Branch row and the
-                        chart range selector too. */}
-                    <div
-                      role="group"
-                      aria-label="Filter by commit type"
-                      className="flex flex-wrap items-center gap-1.5"
-                    >
-                      <span className="w-14 shrink-0 text-xs text-muted-foreground">Type:</span>
-                      <button
-                        onClick={() => setSelectedTypes(new Set())}
-                        className={cn(
-                          'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                          selectedTypes.size === 0
-                            ? 'bg-slate-700 text-white border-slate-700'
-                            : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
-                        )}
-                      >
-                        All
-                      </button>
-                      {/* Each chip wears its own type's colour, so this row is
-                          also the legend for the row tints. */}
-                      {COMMIT_TYPE_FILTERS.map((value) => {
-                        const style = commitTypeStyle(value)
-                        const active = selectedTypes.has(value)
-                        return (
-                          <button
-                            key={value}
-                            onClick={() => toggleType(value)}
-                            aria-pressed={active}
-                            className={cn(
-                              'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                              active ? style.chipActive : style.chipIdle
-                            )}
-                          >
-                            {style.label}
-                          </button>
-                        )
-                      })}
-                    </div>
-                    <div
-                      role="group"
-                      aria-label="Filter by commit date"
-                      className="flex flex-wrap items-center gap-1.5"
-                    >
-                      <span className="w-14 shrink-0 text-xs text-muted-foreground">Date:</span>
-                      {/* "All" is the first option rather than a separate reset
-                          button, so this row starts with the same affordance as
-                          the Branch and Type rows above it. */}
-                      <select
-                        aria-label="Filter commits by date"
-                        value={selectedDate}
-                        onChange={e => setSelectedDate(e.target.value)}
-                        className={cn(
-                          'text-xs px-1.5 py-0.5 rounded border transition-colors focus:outline-none focus:border-indigo-400',
-                          selectedDate
-                            ? 'bg-indigo-600 text-white border-indigo-600'
-                            : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
-                        )}
-                      >
-                        <option value="">All</option>
-                        {commitDates.map(d => (
-                          <option key={d} value={d}>{formatMonthDay(d)}</option>
-                        ))}
-                      </select>
-                      {commitDates.length > 0 && (
-                        <span className="text-xs italic text-gray-400">
-                          *only showing dates with commits
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                    <div className="flex flex-wrap items-center justify-between gap-3 py-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2 py-1">
                       <p className="text-xs text-muted-foreground">
                         {filteredCommits.length} commit{filteredCommits.length !== 1 ? 's' : ''}
                         {filteredCommits.length !== (allCommitsData?.items.length ?? 0) && (
                           <span> (of {allCommitsData?.items.length ?? 0})</span>
                         )}
                       </p>
-                      <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex flex-wrap items-center gap-2">
                         <label className="flex items-center gap-2 text-xs text-muted-foreground">
                           Commits per page
                           <select
@@ -1488,10 +1497,10 @@ export function RepoDetailPage() {
                               // Last, so tailwind-merge lets the link
                               // highlight win over the type tint.
                               highlightedCommitHash === commit.hash &&
-                                'ring-2 ring-inset ring-indigo-400 bg-indigo-50 hover:bg-indigo-50'
+                                'ring-2 ring-inset ring-brand-400 bg-brand-100 hover:bg-brand-100'
                             )}
                           >
-                            <td className="py-2.5 pr-6 text-xs whitespace-nowrap align-top">
+                            <td className="py-2 pr-6 text-xs whitespace-nowrap align-top">
                               <span className="block text-foreground">{resolvedAuthor(commit)}</span>
                               <span className="block">
                                 <span className="text-health-green">+{commit.insertions}</span>
@@ -1499,39 +1508,39 @@ export function RepoDetailPage() {
                                 <span className="text-health-red">-{commit.deletions}</span>
                               </span>
                             </td>
-                            <td className="py-2.5 pr-4">
+                            <td className="py-2 pr-4">
                               <div className="flex items-center gap-2">
                                 <a
                                   href={`${repo.github_url}/commit/${commit.hash}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="flex items-center gap-1 font-mono text-xs text-indigo-600 hover:underline whitespace-nowrap"
+                                  className="flex items-center gap-1.5 font-mono text-xs text-brand-600 hover:underline whitespace-nowrap"
                                   onClick={(e) => e.stopPropagation()}
                                 >
                                   <GitCommit className="h-3 w-3 flex-shrink-0" />
                                   {commit.hash.slice(0, 7)}
                                 </a>
-                                <span className="flex items-center gap-1 font-mono text-xs text-muted-foreground whitespace-nowrap">
+                                <span className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground whitespace-nowrap">
                                   <Calendar className="h-3 w-3 flex-shrink-0" />
                                   {formatDate(commit.date)}
                                 </span>
                               </div>
-                              <p className="text-xs mt-0.5 break-words">{commit.message}</p>
+                              <p className="text-xs mt-1.5 break-words">{commit.message}</p>
                               {(() => {
                                 const stats = commitNoteStats[commit.hash]
                                 return (
                                   <button
                                     onClick={() => setActiveCommitHash(activeCommitHash === commit.hash ? null : commit.hash)}
-                                    className="text-xs text-muted-foreground hover:text-indigo-600 mt-0.5 flex items-center gap-1"
+                                    className="text-xs text-muted-foreground hover:text-brand-600 mt-1.5 flex items-center gap-1.5"
                                   >
                                     <MessageSquare className="h-3 w-3" />
                                     {stats ? (
                                       <>
-                                        <span className="bg-indigo-100 text-indigo-700 rounded-full px-1.5 py-0.5 text-xs font-medium leading-none">
+                                        <span className="bg-brand-100 text-brand-700 rounded-full px-2 py-0.5 text-xs font-medium leading-none">
                                           {stats.total}
                                         </span>
                                         {stats.reminders > 0 && (
-                                          <span className="bg-amber-100 text-amber-700 rounded-full px-1.5 py-0.5 text-xs font-medium leading-none">
+                                          <span className="bg-amber-100 text-amber-700 rounded-full px-2 py-0.5 text-xs font-medium leading-none">
                                             {stats.reminders} reminder{stats.reminders !== 1 ? 's' : ''}
                                           </span>
                                         )}
@@ -1543,7 +1552,7 @@ export function RepoDetailPage() {
                                 )
                               })()}
                             </td>
-                            <td className="py-2.5 pr-4 text-xs max-w-[10rem]">
+                            <td className="py-2 pr-4 text-xs max-w-[10rem]">
                               {(() => {
                                 const mainNames = ['main', 'master']
                                 const onMain = commit.branches.some(b => mainNames.includes(b))
@@ -1560,10 +1569,10 @@ export function RepoDetailPage() {
                                         title={originBranch.length > 22 ? originBranch : undefined}
                                         onClick={(e) => { e.stopPropagation(); toggleBranch(originBranch) }}
                                         className={cn(
-                                          'rounded px-1.5 py-0.5 font-mono border transition-colors truncate max-w-full',
+                                          'rounded px-2 py-0.5 font-mono border transition-colors truncate max-w-full',
                                           selectedBranches.has(originBranch)
-                                            ? 'bg-indigo-600 text-white border-indigo-600'
-                                            : 'bg-indigo-50 text-indigo-700 border-indigo-100 hover:bg-indigo-100'
+                                            ? 'bg-brand-600 text-white border-brand-600'
+                                            : 'bg-brand-50 text-brand-700 border-brand-100 hover:bg-brand-100'
                                         )}
                                       >
                                         {displayBranch}
@@ -1578,7 +1587,7 @@ export function RepoDetailPage() {
                                 )
                               })()}
                             </td>
-                            <td className="py-2.5 pr-2">
+                            <td className="py-2 pr-2">
                               <CommitScorePill score={commit.quality_score} />
                             </td>
                           </tr>
@@ -1618,32 +1627,180 @@ export function RepoDetailPage() {
           {/* Sidebar column — Pull Requests + Contributors. self-stretch keeps
               this column as tall as the main content so the sticky Contributors
               panel has room to travel as you scroll. */}
-          <div className="min-w-0 self-stretch flex flex-col gap-6 lg:col-start-1 lg:row-start-1">
+          <div className="min-w-0 self-stretch flex flex-col gap-4 lg:col-start-1 lg:row-start-1">
+
+            <div className="flex flex-col gap-4" aria-label="Commit filters" role="group">
+            {(allCommitsLoading || (allCommitsData?.items.length ?? 0) > 0) && (
+              <SidebarPanel
+                title="Type and Date"
+                icon={Tag}
+                id="type-date-filter-content"
+                expanded={typeDateExpanded}
+                onToggle={toggleTypeDate}
+              >
+                <div className="flex flex-col gap-4">
+                  <div>
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">Type</p>
+                {allCommitsLoading ? <FilterPlaceholder /> : (
+                /* role/aria-label so tests and screen readers can tell this
+                   group apart — "All" appears in the Branch panel and the
+                   chart range selector too. */
+                <div
+                  role="group"
+                  aria-label="Filter by commit type"
+                  className="flex flex-wrap items-center gap-1.5"
+                >
+                  <button
+                    onClick={() => setSelectedTypes(new Set())}
+                    className={cn(
+                      'text-xs px-2 py-0.5 rounded border transition-colors',
+                      selectedTypes.size === 0
+                        ? 'bg-slate-700 text-white border-slate-700'
+                        : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                    )}
+                  >
+                    All
+                  </button>
+                  {/* Each chip wears its own type's colour, so this group is
+                      also the legend for the commit row tints. */}
+                  {COMMIT_TYPE_FILTERS.map((value) => {
+                    const style = commitTypeStyle(value)
+                    const active = selectedTypes.has(value)
+                    return (
+                      <button
+                        key={value}
+                        onClick={() => toggleType(value)}
+                        aria-pressed={active}
+                        className={cn(
+                          'text-xs px-2 py-0.5 rounded border transition-colors',
+                          active ? style.chipActive : style.chipIdle
+                        )}
+                      >
+                        {style.label}
+                      </button>
+                    )
+                  })}
+                </div>
+                )}
+                  </div>
+                  <div>
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">Date</p>
+                {allCommitsLoading ? <FilterPlaceholder /> : (
+                <div
+                  role="group"
+                  aria-label="Filter by commit date"
+                  className="flex flex-wrap items-center gap-1.5"
+                >
+                  {/* "All" is the first option rather than a separate reset
+                      button, so this panel starts with the same affordance as
+                      the Branch and Type panels above it. */}
+                  <select
+                    aria-label="Filter commits by date"
+                    value={selectedDate}
+                    onChange={e => setSelectedDate(e.target.value)}
+                    className={cn(
+                      'text-xs px-2 py-0.5 rounded border transition-colors focus:outline-none focus:border-brand-400',
+                      selectedDate
+                        ? 'bg-brand-600 text-white border-brand-600'
+                        : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                    )}
+                  >
+                    <option value="">All</option>
+                    {commitDates.map(d => (
+                      <option key={d} value={d}>{formatMonthDay(d)}</option>
+                    ))}
+                  </select>
+                  <span className="text-xs italic text-gray-400">
+                    *only showing dates with commits
+                  </span>
+                </div>
+                )}
+                  </div>
+                </div>
+              </SidebarPanel>
+            )}
+
+            {(allCommitsLoading || allBranches.length > 0) && (
+              <SidebarPanel
+                title="Branch"
+                icon={GitBranch}
+                id="branch-filter-content"
+                expanded={branchFilterExpanded}
+                onToggle={toggleBranchFilter}
+              >
+                {/* role/aria-label to match the Type and Date panels below.
+                    Without it this group was unaddressable: every commit row
+                    also renders a clickable chip for its own branch, so
+                    `getByRole('button', { name: 'feature/auth' })` matched two
+                    elements and could not be scoped to the filter. */}
+                {allCommitsLoading ? <FilterPlaceholder /> : (
+                <div
+                  role="group"
+                  aria-label="Filter by commit branch"
+                  className="flex flex-wrap items-center gap-1.5"
+                >
+                  <button
+                    onClick={() => setSelectedBranches(new Set())}
+                    className={cn(
+                      'text-xs px-2 py-0.5 rounded border transition-colors',
+                      selectedBranches.size === 0
+                        ? 'bg-brand-600 text-white border-brand-600'
+                        : 'bg-brand-50 text-brand-700 border-brand-200 hover:bg-brand-100'
+                    )}
+                  >
+                    All
+                  </button>
+                  {(showAllBranches ? allBranches : allBranches.slice(0, MAX_BRANCH_CHIPS)).map(b => (
+                    <button
+                      key={b}
+                      onClick={() => toggleBranch(b)}
+                      className={cn(
+                        'text-xs px-2 py-0.5 rounded border font-mono transition-colors',
+                        selectedBranches.has(b)
+                          ? 'bg-brand-600 text-white border-brand-600'
+                          : 'bg-brand-50 text-brand-700 border-brand-200 hover:bg-brand-100'
+                      )}
+                    >
+                      {b}
+                    </button>
+                  ))}
+                  {allBranches.length > MAX_BRANCH_CHIPS && (
+                    <button
+                      onClick={() => setShowAllBranches(v => !v)}
+                      className="text-xs px-2 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
+                    >
+                      {showAllBranches ? 'Show less' : `+${allBranches.length - MAX_BRANCH_CHIPS} more`}
+                    </button>
+                  )}
+                </div>
+                )}
+              </SidebarPanel>
+            )}
+
+            </div>
 
             {/* Pull Requests panel */}
-            <div className="shrink-0 bg-gray-50 rounded-xl border border-border p-4">
-              <h2 className="text-sm font-semibold">
+            <section
+              aria-label="Pull Requests"
+              className={cn('shrink-0 bg-card rounded-xl border border-border shadow-sm', PANEL_PADDING)}
+            >
+<div className="flex flex-wrap items-center gap-2">              <h2 className="text-sm font-semibold">
                 <button
                   type="button"
                   onClick={togglePullRequests}
                   aria-expanded={pullRequestsExpanded}
                   aria-controls="pull-requests-content"
-                  className="flex w-full items-center gap-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                  className="flex items-center gap-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
                 >
                   <GitPullRequest className="h-4 w-4 text-muted-foreground" />
                   Pull Requests
-                  {pullRequestsExpanded
-                    ? <ChevronUp className="ml-auto h-4 w-4" />
-                    : <ChevronDown className="ml-auto h-4 w-4" />}
                 </button>
-              </h2>
-              <div id="pull-requests-content" hidden={!pullRequestsExpanded}>
-              <div className="flex items-center gap-2 mt-3 mb-3">
+              </h2>              <div hidden={!pullRequestsExpanded} className={cn("ml-auto items-center gap-2", pullRequestsExpanded && "flex")}>
                 <button
                   onClick={() => syncPRsMutation.mutate()}
                   disabled={syncPRsMutation.isPending || !hasToken}
                   aria-busy={syncPRsMutation.isPending}
-                  className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground hover:text-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  className="ml-auto flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   title={!hasToken ? 'Add a GitHub token to fetch PRs' : prStats && prStats.total_count > 0 ? 'Refresh PRs' : 'Fetch PRs from GitHub'}
                 >
                   {syncPRsMutation.isPending
@@ -1652,31 +1809,21 @@ export function RepoDetailPage() {
                   {syncPRsMutation.isPending ? 'Syncing…' : prStats && prStats.total_count > 0 ? 'Refresh' : 'Fetch PRs'}
                 </button>
                 {prStats && prStats.total_count > 0 && (
-                  <span className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full px-2 py-0.5 font-medium">
+                  <span className="text-xs bg-brand-100 text-brand-700 border border-brand-200 rounded-full px-2 py-0.5 font-medium">
                     {prStats.total_count}
                   </span>
                 )}
-              </div>
+              </div><button
+                type="button"
+                aria-label={`${pullRequestsExpanded ? 'Collapse' : 'Expand'} pull requests`}
+                aria-expanded={pullRequestsExpanded}
+                onClick={togglePullRequests}
+                className="ml-auto shrink-0 rounded p-1 hover:bg-brand-50 focus-visible:ring-2 focus-visible:ring-brand-400"
+              >
+                {pullRequestsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </button></div>
+              <div id="pull-requests-content" hidden={!pullRequestsExpanded} className="mt-2">
 
-              {/* State filter */}
-              {prStats && prStats.total_count > 0 && (
-                <div className="flex gap-1 mb-3">
-                  {(['all', 'open', 'merged', 'closed'] as const).map(s => (
-                    <button
-                      key={s}
-                      onClick={() => { setPrStateFilter(s === 'all' ? undefined : s); setPrPage(0) }}
-                      className={cn(
-                        'flex-1 py-0.5 rounded text-xs font-medium transition-colors capitalize',
-                        (s === 'all' ? !prStateFilter : prStateFilter === s)
-                          ? 'bg-indigo-100 text-indigo-700'
-                          : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                      )}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              )}
 
               {/* PR list */}
               {!prStats || prStats.total_count === 0 ? (
@@ -1692,22 +1839,22 @@ export function RepoDetailPage() {
                       key={pr.id}
                       className={cn('flex items-start gap-2 py-2', index < arr.length - 1 && 'border-b border-border')}
                     >
-                      <span className="text-xs text-gray-400 font-mono flex-shrink-0 mt-0.5">#{pr.pr_number}</span>
+                      <span className="text-xs text-muted-foreground font-mono flex-shrink-0 mt-1.5">#{pr.pr_number}</span>
                       <div className="flex-1 min-w-0">
                         <a
                           href={pr.html_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-xs text-gray-700 hover:text-indigo-600 transition-colors leading-relaxed line-clamp-2"
+                          className="text-xs text-foreground hover:text-brand-600 transition-colors leading-relaxed line-clamp-2"
                           title={pr.title}
                         >
-                          {pr.draft && <span className="text-gray-400">[Draft] </span>}
+                          {pr.draft && <span className="text-muted-foreground">[Draft] </span>}
                           {pr.title}
                         </a>
-                        <div className="flex items-center gap-2 mt-1">
+                        <div className="flex items-center gap-2 mt-1.5">
                           <PRStatePill state={pr.state} />
-                          <span className="text-[10px] text-gray-400 truncate">{pr.author_login}</span>
-                          <span className="text-[10px] text-gray-400 flex-shrink-0 ml-auto">
+                          <span className="text-[10px] text-muted-foreground truncate">{pr.author_login}</span>
+                          <span className="text-[10px] text-muted-foreground flex-shrink-0 ml-auto">
                             {pr.state === 'merged' && pr.merged_at
                               ? formatRelativeDays(pr.merged_at)
                               : pr.state === 'closed' && pr.closed_at
@@ -1721,22 +1868,22 @@ export function RepoDetailPage() {
                     </div>
                   ))}
                   {prList && prList.total > PR_PAGE_SIZE && (
-                    <div className="flex items-center justify-between pt-2 mt-1 border-t border-border">
+                    <div className="flex items-center justify-between pt-2 mt-1.5 border-t border-border">
                       <span className="text-[10px] text-muted-foreground">
                         {prPage * PR_PAGE_SIZE + 1}–{Math.min((prPage + 1) * PR_PAGE_SIZE, prList.total)} of {prList.total}
                       </span>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1.5">
                         <button
                           disabled={prPage === 0}
                           onClick={() => setPrPage(p => p - 1)}
-                          className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          className="text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:border-brand-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                         >
                           Prev
                         </button>
                         <button
                           disabled={(prPage + 1) * PR_PAGE_SIZE >= prList.total}
                           onClick={() => setPrPage(p => p + 1)}
-                          className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          className="text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:border-brand-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                         >
                           Next
                         </button>
@@ -1746,44 +1893,31 @@ export function RepoDetailPage() {
                 </div>
               )}
               </div>
-            </div>
+            </section>
 
-            {/* Contributors and the three filters ride along as the commit
-                list scrolls — all four are useless out of reach of the rows
-                they describe. One sticky wrapper rather than four, so they
-                travel as a block instead of piling up at the same offset,
-                and it scrolls internally when the stack outgrows the
-                viewport (otherwise its lower panels become unreachable). */}
-            <div className="sticky top-6 flex max-h-[calc(100vh-3rem)] flex-col gap-6 overflow-y-auto">
+            {/* Contributors remain separate from the commit filters. */}
+            <div className="sticky top-6 flex max-h-[calc(100vh-3rem)] flex-col gap-4 overflow-y-auto">
             {/* Contributors panel */}
-            <div className="shrink-0 bg-gray-50 rounded-xl border border-border p-4">
-              {/* Header is the toggle and nothing else, so its chevron lands on
-                  the same right edge as every other panel's. Expected and the
-                  merge buttons moved into the body below — they cannot sit in
-                  this row, because nesting controls inside the toggle button
-                  would be invalid and would swallow their clicks. */}
-              <h2 className="text-sm font-semibold">
+            <div className={cn('shrink-0 bg-card rounded-xl border border-border', PANEL_PADDING)}>
+
+<div className="flex flex-wrap items-center gap-2">              <h2 className="text-sm font-semibold">
                 <button
                   type="button"
                   onClick={toggleContributors}
                   aria-expanded={contributorsExpanded}
                   aria-controls="contributors-content"
-                  className="flex w-full items-center gap-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                  className="flex items-center gap-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
                 >
                   <User className="h-4 w-4 text-muted-foreground" />
                   Contributors
-                  {contributorsExpanded
-                    ? <ChevronUp className="ml-auto h-4 w-4" />
-                    : <ChevronDown className="ml-auto h-4 w-4" />}
                 </button>
-              </h2>
-
-              {/* No cap here — the sticky wrapper scrolls the whole stack, and
-                  a scroll region inside a scroll region is miserable to use. */}
-              <div id="contributors-content" hidden={!contributorsExpanded} className="mt-3">
-              <div className="mb-3 flex flex-wrap items-center justify-end gap-1.5">
-                <span className="text-xs text-muted-foreground">Expected:</span>
+              </h2><div hidden={!contributorsExpanded} className={cn("ml-auto items-center gap-2", contributorsExpanded && "flex")}>              {sortedContributors.length > 0 && <label className="flex items-center gap-1 whitespace-nowrap text-xs">
+                <input type="checkbox" aria-label="Select all contributors" checked={selectedContributorIds.size === sortedContributors.length}
+                  onChange={e => { setSelectedContributorIds(new Set(e.target.checked ? sortedContributors.map(c => c.id) : [])); setShowMerge(false) }} className="accent-brand-600" />
+                Select all
+              </label>}<label className="flex items-center gap-1">                <span className="text-xs text-muted-foreground">Expected:</span>
                 <input
+                  aria-label="Expected contributors"
                   type="number"
                   min={contributors?.length ?? 1}
                   value={expectedCount}
@@ -1791,29 +1925,43 @@ export function RepoDetailPage() {
                   onBlur={handleSaveExpectedCount}
                   onKeyDown={e => { if (e.key === 'Enter') handleSaveExpectedCount() }}
                   placeholder="—"
-                  className="w-10 text-xs text-center border border-border rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white"
+                  className="w-10 text-xs text-center border border-border rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white"
                 />
+</label></div><button
+                type="button"
+                aria-label={`${contributorsExpanded ? 'Collapse' : 'Expand'} contributors`}
+                aria-expanded={contributorsExpanded}
+                onClick={toggleContributors}
+                className="ml-auto shrink-0 rounded p-1 hover:bg-brand-50 focus-visible:ring-2 focus-visible:ring-brand-400"
+              >
+                {contributorsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </button></div>
+
+              {/* No cap here — the sticky wrapper scrolls the whole stack, and
+                  a scroll region inside a scroll region is miserable to use. */}
+              <div id="contributors-content" hidden={!contributorsExpanded} className="mt-2">
+              <div className="mb-2 flex flex-wrap items-center justify-end gap-1.5">
                 {selectedMergedContributor && (
                   <button
                     onClick={handleUnmerge}
                     disabled={unmergeContributorMutation.isPending}
                     aria-busy={unmergeContributorMutation.isPending}
                     title="Undo this contributor's last merge"
-                    className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded px-2 py-1 disabled:opacity-50"
+                    className="text-xs bg-brand-100 text-brand-700 border border-brand-200 rounded px-2 py-1 disabled:opacity-50"
                   >
                     {unmergeContributorMutation.isPending ? 'Unmerging…' : 'Unmerge'}
                   </button>
                 )}
                 {selectedContributorIds.size >= 2 && (
-                  <button onClick={() => { initMerge(); setShowMerge(v => !v) }} className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded px-2 py-1" aria-expanded={showMerge}>Merge</button>
+                  <button onClick={() => { initMerge(); setShowMerge(v => !v) }} className="text-xs bg-brand-100 text-brand-700 border border-brand-200 rounded px-2 py-1" aria-expanded={showMerge}>Merge</button>
                 )}
               </div>
               {/* Explicit merge confirmation */}
               {showMerge && selectedContributorIds.size >= 2 && (
-                <div className="mb-3 p-2.5 bg-indigo-50 border border-indigo-200 rounded-lg flex flex-col gap-2">
-                  <p className="text-xs text-indigo-700 font-medium">Merge display name:</p>
+                <div className="mb-2 p-2.5 bg-brand-50 border border-brand-200 rounded-lg flex flex-col gap-2">
+                  <p className="text-xs text-brand-700 font-medium">Merge display name:</p>
                   <input
-                    className="w-full text-xs border border-indigo-200 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                    className="w-full text-xs border border-brand-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
                     value={mergeDisplayName}
                     onChange={e => setMergeDisplayName(e.target.value)}
                     placeholder="Merged contributor name"
@@ -1824,14 +1972,14 @@ export function RepoDetailPage() {
                       onClick={handleMerge}
                       disabled={!mergeDisplayName.trim() || mergeContributorsMutation.isPending}
                       aria-busy={mergeContributorsMutation.isPending}
-                      className="flex-1 text-xs bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded px-2 py-1.5 font-medium transition-colors"
+                      className="flex-1 text-xs bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded px-2 py-1 font-medium transition-colors"
                     >
                       {mergeContributorsMutation.isPending && <RefreshCw className="inline-block h-3.5 w-3.5 mr-1.5 animate-spin motion-reduce:animate-none" />}
                       {mergeContributorsMutation.isPending ? 'Merging…' : 'Confirm Merge'}
                     </button>
                     <button
                       onClick={() => { setShowMerge(false); setMergeDisplayName('') }}
-                      className="text-xs border border-border rounded px-2 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                      className="text-xs border border-border rounded px-2 py-1 text-muted-foreground hover:text-foreground transition-colors"
                     >
                       Cancel
                     </button>
@@ -1839,33 +1987,31 @@ export function RepoDetailPage() {
                 </div>
               )}
 
-              {sortedContributors.length > 0 && <label className="mb-3 flex items-center gap-2 text-sm">
-                <input type="checkbox" aria-label="Select all contributors" checked={selectedContributorIds.size === sortedContributors.length}
-                  onChange={e => { setSelectedContributorIds(new Set(e.target.checked ? sortedContributors.map(c => c.id) : [])); setShowMerge(false) }} className="accent-indigo-600" />
-                Select all
-              </label>}
+
               {!sortedContributors.length ? (
                 <p className="text-xs text-muted-foreground text-center py-4">No contributors found.</p>
               ) : (
-                <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-2">
                   {sortedContributors.map((contributor) => (
                     <div key={contributor.id} className={cn(
                       'flex items-start gap-2 rounded-lg p-1.5 -mx-1.5 transition-colors',
-                      selectedContributorIds.has(contributor.id) && 'bg-indigo-50'
+                      // brand-100, not 50: selection drives the merge action, so
+                      // it has to be unmistakable against the white panel.
+                      selectedContributorIds.has(contributor.id) && 'bg-brand-100'
                     )}>
                       <input
                         type="checkbox"
                         aria-label={`Select ${contributor.display_name}`}
                         checked={selectedContributorIds.has(contributor.id)}
                         onChange={() => toggleContributorSelect(contributor.id)}
-                        className="mt-1 h-3.5 w-3.5 flex-shrink-0 accent-indigo-600 cursor-pointer"
+                        className="mt-1.5 h-3.5 w-3.5 flex-shrink-0 accent-brand-600 cursor-pointer"
                       />
                       <div className="flex-1 min-w-0">
                         {editingContributorId === contributor.id ? (
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1.5">
                             <input
                               autoFocus
-                              className="flex-1 min-w-0 text-sm border border-indigo-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                              className="flex-1 min-w-0 text-sm border border-brand-300 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-brand-400"
                               value={editingName}
                               onChange={e => setEditingName(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') saveDisplayName(); if (e.key === 'Escape') cancelEditing() }}
@@ -1878,11 +2024,11 @@ export function RepoDetailPage() {
                             </button>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-1 group">
+                          <div className="flex items-center gap-1.5 group">
                             <p className="font-medium text-sm truncate">{contributor.display_name}</p>
                             <button
                               onClick={() => startEditing(contributor)}
-                              className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-indigo-600 transition-opacity flex-shrink-0"
+                              className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-brand-600 transition-opacity flex-shrink-0"
                               title="Edit display name"
                             >
                               <Pencil className="h-3 w-3" />
@@ -1890,7 +2036,7 @@ export function RepoDetailPage() {
                             <ContributorGenerateButton contributorId={contributor.id} repoId={id ?? ''} />
                           </div>
                         )}
-                        <p className="text-xs text-muted-foreground mt-0.5">
+                        <p className="text-xs text-muted-foreground mt-1.5">
                           {contributor.aliases.length} alias{contributor.aliases.length !== 1 ? 'es' : ''}
                           {contributor.aliases.length > 0 && (
                             <span> — {contributor.aliases.map((a) => a.git_email).join(', ')}</span>
@@ -1903,7 +2049,7 @@ export function RepoDetailPage() {
                           const del = s?.deletions ?? contributor.total_deletions
                           const last = s?.lastCommitAt ?? contributor.last_commit_at
                           return (
-                            <p className="text-xs text-muted-foreground mt-1">
+                            <p className="text-xs text-muted-foreground mt-1.5">
                               {commits} commits
                               {' · '}
                               <span className="text-green-600">+{ins.toLocaleString()}</span>
@@ -1923,143 +2069,6 @@ export function RepoDetailPage() {
               </div>{/* end contributors-content */}
             </div>
 
-            {/* Commit filters. Each is its own section rather than a row in the
-                Commits card, and each renders only when it has something to
-                offer — an empty Branch panel would just be a dead header. */}
-            {allBranches.length > 0 && (
-              <SidebarPanel
-                title="Branch"
-                icon={GitBranch}
-                id="branch-filter-content"
-                expanded={branchFilterExpanded}
-                onToggle={toggleBranchFilter}
-              >
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <button
-                    onClick={() => setSelectedBranches(new Set())}
-                    className={cn(
-                      'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                      selectedBranches.size === 0
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
-                    )}
-                  >
-                    All
-                  </button>
-                  {(showAllBranches ? allBranches : allBranches.slice(0, MAX_BRANCH_CHIPS)).map(b => (
-                    <button
-                      key={b}
-                      onClick={() => toggleBranch(b)}
-                      className={cn(
-                        'text-xs px-1.5 py-0.5 rounded border font-mono transition-colors',
-                        selectedBranches.has(b)
-                          ? 'bg-indigo-600 text-white border-indigo-600'
-                          : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
-                      )}
-                    >
-                      {b}
-                    </button>
-                  ))}
-                  {allBranches.length > MAX_BRANCH_CHIPS && (
-                    <button
-                      onClick={() => setShowAllBranches(v => !v)}
-                      className="text-xs px-1.5 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
-                    >
-                      {showAllBranches ? 'Show less' : `+${allBranches.length - MAX_BRANCH_CHIPS} more`}
-                    </button>
-                  )}
-                </div>
-              </SidebarPanel>
-            )}
-
-            {(allCommitsData?.items.length ?? 0) > 0 && (
-              <SidebarPanel
-                title="Type"
-                icon={Tag}
-                id="type-filter-content"
-                expanded={typeFilterExpanded}
-                onToggle={toggleTypeFilter}
-              >
-                {/* role/aria-label so tests and screen readers can tell this
-                    group apart — "All" appears in the Branch panel and the
-                    chart range selector too. */}
-                <div
-                  role="group"
-                  aria-label="Filter by commit type"
-                  className="flex flex-wrap items-center gap-1.5"
-                >
-                  <button
-                    onClick={() => setSelectedTypes(new Set())}
-                    className={cn(
-                      'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                      selectedTypes.size === 0
-                        ? 'bg-slate-700 text-white border-slate-700'
-                        : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
-                    )}
-                  >
-                    All
-                  </button>
-                  {/* Each chip wears its own type's colour, so this group is
-                      also the legend for the commit row tints. */}
-                  {COMMIT_TYPE_FILTERS.map((value) => {
-                    const style = commitTypeStyle(value)
-                    const active = selectedTypes.has(value)
-                    return (
-                      <button
-                        key={value}
-                        onClick={() => toggleType(value)}
-                        aria-pressed={active}
-                        className={cn(
-                          'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                          active ? style.chipActive : style.chipIdle
-                        )}
-                      >
-                        {style.label}
-                      </button>
-                    )
-                  })}
-                </div>
-              </SidebarPanel>
-            )}
-
-            {commitDates.length > 0 && (
-              <SidebarPanel
-                title="Date"
-                icon={Calendar}
-                id="date-filter-content"
-                expanded={dateFilterExpanded}
-                onToggle={toggleDateFilter}
-              >
-                <div
-                  role="group"
-                  aria-label="Filter by commit date"
-                  className="flex flex-wrap items-center gap-1.5"
-                >
-                  {/* "All" is the first option rather than a separate reset
-                      button, so this panel starts with the same affordance as
-                      the Branch and Type panels above it. */}
-                  <select
-                    aria-label="Filter commits by date"
-                    value={selectedDate}
-                    onChange={e => setSelectedDate(e.target.value)}
-                    className={cn(
-                      'text-xs px-1.5 py-0.5 rounded border transition-colors focus:outline-none focus:border-indigo-400',
-                      selectedDate
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
-                    )}
-                  >
-                    <option value="">All</option>
-                    {commitDates.map(d => (
-                      <option key={d} value={d}>{formatMonthDay(d)}</option>
-                    ))}
-                  </select>
-                  <span className="text-xs italic text-gray-400">
-                    *only showing dates with commits
-                  </span>
-                </div>
-              </SidebarPanel>
-            )}
             </div>
 
           </div>{/* end sidebar column */}
@@ -2097,7 +2106,7 @@ export function RepoDetailPage() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-indigo-500" />
+              <Sparkles className="h-4 w-4 text-brand-500" />
               Classify this repository?
             </DialogTitle>
           </DialogHeader>
@@ -2130,7 +2139,7 @@ export function RepoDetailPage() {
               size="sm"
               loading={classifyMutation.isPending}
               onClick={() => runClassify(true)}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              className="bg-brand-600 hover:bg-brand-700 text-white"
             >
               Classify all
             </Button>

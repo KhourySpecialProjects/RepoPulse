@@ -20,6 +20,10 @@ import type {
   PRStats,
   PRListResponse,
   PRSyncResponse,
+  LlmConfig,
+  TokenQuota,
+  TokenUsageSummary,
+  UserTokenUsage,
 } from '@/types'
 
 const BASE = '/api/v1'
@@ -283,6 +287,12 @@ const mockUserDetails: UserDetail[] = [
   },
 ]
 
+const mockSetupLink = {
+  token: 'setup-token-default',
+  setup_path: '/account-setup?token=setup-token-default',
+  expires_at: '2026-12-31T00:00:00Z',
+}
+
 const mockNoteComments: NoteComment[] = []
 
 const mockNotifications: Notification[] = []
@@ -320,13 +330,86 @@ const mockSettings: AppSettings = {
   id: 'settings-1',
   user_id: mockUser.id,
   repo_root_directory: '/Users/instructor/repos',
-  llm_provider: 'anthropic',
-  llm_model: 'claude-3-5-sonnet-20241022',
-  anthropic_api_key_configured: false,
-  ollama_base_url: null,
   health_thresholds: null,
   commit_evaluation_criteria: '',
+  // Read-only here: the model is one instance-wide, admin-owned setting.
+  llm_model: 'claude-sonnet-5',
 }
+
+const mockTokenQuota: TokenQuota = {
+  period: '2026-09',
+  used: 120_000,
+  limit: 500_000,
+  remaining: 380_000,
+  unlimited: false,
+  exceeded: false,
+}
+
+const mockLlmConfig: LlmConfig = {
+  id: 'llm-config-1',
+  llm_provider: 'anthropic',
+  llm_model: 'claude-sonnet-5',
+  anthropic_api_key_configured: true,
+  anthropic_api_key_from_env: true,
+  ollama_base_url: null,
+  default_monthly_token_limit: 500_000,
+  input_price_per_mtok: '3.0000',
+  output_price_per_mtok: '15.0000',
+  updated_at: '2026-09-01T00:00:00Z',
+}
+
+const mockTokenUsageSummary: TokenUsageSummary = {
+  period: '2026-09',
+  input_tokens: 8_420_000,
+  output_tokens: 1_190_000,
+  total_tokens: 9_610_000,
+  calls: 412,
+  models: ['claude-sonnet-5'],
+  input_price_per_mtok: '3.0000',
+  output_price_per_mtok: '15.0000',
+  // 8.42 x 3 + 1.19 x 15
+  estimated_cost_usd: '43.1100',
+  mixed_models: false,
+}
+
+const mockTokenUsageRows: UserTokenUsage[] = [
+  {
+    user_id: mockUser.id,
+    display_name: 'Instructor Mark',
+    email: 'mark@example.com',
+    role: 'instructor',
+    used: 420_000,
+    limit: 500_000,
+    remaining: 80_000,
+    unlimited: false,
+    exceeded: false,
+    override: null,
+  },
+  {
+    user_id: 'user-ta-1',
+    display_name: 'TA Sarah',
+    email: 'sarah@example.com',
+    role: 'ta',
+    used: 250_000,
+    limit: 250_000,
+    remaining: 0,
+    unlimited: false,
+    exceeded: true,
+    override: 250_000,
+  },
+  {
+    user_id: 'user-admin-1',
+    display_name: 'Admin Alex',
+    email: 'alex@example.com',
+    role: 'admin',
+    used: 15_000,
+    limit: null,
+    remaining: null,
+    unlimited: true,
+    exceeded: false,
+    override: null,
+  },
+]
 
 const mockAdminOverview = {
   counts: {
@@ -381,7 +464,8 @@ const mockAdminSystem = {
 
 const mockAdminLlmUsage = {
   window_days: 30,
-  total_calls: 14,
+  // Batched requests, not classified commits: the series below sum to this.
+  total_calls: 16,
   by_model: [
     {
       kind: 'commit_classification',
@@ -389,6 +473,13 @@ const mockAdminLlmUsage = {
       calls: 10,
       first_at: '2026-09-01T10:00:00Z',
       last_at: '2026-09-14T10:00:00Z',
+    },
+    {
+      kind: 'commit_quality',
+      model: 'claude-sonnet-5',
+      calls: 2,
+      first_at: '2026-09-14T09:00:00Z',
+      last_at: '2026-09-14T09:00:00Z',
     },
     {
       kind: 'summary',
@@ -408,14 +499,117 @@ const mockAdminLlmUsage = {
   daily: [
     { day: '2026-09-13', kind: 'summary', calls: 2 },
     { day: '2026-09-14', kind: 'commit_classification', calls: 12 },
+    { day: '2026-09-14', kind: 'commit_quality', calls: 2 },
   ],
-  by_collection_owner: [
-    { user_id: 'user-instructor-1', display_name: 'Instructor Mark', calls: 4 },
-  ],
-  unattributed_summaries: 1,
   models_in_use: ['claude-sonnet-4-20250514', 'claude-sonnet-5'],
   retired_models_in_use: ['claude-sonnet-4-20250514'],
   current_default_model: 'claude-sonnet-5',
+  generated_at: '2026-09-14T10:00:00Z',
+}
+
+/**
+ * Pipeline health.
+ *
+ * Deliberately not a clean instance: one grouped sync failure, a spread of
+ * sync ages including a `never` bucket, a couple of real coverage gaps and an
+ * undelivered notification. A fault dashboard mocked against a healthy
+ * instance never exercises the code paths it exists for.
+ */
+const mockAdminPipeline = {
+  sync_state: { idle: 2, syncing: 0, failed: 2 },
+  sync_errors: [
+    {
+      error: 'Authentication failed',
+      repos: 2,
+      example_repo_name: 'team-alpha',
+      last_seen: '2026-09-14T09:00:00Z',
+    },
+  ],
+  sync_age: [
+    { key: 'lt1d', label: 'Under a day', repos: 1 },
+    { key: '1to3d', label: '1-3 days', repos: 1 },
+    { key: '3to7d', label: '3-7 days', repos: 0 },
+    { key: '7to30d', label: '7-30 days', repos: 1 },
+    { key: 'gt30d', label: 'Over 30 days', repos: 0 },
+    { key: 'never', label: 'Never synced', repos: 1 },
+  ],
+  coverage: [
+    {
+      key: 'no_health_score',
+      label: 'Repos with no health score',
+      affected: 1,
+      total: 4,
+    },
+    {
+      key: 'unknown_health',
+      label: 'Repos scored unknown',
+      affected: 0,
+      total: 4,
+    },
+    {
+      key: 'unmeasured_clone',
+      label: 'Clones never measured',
+      affected: 2,
+      total: 4,
+    },
+    {
+      key: 'missing_clone',
+      label: 'Database rows with no files on disk',
+      affected: 1,
+      total: 4,
+    },
+    {
+      key: 'orphan_directory',
+      label: 'Directories on disk with no database row',
+      affected: 1,
+      total: 4,
+    },
+    {
+      key: 'unattributed_summary',
+      label: 'Summaries with no repo',
+      affected: 1,
+      total: 4,
+    },
+  ],
+  generated_at: '2026-09-14T10:00:00Z',
+}
+
+const mockAdminAttention = {
+  items: [
+    {
+      id: 'repo-alpha',
+      name: 'team-alpha',
+      collection_id: 'collection-1',
+      collection_name: 'CS4530 Fall 2026',
+      sync_status: 'failed',
+      sync_error: 'Authentication failed',
+      last_synced_at: '2026-09-07T10:00:00Z',
+      local_path: '/repos/cs4530-fall-2026/team-alpha',
+      reasons: [
+        { code: 'sync_failed', label: 'Last sync failed' },
+        { code: 'stale_sync', label: 'Sync is stale' },
+      ],
+      severity: 7,
+    },
+    {
+      id: 'repo-bravo',
+      name: 'team-bravo',
+      collection_id: 'collection-1',
+      collection_name: 'CS4530 Fall 2026',
+      sync_status: 'idle',
+      sync_error: null,
+      last_synced_at: null,
+      local_path: null,
+      reasons: [
+        { code: 'never_synced', label: 'Never synced' },
+        { code: 'unmeasured', label: 'Clone size never measured' },
+      ],
+      severity: 4,
+    },
+  ],
+  total: 2,
+  limit: 10,
+  offset: 0,
   generated_at: '2026-09-14T10:00:00Z',
 }
 
@@ -496,6 +690,19 @@ export const handlers = [
     return HttpResponse.json(mockTokenResponse)
   }),
   http.post(`${BASE}/auth/login`, () => {
+    return HttpResponse.json(mockTokenResponse)
+  }),
+  // Public: opened from an admin-issued setup link, before the user has any
+  // credentials. Rejections are 400, never 401 — a 401 would trip the api
+  // client's global interceptor and redirect away from the setup page.
+  http.post(`${BASE}/auth/account-setup/verify`, () => {
+    return HttpResponse.json({
+      email: 'new@example.com',
+      display_name: 'New User',
+      expires_at: mockSetupLink.expires_at,
+    })
+  }),
+  http.post(`${BASE}/auth/account-setup/complete`, () => {
     return HttpResponse.json(mockTokenResponse)
   }),
 
@@ -619,12 +826,7 @@ export const handlers = [
   }),
 
   // Contributors
-  http.get(`${BASE}/contributors/:id`, ({ params }) => {
-    const contributor = mockContributors.find((c) => c.id === params.id)
-    if (!contributor) return HttpResponse.json({ detail: 'Not found' }, { status: 404 })
-    return HttpResponse.json(contributor)
-  }),
-  http.patch(`${BASE}/contributors/:id`, async ({ params, request }) => {
+  http.put(`${BASE}/contributors/:id`, async ({ params, request }) => {
     const contributor = mockContributors.find((c) => c.id === params.id)
     if (!contributor) return HttpResponse.json({ detail: 'Not found' }, { status: 404 })
     const body = (await request.json()) as { display_name: string }
@@ -644,11 +846,6 @@ export const handlers = [
       last_commit_at: null,
     }
     return HttpResponse.json(merged)
-  }),
-  http.get(`${BASE}/contributors/:id/aliases`, ({ params }) => {
-    const contributor = mockContributors.find((c) => c.id === params.id)
-    if (!contributor) return HttpResponse.json({ detail: 'Not found' }, { status: 404 })
-    return HttpResponse.json(contributor)
   }),
   http.get(`${BASE}/contributors/:id/summaries`, () => {
     return HttpResponse.json([])
@@ -712,6 +909,52 @@ export const handlers = [
     const body = (await request.json()) as Partial<AppSettings>
     return HttpResponse.json({ ...mockSettings, ...body })
   }),
+  http.get(`${BASE}/settings/token-usage`, () => {
+    return HttpResponse.json(mockTokenQuota)
+  }),
+
+  // Shared LLM config and token limits (admin)
+  http.get(`${BASE}/admin/llm-config`, () => {
+    return HttpResponse.json(mockLlmConfig)
+  }),
+  http.patch(`${BASE}/admin/llm-config`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>
+    // Mirrors the server: the key is stored but never echoed back, so a
+    // component that tries to read it out of the response gets a boolean.
+    const { anthropic_api_key: key, ...rest } = body
+    return HttpResponse.json({
+      ...mockLlmConfig,
+      ...rest,
+      anthropic_api_key_configured: key !== null,
+      anthropic_api_key_from_env: key === null,
+    })
+  }),
+  http.get(`${BASE}/admin/token-usage/summary`, () => {
+    return HttpResponse.json(mockTokenUsageSummary)
+  }),
+  http.get(`${BASE}/admin/token-usage`, () => {
+    return HttpResponse.json({
+      items: mockTokenUsageRows,
+      total: mockTokenUsageRows.length,
+      limit: 50,
+      offset: 0,
+      period: '2026-09',
+    })
+  }),
+  http.patch(`${BASE}/admin/users/:userId/token-limit`, async ({ params, request }) => {
+    const body = (await request.json()) as { monthly_token_limit: number | null }
+    const existing =
+      mockTokenUsageRows.find((r) => r.user_id === params.userId) ??
+      mockTokenUsageRows[0]
+    const limit = body.monthly_token_limit ?? mockLlmConfig.default_monthly_token_limit
+    return HttpResponse.json({
+      ...existing,
+      override: body.monthly_token_limit,
+      limit,
+      remaining: Math.max(limit - existing.used, 0),
+      exceeded: existing.used >= limit,
+    })
+  }),
 
   // Admin
   http.get(`${BASE}/admin/overview`, () => {
@@ -733,6 +976,12 @@ export const handlers = [
       limit: 200,
       offset: 0,
     })
+  }),
+  http.get(`${BASE}/admin/pipeline`, () => {
+    return HttpResponse.json(mockAdminPipeline)
+  }),
+  http.get(`${BASE}/admin/attention`, () => {
+    return HttpResponse.json(mockAdminAttention)
   }),
   http.post(`${BASE}/admin/storage/recalculate`, () => {
     return HttpResponse.json({
@@ -779,7 +1028,12 @@ export const handlers = [
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }
-    return HttpResponse.json(newUser, { status: 201 })
+    // Creation mints a setup link rather than taking a password, so the
+    // response is an envelope: the user plus the link to hand over.
+    return HttpResponse.json(
+      { user: newUser, setup: mockSetupLink },
+      { status: 201 }
+    )
   }),
   http.patch(`${BASE}/users/:id`, async ({ params, request }) => {
     const user = mockUserDetails.find((u) => u.id === params.id)
@@ -790,8 +1044,8 @@ export const handlers = [
   http.delete(`${BASE}/users/:id`, () => {
     return new HttpResponse(null, { status: 204 })
   }),
-  http.post(`${BASE}/users/:id/reset-password`, () => {
-    return new HttpResponse(null, { status: 204 })
+  http.post(`${BASE}/users/:id/setup-link`, () => {
+    return HttpResponse.json(mockSetupLink)
   }),
 
   // Collection access

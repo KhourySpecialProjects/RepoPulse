@@ -2,15 +2,20 @@ import { motion } from 'framer-motion'
 import { Line, LineChart, ResponsiveContainer } from 'recharts'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { BRAND } from '@/lib/theme'
 import type { CommitActivityPoint } from '@/types'
 
-export type TileAccent = 'indigo' | 'emerald' | 'amber' | 'violet'
+/**
+ * `brand` and `orchid` are the two purples; `emerald` and `amber` stay
+ * semantic, since they mark activity and attention rather than identity.
+ */
+export type TileAccent = 'brand' | 'emerald' | 'amber' | 'orchid'
 
 const ACCENT: Record<TileAccent, { ring: string; icon: string; stroke: string }> = {
-  indigo: { ring: 'hover:border-indigo-200', icon: 'bg-indigo-50 text-indigo-600', stroke: '#6366f1' },
+  brand: { ring: 'hover:border-brand-200', icon: 'bg-brand-50 text-brand-600', stroke: BRAND.violet },
   emerald: { ring: 'hover:border-emerald-200', icon: 'bg-emerald-50 text-emerald-600', stroke: '#10b981' },
   amber: { ring: 'hover:border-amber-200', icon: 'bg-amber-50 text-amber-600', stroke: '#f59e0b' },
-  violet: { ring: 'hover:border-violet-200', icon: 'bg-violet-50 text-violet-600', stroke: '#8b5cf6' },
+  orchid: { ring: 'hover:border-orchid-200', icon: 'bg-orchid-50 text-orchid-600', stroke: BRAND.orchid },
 }
 
 /** Workspace totals with a real activity sparkline when a history exists. */
