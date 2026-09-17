@@ -60,7 +60,7 @@ export function HealthMixDonut({ repos, className, loading, failed, selectedStat
               return (
                 <Tooltip key={repo.id}>
                   <TooltipTrigger asChild>
-                    <Link to={`/repos/${repo.id}`} state={backState} title={label} aria-label={label} className={cn('flex h-5 w-5 items-center justify-center rounded-md border transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-indigo-500', TILE_CLASS[repo.health_status])}>
+                    <Link to={`/repos/${repo.id}`} state={backState} title={label} aria-label={label} className={cn('flex h-5 w-5 items-center justify-center rounded-md border transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-brand-500', TILE_CLASS[repo.health_status])}>
                       <GitBranch className="h-2.5 w-2.5" />
                     </Link>
                   </TooltipTrigger>

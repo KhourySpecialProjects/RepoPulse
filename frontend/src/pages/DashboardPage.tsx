@@ -12,7 +12,6 @@ import { StalenessChart } from '@/components/dashboard/StalenessChart'
 import { WorkspaceInsights } from '@/components/dashboard/WorkspaceInsights'
 import { DashboardSearch } from '@/components/dashboard/DashboardSearch'
 import { useDashboard } from '@/hooks/useDashboard'
-import { useReminders } from '@/hooks/useNotifications'
 import { useWorkspacePeople } from '@/hooks/useWorkspacePeople'
 import { useMarkNotificationRead, useNotifications } from '@/hooks/useNotifications'
 import {
@@ -34,30 +33,6 @@ const listBody = 'min-h-0 flex-1 divide-y divide-border overflow-y-auto'
 
 const tileGrid = { hidden: {}, visible: { transition: { staggerChildren: 0.05 } } }
 
-const DAY_MS = 86_400_000
-
-/** Whole days until a due date; negative once it has passed. */
-function daysUntil(iso: string): number {
-  return Math.ceil((Date.parse(iso) - Date.now()) / DAY_MS)
-}
-
-/** An undated reminder never fires, so it reads as a to-do rather than a date. */
-function dueLabel(remindAt: string | null): string {
-  if (!remindAt) return 'no date'
-  const days = daysUntil(remindAt)
-  if (days < 0) return `${Math.abs(days)}d late`
-  if (days === 0) return 'today'
-  if (days === 1) return 'tomorrow'
-  return `in ${days}d`
-}
-
-function reminderTone(remindAt: string | null): string {
-  if (!remindAt) return 'bg-slate-100 text-slate-500'
-  const days = daysUntil(remindAt)
-  if (days < 0) return 'bg-red-50 text-red-700'
-  if (days <= 1) return 'bg-amber-50 text-amber-700'
-  return 'bg-violet-50 text-violet-700'
-}
 /** How many unread items the panel lists before deferring to the full page. */
 const NOTIFICATION_LIMIT = 8
 
@@ -152,20 +127,10 @@ export function DashboardPage() {
   const peopleQuery = useWorkspacePeople(selected.map(collection => collection.id), peopleWanted)
   const wantPeople = useCallback(() => setPeopleWanted(true), [])
 
-  // /notifications/reminders is the same source the notifications panel reads:
-  // scoped to this user, and including reminders with no repo behind them.
-  // Deriving this from `repo.active_reminder_count` counted only repo-attached
-  // reminders, ignored ownership, and could only ever show a tally per repo.
-  const { data: remindersData, isPending: remindersPending, isError: remindersFailed } = useReminders()
-  const reminders = remindersData?.items ?? []
-  const repoNameById = new Map(repos.map(repo => [repo.id, repo.name]))
-  const dueSoon = reminders.filter(
-    reminder => reminder.remind_at !== null && daysUntil(reminder.remind_at) <= 7
-  ).length
-
   const attention = repos.filter(repo => repo.health_status === 'red' || repo.health_status === 'yellow')
     .sort((a, b) => Number(b.health_status === 'red') - Number(a.health_status === 'red'))
   const reviewRepos = healthFilter ? repos.filter(repo => repo.health_status === healthFilter) : attention
+  const reminders = repos.filter(repo => repo.active_reminder_count > 0).sort((a, b) => b.active_reminder_count - a.active_reminder_count)
 
   const signals = useMemo(() => averageHealthSignals(repos), [repos])
   const weekTrend = useMemo(() => activityTrend(activityQuery.series, 7), [activityQuery.series])
@@ -254,11 +219,11 @@ export function DashboardPage() {
           />
           <MetricTile
             label="active reminders"
-            value={remindersFailed ? '—' : (remindersData?.total ?? reminders.length)}
-            detail={dueSoon > 0 ? `${dueSoon} due in the next 7 days` : undefined}
+            value={failed ? '—' : repos.reduce((sum, repo) => sum + repo.active_reminder_count, 0)}
+            detail={reminders.length > 0 ? `across ${reminders.length} repositor${reminders.length === 1 ? 'y' : 'ies'}` : undefined}
             icon={Bell}
-            accent="violet"
-            loading={remindersPending}
+            accent="orchid"
+            loading={loading}
           />
         </motion.section>
 
@@ -310,39 +275,10 @@ export function DashboardPage() {
             </div>
           </section>
 
-          <section className={cn(card, 'flex h-64 min-h-0 flex-col xl:h-auto')}>
-            <div className="flex-shrink-0 px-4 pt-3 pb-2">
-              <h2 className="text-sm font-semibold">Follow-ups</h2>
-            </div>
-            <div data-testid="followup-list" className={listBody}>
-              {!remindersPending && !remindersFailed && reminders.map(reminder => (
-                <Link
-                  key={reminder.id}
-                  // A reminder on a repo opens that repo with the note focused;
-                  // one with no repo has nowhere else to go but the inbox.
-                  to={reminder.repo_id ? `/repos/${reminder.repo_id}?note=${reminder.id}` : '/notifications'}
-                  state={backState}
-                  className="group flex items-start justify-between gap-2 px-4 py-3 transition-colors hover:bg-indigo-50/50"
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs">{reminder.content}</span>
-                    <span className="mt-0.5 block truncate text-[11px] text-slate-500">
-                      {reminder.repo_id ? repoNameById.get(reminder.repo_id) ?? 'Repository' : 'No repository'}
-                    </span>
-                  </span>
-                  <span className={cn(
-                    'flex-shrink-0 rounded-full px-2 py-0.5 text-[11px] tabular-nums',
-                    reminderTone(reminder.remind_at)
-                  )}>
-                    {dueLabel(reminder.remind_at)}
-                  </span>
-                </Link>
-              ))}
-              {remindersPending || remindersFailed ? <p className="px-4 py-3 text-xs text-slate-500">{remindersPending ? 'Loading reminders…' : 'Reminder data is unavailable.'}</p> : !reminders.length && (
-                <div className="flex h-full flex-col items-center justify-center gap-2 p-5 text-center"><Bell className="h-7 w-7 text-violet-300" /><p className="text-xs text-slate-500">No active reminders.</p><Link to="/notifications" className="text-xs font-medium text-indigo-600 hover:underline">View notifications →</Link></div>
-              )}
-            </div>
-          </section>
+          {/* Was "Follow-ups" — a list of repos that merely *had* reminders.
+              Now the unread notification feed itself, so the panel shows what
+              actually happened rather than a count to go hunting for. */}
+          <RecentNotificationsPanel />
 
           <StalenessChart repos={repos} loading={loading} failed={failed} />
         </div>

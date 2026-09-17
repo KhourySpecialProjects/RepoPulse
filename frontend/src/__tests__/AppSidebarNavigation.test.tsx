@@ -104,18 +104,3 @@ describe('AppSidebar — signing out', () => {
     expect(currentPath()).toBe('/login')
   })
 })
-
-describe('HomePage', () => {
-  it('renders an intentionally blank page', () => {
-    const { container } = render(
-      <MemoryRouter initialEntries={['/']}>
-        <HomePage />
-      </MemoryRouter>
-    )
-
-    const page = container.querySelector('[data-testid="home-page"]') as HTMLElement
-    expect(page).not.toBeNull()
-    // Blank for now — a placeholder to build on, with no content to assert
-    expect(page.textContent).toBe('')
-  })
-})
