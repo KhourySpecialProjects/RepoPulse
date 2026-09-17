@@ -1157,11 +1157,11 @@ export function RepoDetailPage() {
         </div>
       </div>
 
-      {/* Body — content beside the notes column, which is always present */}
-      <div className={cn(PAGE_BODY_CLASS, 'flex flex-row items-start gap-6')}>
+      {/* Body — notes open separately from the right edge */}
+      <div className={cn(PAGE_BODY_CLASS, 'flex flex-row items-start gap-4')}>
 
         {/* Main sections column */}
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-4">
         {/* No "Overview" heading — the cards below are self-labelling. */}
 
         {/* AI Summary — spans the full width above the two columns */}
@@ -1214,10 +1214,10 @@ export function RepoDetailPage() {
         {/* Two columns: sidebar (PRs + contributors) renders to the left of the
             main content via grid placement, so the DOM keeps main content first
             for screen readers and tab order. */}
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[20rem_minmax(0,1fr)] xl:grid-cols-[24rem_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[20rem_minmax(0,1fr)] xl:grid-cols-[24rem_minmax(0,1fr)]">
 
           {/* Main content column — commit activity + commits */}
-          <div className="min-w-0 flex flex-col gap-6 lg:col-start-2 lg:row-start-1">
+          <div className="min-w-0 flex flex-col gap-4 lg:col-start-2 lg:row-start-1">
 
             {/* Commit activity section */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible">
@@ -1543,7 +1543,7 @@ export function RepoDetailPage() {
           {/* Sidebar column — Pull Requests + Contributors. self-stretch keeps
               this column as tall as the main content so the sticky Contributors
               panel has room to travel as you scroll. */}
-          <div className="min-w-0 self-stretch flex flex-col gap-6 lg:col-start-1 lg:row-start-1">
+          <div className="min-w-0 self-stretch flex flex-col gap-4 lg:col-start-1 lg:row-start-1">
 
             {/* Pull Requests panel */}
             <div className="shrink-0 bg-card rounded-xl border border-border p-4">
@@ -1679,7 +1679,7 @@ export function RepoDetailPage() {
                 travel as a block instead of piling up at the same offset,
                 and it scrolls internally when the stack outgrows the
                 viewport (otherwise its lower panels become unreachable). */}
-            <div className="sticky top-6 flex max-h-[calc(100vh-3rem)] flex-col gap-6 overflow-y-auto">
+            <div className="sticky top-6 flex max-h-[calc(100vh-3rem)] flex-col gap-4 overflow-y-auto">
             {/* Contributors panel */}
             <div className="shrink-0 bg-card rounded-xl border border-border p-4">
               {/* Header is the toggle and nothing else, so its chevron lands on
