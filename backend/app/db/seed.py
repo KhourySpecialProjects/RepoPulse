@@ -36,7 +36,6 @@ def _hash_password(password: str) -> str:
 
 USER_MARK = uuid.UUID("00000000-0000-0000-0000-000000000001")
 USER_TA = uuid.UUID("00000000-0000-0000-0000-000000000002")
-USER_ADMIN = uuid.UUID("00000000-0000-0000-0000-000000000003")
 
 COL_DB = uuid.UUID("00000000-0000-0000-0001-000000000001")
 COL_DS = uuid.UUID("00000000-0000-0000-0001-000000000002")
@@ -73,121 +72,121 @@ def _health(
 
 
 REPOS_DB = [
-    {
-        "name": "db-project-teamA",
-        "github_url": "https://github.com/cs3200-s26/db-project-teamA",
-        "health_status": "green",
-        "health_score": _health(2, 2, 2, 2, 2, "green"),
-        "contributor_names": ["Alice Johnson", "Bob Smith"],
-        "last_commit_at": _days_ago(1),
-    },
-    {
-        "name": "db-project-teamB",
-        "github_url": "https://github.com/cs3200-s26/db-project-teamB",
-        "health_status": "green",
-        "health_score": _health(2, 2, 1, 2, 2, "green"),
-        "contributor_names": ["Carol White", "Dave Brown"],
-        "last_commit_at": _days_ago(2),
-    },
-    {
-        "name": "db-project-teamC",
-        "github_url": "https://github.com/cs3200-s26/db-project-teamC",
-        "health_status": "green",
-        "health_score": _health(2, 2, 2, 1, 2, "green"),
-        "contributor_names": ["Eve Davis", "Frank Miller"],
-        "last_commit_at": _days_ago(3),
-    },
-    {
-        "name": "db-project-teamD",
-        "github_url": "https://github.com/cs3200-s26/db-project-teamD",
-        "health_status": "yellow",
-        "health_score": _health(1, 1, 1, 1, 2, "yellow"),
-        "contributor_names": ["Grace Wilson", "Henry Moore"],
-        "last_commit_at": _days_ago(8),
-    },
-    {
-        "name": "db-project-teamE",
-        "github_url": "https://github.com/cs3200-s26/db-project-teamE",
-        "health_status": "yellow",
-        "health_score": _health(1, 2, 1, 1, 1, "yellow"),
-        "contributor_names": ["Iris Taylor", "Jack Anderson"],
-        "last_commit_at": _days_ago(10),
-    },
-    {
-        "name": "db-project-teamF",
-        "github_url": "https://github.com/cs3200-s26/db-project-teamF",
-        "health_status": "yellow",
-        "health_score": _health(1, 1, 2, 1, 1, "yellow"),
-        "contributor_names": ["Karen Thomas", "Leo Jackson"],
-        "last_commit_at": _days_ago(12),
-    },
-    {
-        "name": "db-project-teamG",
-        "github_url": "https://github.com/cs3200-s26/db-project-teamG",
-        "health_status": "red",
-        "health_score": _health(0, 0, 0, 1, 1, "red"),
-        "contributor_names": ["Mona Harris"],
-        "last_commit_at": _days_ago(28),
-    },
-    {
-        "name": "db-project-teamH",
-        "github_url": "https://github.com/cs3200-s26/db-project-teamH",
-        "health_status": "red",
-        "health_score": _health(0, 0, 1, 0, 0, "red"),
-        "contributor_names": ["Nathan Martin"],
-        "last_commit_at": _days_ago(35),
-    },
+    # {
+    #     "name": "db-project-teamA",
+    #     "github_url": "https://github.com/cs3200-s26/db-project-teamA",
+    #     "health_status": "green",
+    #     "health_score": _health(2, 2, 2, 2, 2, "green"),
+    #     "contributor_names": ["Alice Johnson", "Bob Smith"],
+    #     "last_commit_at": _days_ago(1),
+    # },
+    # {
+    #     "name": "db-project-teamB",
+    #     "github_url": "https://github.com/cs3200-s26/db-project-teamB",
+    #     "health_status": "green",
+    #     "health_score": _health(2, 2, 1, 2, 2, "green"),
+    #     "contributor_names": ["Carol White", "Dave Brown"],
+    #     "last_commit_at": _days_ago(2),
+    # },
+    # {
+    #     "name": "db-project-teamC",
+    #     "github_url": "https://github.com/cs3200-s26/db-project-teamC",
+    #     "health_status": "green",
+    #     "health_score": _health(2, 2, 2, 1, 2, "green"),
+    #     "contributor_names": ["Eve Davis", "Frank Miller"],
+    #     "last_commit_at": _days_ago(3),
+    # },
+    # {
+    #     "name": "db-project-teamD",
+    #     "github_url": "https://github.com/cs3200-s26/db-project-teamD",
+    #     "health_status": "yellow",
+    #     "health_score": _health(1, 1, 1, 1, 2, "yellow"),
+    #     "contributor_names": ["Grace Wilson", "Henry Moore"],
+    #     "last_commit_at": _days_ago(8),
+    # },
+    # {
+    #     "name": "db-project-teamE",
+    #     "github_url": "https://github.com/cs3200-s26/db-project-teamE",
+    #     "health_status": "yellow",
+    #     "health_score": _health(1, 2, 1, 1, 1, "yellow"),
+    #     "contributor_names": ["Iris Taylor", "Jack Anderson"],
+    #     "last_commit_at": _days_ago(10),
+    # },
+    # {
+    #     "name": "db-project-teamF",
+    #     "github_url": "https://github.com/cs3200-s26/db-project-teamF",
+    #     "health_status": "yellow",
+    #     "health_score": _health(1, 1, 2, 1, 1, "yellow"),
+    #     "contributor_names": ["Karen Thomas", "Leo Jackson"],
+    #     "last_commit_at": _days_ago(12),
+    # },
+    # {
+    #     "name": "db-project-teamG",
+    #     "github_url": "https://github.com/cs3200-s26/db-project-teamG",
+    #     "health_status": "red",
+    #     "health_score": _health(0, 0, 0, 1, 1, "red"),
+    #     "contributor_names": ["Mona Harris"],
+    #     "last_commit_at": _days_ago(28),
+    # },
+    # {
+    #     "name": "db-project-teamH",
+    #     "github_url": "https://github.com/cs3200-s26/db-project-teamH",
+    #     "health_status": "red",
+    #     "health_score": _health(0, 0, 1, 0, 0, "red"),
+    #     "contributor_names": ["Nathan Martin"],
+    #     "last_commit_at": _days_ago(35),
+    # },
 ]
 
 REPOS_DS = [
-    {
-        "name": "ds-project-teamA",
-        "github_url": "https://github.com/ds4300-s26/ds-project-teamA",
-        "health_status": "green",
-        "health_score": _health(2, 2, 2, 2, 2, "green"),
-        "contributor_names": ["Olivia Garcia", "Paul Rodriguez"],
-        "last_commit_at": _days_ago(2),
-    },
-    {
-        "name": "ds-project-teamB",
-        "github_url": "https://github.com/ds4300-s26/ds-project-teamB",
-        "health_status": "green",
-        "health_score": _health(2, 1, 2, 2, 2, "green"),
-        "contributor_names": ["Quinn Martinez", "Rachel Lewis"],
-        "last_commit_at": _days_ago(4),
-    },
-    {
-        "name": "ds-project-teamC",
-        "github_url": "https://github.com/ds4300-s26/ds-project-teamC",
-        "health_status": "green",
-        "health_score": _health(2, 2, 1, 2, 2, "green"),
-        "contributor_names": ["Sam Lee", "Tina Walker"],
-        "last_commit_at": _days_ago(5),
-    },
-    {
-        "name": "ds-project-teamD",
-        "github_url": "https://github.com/ds4300-s26/ds-project-teamD",
-        "health_status": "yellow",
-        "health_score": _health(1, 1, 1, 2, 1, "yellow"),
-        "contributor_names": ["Uma Hall", "Victor Allen"],
-        "last_commit_at": _days_ago(9),
-    },
-    {
-        "name": "ds-project-teamE",
-        "github_url": "https://github.com/ds4300-s26/ds-project-teamE",
-        "health_status": "yellow",
-        "health_score": _health(2, 1, 1, 1, 1, "yellow"),
-        "contributor_names": ["Wendy Young", "Xander King"],
-        "last_commit_at": _days_ago(14),
-    },
-    {
-        "name": "ds-project-teamF",
-        "github_url": "https://github.com/ds4300-s26/ds-project-teamF",
-        "health_status": "red",
-        "health_score": _health(0, 0, 0, 0, 1, "red"),
-        "contributor_names": ["Yara Wright"],
-        "last_commit_at": _days_ago(30),
-    },
+    # {
+    #     "name": "ds-project-teamA",
+    #     "github_url": "https://github.com/ds4300-s26/ds-project-teamA",
+    #     "health_status": "green",
+    #     "health_score": _health(2, 2, 2, 2, 2, "green"),
+    #     "contributor_names": ["Olivia Garcia", "Paul Rodriguez"],
+    #     "last_commit_at": _days_ago(2),
+    # },
+    # {
+    #     "name": "ds-project-teamB",
+    #     "github_url": "https://github.com/ds4300-s26/ds-project-teamB",
+    #     "health_status": "green",
+    #     "health_score": _health(2, 1, 2, 2, 2, "green"),
+    #     "contributor_names": ["Quinn Martinez", "Rachel Lewis"],
+    #     "last_commit_at": _days_ago(4),
+    # },
+    # {
+    #     "name": "ds-project-teamC",
+    #     "github_url": "https://github.com/ds4300-s26/ds-project-teamC",
+    #     "health_status": "green",
+    #     "health_score": _health(2, 2, 1, 2, 2, "green"),
+    #     "contributor_names": ["Sam Lee", "Tina Walker"],
+    #     "last_commit_at": _days_ago(5),
+    # },
+    # {
+    #     "name": "ds-project-teamD",
+    #     "github_url": "https://github.com/ds4300-s26/ds-project-teamD",
+    #     "health_status": "yellow",
+    #     "health_score": _health(1, 1, 1, 2, 1, "yellow"),
+    #     "contributor_names": ["Uma Hall", "Victor Allen"],
+    #     "last_commit_at": _days_ago(9),
+    # },
+    # {
+    #     "name": "ds-project-teamE",
+    #     "github_url": "https://github.com/ds4300-s26/ds-project-teamE",
+    #     "health_status": "yellow",
+    #     "health_score": _health(2, 1, 1, 1, 1, "yellow"),
+    #     "contributor_names": ["Wendy Young", "Xander King"],
+    #     "last_commit_at": _days_ago(14),
+    # },
+    # {
+    #     "name": "ds-project-teamF",
+    #     "github_url": "https://github.com/ds4300-s26/ds-project-teamF",
+    #     "health_status": "red",
+    #     "health_score": _health(0, 0, 0, 0, 1, "red"),
+    #     "contributor_names": ["Yara Wright"],
+    #     "last_commit_at": _days_ago(30),
+    # },
 ]
 
 
@@ -240,17 +239,9 @@ async def seed() -> None:
                 password_hash=_hash_password("password123"),
                 github_token=None,
             ),
-            User(
-                id=USER_ADMIN,
-                email="admin@example.com",
-                display_name="Admin User",
-                role="admin",
-                password_hash=_hash_password("password123"),
-                github_token=None,
-            ),
         ]
-        for u in users:
-            db.add(u)
+        # for u in users:
+        #     db.add(u)
 
         # ------------------------------------------------------------------
         # Collections
@@ -271,10 +262,10 @@ async def seed() -> None:
             local_folder_name="ds4300-s26",
             owner_id=USER_MARK,
         )
-        db.add(col_db)
-        db.add(col_ds)
+        # db.add(col_db)
+        # db.add(col_ds)
 
-        await db.flush()
+        # await db.flush()
 
         # ------------------------------------------------------------------
         # Collection Access — TA gets access to the DB collection
@@ -284,154 +275,154 @@ async def seed() -> None:
             user_id=USER_TA,
             access_role=CollectionRole.ta,
         )
-        db.add(ta_access)
-        await db.flush()
+        # db.add(ta_access)
+        # await db.flush()
 
         # ------------------------------------------------------------------
         # Repos, contributors, aliases
         # ------------------------------------------------------------------
-        all_repo_records: list[tuple[Repo, list[str]]] = []
+        # all_repo_records: list[tuple[Repo, list[str]]] = []
 
-        for repo_data in REPOS_DB:
-            repo = Repo(
-                collection_id=COL_DB,
-                github_url=repo_data["github_url"],
-                name=repo_data["name"],
-                local_path=f"{SEED_REPOS_BASE}/cs3200-s26/{repo_data['name']}",
-                health_status=repo_data["health_status"],
-                health_score=repo_data["health_score"],
-                last_synced_at=datetime.now(timezone.utc),
-                last_commit_at=repo_data.get("last_commit_at"),
-            )
-            db.add(repo)
-            all_repo_records.append((repo, repo_data["contributor_names"]))
+        # for repo_data in REPOS_DB:
+        #     repo = Repo(
+        #         collection_id=COL_DB,
+        #         github_url=repo_data["github_url"],
+        #         name=repo_data["name"],
+        #         local_path=f"{SEED_REPOS_BASE}/cs3200-s26/{repo_data['name']}",
+        #         health_status=repo_data["health_status"],
+        #         health_score=repo_data["health_score"],
+        #         last_synced_at=datetime.now(timezone.utc),
+        #         last_commit_at=repo_data.get("last_commit_at"),
+        #     )
+        #     db.add(repo)
+        #     all_repo_records.append((repo, repo_data["contributor_names"]))
 
-        for repo_data in REPOS_DS:
-            repo = Repo(
-                collection_id=COL_DS,
-                github_url=repo_data["github_url"],
-                name=repo_data["name"],
-                local_path=f"{SEED_REPOS_BASE}/ds4300-s26/{repo_data['name']}",
-                health_status=repo_data["health_status"],
-                health_score=repo_data["health_score"],
-                last_synced_at=datetime.now(timezone.utc),
-                last_commit_at=repo_data.get("last_commit_at"),
-            )
-            db.add(repo)
-            all_repo_records.append((repo, repo_data["contributor_names"]))
+        # for repo_data in REPOS_DS:
+        #     repo = Repo(
+        #         collection_id=COL_DS,
+        #         github_url=repo_data["github_url"],
+        #         name=repo_data["name"],
+        #         local_path=f"{SEED_REPOS_BASE}/ds4300-s26/{repo_data['name']}",
+        #         health_status=repo_data["health_status"],
+        #         health_score=repo_data["health_score"],
+        #         last_synced_at=datetime.now(timezone.utc),
+        #         last_commit_at=repo_data.get("last_commit_at"),
+        #     )
+        #     db.add(repo)
+        #     all_repo_records.append((repo, repo_data["contributor_names"]))
 
-        await db.flush()
+        # await db.flush()
 
-        # Build contributors and aliases
-        all_contributors: list[Contributor] = []
-        for repo, contributor_names in all_repo_records:
-            for name in contributor_names:
-                email_local = name.lower().replace(" ", ".")
-                contributor = Contributor(
-                    display_name=name,
-                    repo_id=repo.id,
-                )
-                db.add(contributor)
-                await db.flush()
+        # # Build contributors and aliases
+        # all_contributors: list[Contributor] = []
+        # for repo, contributor_names in all_repo_records:
+        #     for name in contributor_names:
+        #         email_local = name.lower().replace(" ", ".")
+        #         contributor = Contributor(
+        #             display_name=name,
+        #             repo_id=repo.id,
+        #         )
+        #         db.add(contributor)
+        #         await db.flush()
 
-                # Primary alias
-                alias1 = ContributorAlias(
-                    contributor_id=contributor.id,
-                    git_email=f"{email_local}@university.edu",
-                    git_name=name,
-                )
-                db.add(alias1)
+        #         # Primary alias
+        #         alias1 = ContributorAlias(
+        #             contributor_id=contributor.id,
+        #             git_email=f"{email_local}@university.edu",
+        #             git_name=name,
+        #         )
+        #         db.add(alias1)
 
-                # One contributor has two email aliases (Alice Johnson)
-                if name == "Alice Johnson":
-                    alias2 = ContributorAlias(
-                        contributor_id=contributor.id,
-                        git_email="alice.j@personal.com",
-                        git_name="Alice J.",
-                    )
-                    db.add(alias2)
+        #         # One contributor has two email aliases (Alice Johnson)
+        #         if name == "Alice Johnson":
+        #             alias2 = ContributorAlias(
+        #                 contributor_id=contributor.id,
+        #                 git_email="alice.j@personal.com",
+        #                 git_name="Alice J.",
+        #             )
+        #             db.add(alias2)
 
-                all_contributors.append(contributor)
+        #         all_contributors.append(contributor)
 
-        await db.flush()
+        # await db.flush()
 
         # ------------------------------------------------------------------
         # Notes & Reminders (for first collection's first repo)
         # ------------------------------------------------------------------
-        if all_repo_records:
-            first_repo, _ = all_repo_records[0]
-            first_contributor = all_contributors[0] if all_contributors else None
+        # if all_repo_records:
+        #     first_repo, _ = all_repo_records[0]
+        #     first_contributor = all_contributors[0] if all_contributors else None
 
-            note1 = Note(
-                author_id=USER_MARK,
-                repo_id=first_repo.id,
-                content="Team A has been very consistent with commits. Good collaborative structure.",
-                is_reminder=False,
-            )
-            note2 = Note(
-                author_id=USER_MARK,
-                repo_id=first_repo.id,
-                content="Follow up on branch naming conventions — they're using feature/* correctly.",
-                is_reminder=True,
-                reminder_context="Check branch names in next code review session.",
-            )
-            db.add(note1)
-            db.add(note2)
+        #     note1 = Note(
+        #         author_id=USER_MARK,
+        #         repo_id=first_repo.id,
+        #         content="Team A has been very consistent with commits. Good collaborative structure.",
+        #         is_reminder=False,
+        #     )
+        #     note2 = Note(
+        #         author_id=USER_MARK,
+        #         repo_id=first_repo.id,
+        #         content="Follow up on branch naming conventions — they're using feature/* correctly.",
+        #         is_reminder=True,
+        #         reminder_context="Check branch names in next code review session.",
+        #     )
+        #     db.add(note1)
+        #     db.add(note2)
 
-            if first_contributor:
-                note3 = Note(
-                    author_id=USER_MARK,
-                    repo_id=first_repo.id,
-                    contributor_id=first_contributor.id,
-                    content="Alice is leading most of the schema design. Strong contributor.",
-                    is_reminder=False,
-                )
-                db.add(note3)
+        #     if first_contributor:
+        #         note3 = Note(
+        #             author_id=USER_MARK,
+        #             repo_id=first_repo.id,
+        #             contributor_id=first_contributor.id,
+        #             content="Alice is leading most of the schema design. Strong contributor.",
+        #             is_reminder=False,
+        #         )
+        #         db.add(note3)
 
-            # A global note (no repo or contributor)
-            note4 = Note(
-                author_id=USER_MARK,
-                content="Remind students: final submission deadline is April 25.",
-                is_reminder=True,
-                reminder_context="Send email reminder two weeks before deadline.",
-            )
-            db.add(note4)
+        #     # A global note (no repo or contributor)
+        #     note4 = Note(
+        #         author_id=USER_MARK,
+        #         content="Remind students: final submission deadline is April 25.",
+        #         is_reminder=True,
+        #         reminder_context="Send email reminder two weeks before deadline.",
+        #     )
+        #     db.add(note4)
 
-        await db.flush()
+        # await db.flush()
 
         # ------------------------------------------------------------------
         # Pre-generated summaries
         # ------------------------------------------------------------------
-        if all_repo_records:
-            first_repo, _ = all_repo_records[0]
-            summary1 = Summary(
-                repo_id=first_repo.id,
-                summary_type="repo_overview",
-                content=(
-                    "Team A's repository shows strong, consistent development activity. "
-                    "Both contributors commit regularly with well-structured messages. "
-                    "The branch strategy follows feature branching best practices. "
-                    "The codebase appears healthy with balanced contributions from both team members."
-                ),
-                model_used=settings.DEFAULT_LLM_MODEL,
-                generated_at=datetime.now(timezone.utc),
-            )
-            db.add(summary1)
+        # if all_repo_records:
+        #     first_repo, _ = all_repo_records[0]
+        #     summary1 = Summary(
+        #         repo_id=first_repo.id,
+        #         summary_type="repo_overview",
+        #         content=(
+        #             "Team A's repository shows strong, consistent development activity. "
+        #             "Both contributors commit regularly with well-structured messages. "
+        #             "The branch strategy follows feature branching best practices. "
+        #             "The codebase appears healthy with balanced contributions from both team members."
+        #         ),
+        #         model_used=settings.DEFAULT_LLM_MODEL,
+        #         generated_at=datetime.now(timezone.utc),
+        #     )
+        #     db.add(summary1)
 
-            health_summary = Summary(
-                repo_id=first_repo.id,
-                summary_type="health_explanation",
-                content=(
-                    "This repository scores green across all health signals. "
-                    "The team commits frequently (averaging over 10 commits per week), "
-                    "the most recent commit was within the last 48 hours, and both contributors "
-                    "share the work evenly (low Gini coefficient). Multiple active branches indicate "
-                    "parallel feature development. Commit messages are descriptive and informative."
-                ),
-                model_used=settings.DEFAULT_LLM_MODEL,
-                generated_at=datetime.now(timezone.utc),
-            )
-            db.add(health_summary)
+        #     health_summary = Summary(
+        #         repo_id=first_repo.id,
+        #         summary_type="health_explanation",
+        #         content=(
+        #             "This repository scores green across all health signals. "
+        #             "The team commits frequently (averaging over 10 commits per week), "
+        #             "the most recent commit was within the last 48 hours, and both contributors "
+        #             "share the work evenly (low Gini coefficient). Multiple active branches indicate "
+        #             "parallel feature development. Commit messages are descriptive and informative."
+        #         ),
+        #         model_used=settings.DEFAULT_LLM_MODEL,
+        #         generated_at=datetime.now(timezone.utc),
+        #     )
+        #     db.add(health_summary)
 
         # ------------------------------------------------------------------
         # AppSettings for each user
@@ -440,7 +431,7 @@ async def seed() -> None:
         # instance-wide row an administrator owns, and `get_llm_config`
         # creates it from the environment on first read. Seeding it would
         # hide the fact that a fresh install already works.
-        for user_id in [USER_MARK, USER_TA, USER_ADMIN]:
+        for user_id in [USER_MARK, USER_TA]:
             app_settings = AppSettings(
                 user_id=user_id,
                 repo_root_directory=SEED_REPOS_BASE,
