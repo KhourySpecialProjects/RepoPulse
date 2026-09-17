@@ -492,7 +492,14 @@ export function AppSidebar() {
           <SidebarNavItem
             icon={LogOut}
             label="Log out"
-            onClick={logout}
+            // Signing out leaves the route it happened on. Everywhere but the
+            // dashboard that route is protected and lands on the login form,
+            // so go there explicitly — otherwise logging out of the dashboard
+            // alone would hand the visitor the public landing page instead.
+            onClick={() => {
+              logout()
+              navigate('/login')
+            }}
             collapsed={collapsed}
             danger
           />
