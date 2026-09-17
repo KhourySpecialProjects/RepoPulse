@@ -1,4 +1,4 @@
-.PHONY: up down build logs test test-backend test-db test-frontend test-watch test-smoke seed migrate shell-backend shell-db
+.PHONY: up down build logs test test-backend test-db test-frontend test-landing test-watch test-smoke seed migrate shell-backend shell-db
 
 up:
 	docker compose up
@@ -16,6 +16,7 @@ logs:
 test:
 	$(MAKE) test-backend
 	$(MAKE) test-frontend
+	$(MAKE) test-landing
 
 test-backend:
 	docker compose exec backend pytest -v
@@ -35,6 +36,13 @@ test-smoke:
 
 test-frontend:
 	docker compose exec frontend npx vitest run
+
+# The landing page and the product tour it frames are static documents in
+# frontend/public/, so their tests need neither the stack nor a browser: they
+# parse each file, run its script in jsdom and check structure, cascade and
+# contrast. Everything layout-dependent is arithmetic, never a measurement.
+test-landing:
+	node --test tests/*.test.cjs
 
 test-watch:
 	docker compose exec frontend npx vitest

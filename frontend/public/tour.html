@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>RepoPulse — From commits to clarity</title>
+<style>
+:root{--bg:#f8fafc;--panel:#ffffff;--line:#e2e8f0;--ink:#0f172a;--body:#334155;--muted:#64748b;--faint:#94a3b8;--primary:#4f46e5;--primary-5:#6366f1;--primary-4:#818cf8;--primary-3:#a5b4fc;--primary-50:#eef2ff;--primary-100:#e0e7ff;--primary-700:#4338ca;--emerald:#10b981;--amber:#f59e0b;--red:#ef4444;--progress:0%;font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;color:var(--ink);background:var(--bg)}
+*{box-sizing:border-box}body{margin:0;min-width:300px}button,input,a{-webkit-tap-highlight-color:transparent}button,input{font:inherit}button{color:inherit;cursor:pointer}button:disabled{opacity:.3;cursor:default}button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--primary);outline-offset:5px}a{color:inherit}svg{display:block;max-width:100%}[hidden]{display:none!important}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.ambient{position:fixed;inset:0;z-index:-1;overflow:hidden;background:radial-gradient(ellipse 120% 55% at 50% 0%,#6366f11f,transparent 62%),#f8fafc}.ambient:after{content:"";position:absolute;inset:0;background:radial-gradient(ellipse 78% 68% at 50% 46%,transparent 58%,#0f172a0d)}
+.shell{width:min(1440px,100%);min-height:100svh;margin:auto;display:flex;flex-direction:column;padding:0 clamp(22px,4.3vw,68px)}.masthead{height:92px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);flex-shrink:0;gap:20px}.brand{display:flex;align-items:center;gap:11px;font-size:20px;font-weight:700;letter-spacing:-.6px;text-decoration:none}.brand svg{width:26px;height:26px;color:var(--primary)}
+:root{--ring:clamp(210px,29vmin,310px);--chip:.24}.tour[data-finale="true"] .stage{position:absolute;inset:0;transform-origin:50% 50%;animation:orbit-spin 60s linear infinite}.tour[data-finale="true"] .stage:before{display:none}.tour[data-finale="true"] .scene{position:absolute;left:50%;top:50%;width:640px;opacity:1;z-index:1;pointer-events:none}.tour[data-finale="true"] .scene .window{max-height:520px}.tour[data-finale="true"] #scene-3 .window{min-height:420px}.tour[data-finale="true"] .scene .window{animation:orbit-counter 60s linear infinite}@keyframes orbit-spin{to{transform:rotate(360deg)}}@keyframes orbit-counter{to{transform:rotate(-360deg)}}@keyframes settle-4{from{opacity:1;transform:translate(-50%,-50%) scale(.82)}to{opacity:1;transform:translate(-50%,-50%) rotate(-50deg) translateY(calc(var(--ring) * -1)) rotate(50deg) scale(var(--chip))}}@keyframes settle-0{from{opacity:0;transform:translate(-50%,-50%) translateY(44vh) scale(.14)}to{opacity:1;transform:translate(-50%,-50%) rotate(22deg) translateY(calc(var(--ring) * -1)) rotate(-22deg) scale(var(--chip))}}@keyframes settle-1{from{opacity:0;transform:translate(-50%,-50%) translateY(44vh) scale(.14)}to{opacity:1;transform:translate(-50%,-50%) rotate(94deg) translateY(calc(var(--ring) * -1)) rotate(-94deg) scale(var(--chip))}}@keyframes settle-2{from{opacity:0;transform:translate(-50%,-50%) translateY(44vh) scale(.14)}to{opacity:1;transform:translate(-50%,-50%) rotate(166deg) translateY(calc(var(--ring) * -1)) rotate(-166deg) scale(var(--chip))}}@keyframes settle-3{from{opacity:0;transform:translate(-50%,-50%) translateY(44vh) scale(.14)}to{opacity:1;transform:translate(-50%,-50%) rotate(238deg) translateY(calc(var(--ring) * -1)) rotate(-238deg) scale(calc(var(--chip) * 1.08))}}.tour[data-finale="true"] #scene-4{animation:settle-4 .78s cubic-bezier(0,0,.2,1) 0.12s both}.tour[data-finale="true"] #scene-0{animation:settle-0 .78s cubic-bezier(0,0,.2,1) 0.45s both}.tour[data-finale="true"] #scene-1{animation:settle-1 .78s cubic-bezier(0,0,.2,1) 0.79s both}.tour[data-finale="true"] #scene-2{animation:settle-2 .78s cubic-bezier(0,0,.2,1) 1.1300000000000001s both}.tour[data-finale="true"] #scene-3{animation:settle-3 .78s cubic-bezier(0,0,.2,1) 1.47s both}.finale{z-index:5}@media(prefers-reduced-motion:reduce){.tour[data-finale="true"] .stage,.tour[data-finale="true"] .scene .window{animation:none}.tour[data-finale=true] #scene-4{animation-duration:.01s}.tour[data-finale=true] #scene-0{animation-duration:.01s}.tour[data-finale=true] #scene-1{animation-duration:.01s}.tour[data-finale=true] #scene-2{animation-duration:.01s}.tour[data-finale=true] #scene-3{animation-duration:.01s}}.finale{position:absolute;inset:0;display:grid;place-items:center;text-align:center;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .55s ease-out,visibility .55s}.tour[data-finale="true"] .finale{opacity:1;visibility:visible}.intro,.scene{transition:opacity .45s ease-out}.tour[data-finale="true"] .intro{opacity:0}.finale-lockup{display:flex;align-items:center;justify-content:center;gap:clamp(10px,1.2vw,18px);transform:translateY(12px);transition:transform .55s cubic-bezier(0,0,.2,1)}.tour[data-finale="true"] .finale-lockup{transform:translateY(0)}.finale-mark{width:clamp(36px,4vw,58px);height:clamp(36px,4vw,58px);color:var(--primary);flex-shrink:0}.finale-word{font-size:clamp(36px,5vw,66px);font-weight:600;letter-spacing:-2.4px;color:var(--ink);line-height:1}.finale-rule{width:clamp(90px,10vw,150px);height:1px;background:var(--line);margin:clamp(18px,2.4vw,30px) auto 0}.finale-tagline{margin:clamp(14px,1.8vw,22px) 0 0;font-size:clamp(13px,1.3vw,17px);color:var(--muted)}@media(prefers-reduced-motion:reduce){.finale,.finale-lockup,.intro,.scene{transition:none}.finale-lockup{transform:none}}.tour{position:relative;display:grid;grid-template-columns:minmax(0,.83fr) minmax(0,1.17fr);align-items:center;gap:clamp(30px,5vw,76px);flex:1;padding:38px 0;min-height:495px}.intro{min-width:0}.eyebrow{display:flex;align-items:center;gap:12px;color:var(--primary);font-size:11px;letter-spacing:2px;text-transform:uppercase;margin:0 0 26px}.eyebrow:before{content:"";width:30px;height:1px;background:var(--primary)}h1{font-size:clamp(40px,4.5vw,65px);line-height:1.05;letter-spacing:-2.9px;font-weight:650;margin:0 0 24px;max-width:580px}h1 em{font-style:normal;color:var(--primary);background:linear-gradient(100deg,#6366f1 0%,#4338ca 30%,#4f46e5 50%,#4338ca 72%,#6366f1 100%);background-size:200% 100%;background-position:0% 50%;background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:text-sheen 9s ease-in-out infinite}@keyframes text-sheen{0%{background-position:200% 50%}62%,100%{background-position:0% 50%}}@media(forced-colors: active){h1 em{background:none;-webkit-text-fill-color:currentColor;animation:none}}.description{font-size:16px;line-height:1.75;color:var(--muted);max-width:400px;margin:0 0 28px}
+.stage{min-width:0;position:relative}.stage:before{content:"";position:absolute;inset:6% 8%;background:#a5b4fc35;filter:blur(70px);z-index:-1;animation:halo-breathe 9s ease-in-out infinite}.pulse{position:absolute;left:50%;top:50%;width:min(520px,58vmin);aspect-ratio:1;border-radius:50%;border:1px solid #6366f12e;opacity:0;pointer-events:none;will-change:transform,opacity;transform:translate(-50%,-50%) scale(.45);animation:pulse-out 7s cubic-bezier(.22,.61,.3,1) infinite}.pulse--late{animation-delay:3.5s}@keyframes halo-breathe{0%,100%{transform:scale(1);opacity:.85}50%{transform:scale(1.06);opacity:1}}@keyframes pulse-out{0%{transform:translate(-50%,-50%) scale(.45);opacity:0}15%{opacity:.5}100%{transform:translate(-50%,-50%) scale(1.7);opacity:0}}.scene{animation:arrive .25s cubic-bezier(0,0,.2,1) both}.repo-stack>*,.commits>.commit{animation:rise .25s cubic-bezier(0,0,.2,1) both}.repo-stack>*:nth-child(1),.commits>.commit:nth-child(1){animation-delay:.06s}.repo-stack>*:nth-child(2),.commits>.commit:nth-child(2){animation-delay:.12s}.commits>.commit:nth-child(3){animation-delay:.18s}.commits>.commit:nth-child(4){animation-delay:.24s}.commits>.commit:nth-child(5){animation-delay:.3s}.commits>.commit:nth-child(6){animation-delay:.36s}.repo:hover{box-shadow:0 4px 6px -1px #0f172a1a,0 2px 4px -2px #0f172a1a}.window{border:1px solid #8ca9d324;border-radius:19px;background:#ffffff;box-shadow:0 1px 2px 0 #0f172a0d,0 1px 3px 0 #0f172a1a;overflow:hidden}.window-head{display:flex;align-items:center;justify-content:space-between;gap:14px;height:52px;border-bottom:1px solid var(--line);padding:0 23px;background:#f8fafc}.window-head h2{font-size:11px;font-weight:500;color:#334155;margin:0;letter-spacing:.2px;display:flex;align-items:center;gap:8px}.window-head h2 svg{height:15px;width:15px;color:var(--primary-5);stroke-width:2}.window-head .mono{font-size:9px;color:var(--muted)}.dots{display:flex;gap:5px}.dots i{width:5px;height:5px;background:#cbd5e1;border-radius:50%}.window-body:not(.summary-body){padding:23px}.section-label{font-size:9px;letter-spacing:1.6px;text-transform:uppercase;color:var(--muted)}.tag{display:inline-flex;align-items:center;gap:6px;border:1px solid #6366f127;border-radius:6px;padding:5px 7px;font-size:9px;line-height:1;color:#4338ca;background:#6366f10b}.tag.neutral{border-color:var(--line);color:#64748b;background:#f8fafc}.status{font-size:9px;font-weight:600;white-space:nowrap;border-radius:9999px;padding:4px 8px;display:inline-flex;align-items:center;gap:5px;line-height:1.2;background:#d1fae5;border:1px solid #a7f3d0;color:#047857}.status:before{content:"";width:4px;height:4px;border-radius:50%;background:currentColor}.status.amber{color:#b45309;background:#fef3c7;border-color:#fde68a}.status.indigo{color:var(--primary-700);background:var(--primary-100);border-color:#c7d2fe}.commit-head,.commit{display:grid;grid-template-columns:minmax(78px,auto) minmax(0,1fr) auto auto;align-items:start;gap:12px}.commit-head{padding:12px 22px 7px;font-size:8px;color:var(--muted);letter-spacing:.6px;border-bottom:1px solid var(--line)}.commits{padding:0 22px 8px}.commit{padding:9px 0;border-bottom:1px solid var(--line);font-size:10px}.commit:last-child{border-bottom:0}.col-author{display:grid;gap:3px;min-width:0;font-size:9px;white-space:nowrap}.author-name{color:var(--ink)}.diffstat{color:var(--muted)}.diffstat i{font-style:normal}.diffstat .add{color:#16a34a}.diffstat .del{color:#dc2626}.col-commit{min-width:0}.commit-links{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.hash{display:inline-flex;align-items:center;gap:4px;color:var(--primary);font-size:9px}.hash svg{height:10px;width:10px}.commit-date{display:inline-flex;align-items:center;gap:4px;color:var(--muted);font-size:9px}.commit-date svg{height:10px;width:10px}.message{margin:3px 0 0;line-height:1.45;color:var(--ink);font-size:9.5px;overflow-wrap:anywhere}.note-link{display:inline-flex;align-items:center;gap:4px;margin-top:3px;font-size:8.5px;color:var(--muted)}.note-link svg{height:10px;width:10px}.note-link b{background:var(--primary-100);color:var(--primary-700);border-radius:9999px;padding:1px 5px;font-weight:500;line-height:1.3}.col-branch{font-size:9px;color:var(--body);white-space:nowrap;padding-top:1px}.score{display:inline-flex;align-items:center;border-radius:4px;border:1px solid;padding:2px 6px;font-size:8.5px;font-weight:500;line-height:1.4;white-space:nowrap}.score.good{background:#d1fae5;color:#047857;border-color:#a7f3d0}.score.ok{background:#fef9c3;color:#a16207;border-color:#fef08a}.score.bad{background:#fee2e2;color:#b91c1c;border-color:#fecaca}.outline-btn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:9.5px;font-weight:500;color:var(--ink)}.outline-btn svg{height:12px;width:12px}.page-size{display:inline-flex;align-items:center;gap:6px}.page-size i{font-style:normal;border:1px solid var(--line);border-radius:6px;padding:2px 7px;background:#fff;color:var(--body)}.pager{display:inline-flex;align-items:center;gap:3px}.pager i,.pager b{font-style:normal;font-weight:400;border:1px solid var(--line);border-radius:6px;padding:2px 6px;color:var(--muted);line-height:1.4}.pager b{background:var(--primary);border-color:var(--primary);color:#fff}.pager .gap{border:0;padding:2px 2px}.signal-body{display:flex;flex-direction:column;gap:4px}.signal-caption{margin:0;font-size:10px;color:var(--muted);line-height:1.5}.radar{width:100%;max-width:360px;max-height:none;overflow:visible;margin:0 auto}.radar text{font:9px ui-sans-serif,system-ui;fill:#6b7280}.weakest{margin:2px 0 0;border-radius:8px;background:#eef2ff99;padding:8px 9px;font-size:10px;line-height:1.5;color:var(--muted)}.weakest span{font-weight:500;color:var(--ink)}.range-toggle{display:flex;gap:2px;border:1px solid var(--line);border-radius:8px;background:var(--bg);padding:2px}.range-toggle span{border-radius:6px;padding:3px 7px;font-size:9px;font-weight:500;color:var(--muted);line-height:1.4}.range-toggle .on{background:var(--primary);color:#fff}.pulse-stats{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;padding:14px 23px 0}.big-number{font-size:40px;font-weight:600;letter-spacing:-1.6px;line-height:1;font-variant-numeric:tabular-nums}.stat-label{font-size:10px;color:var(--muted)}.trend{display:inline-flex;align-items:center;gap:4px;margin-left:auto;border-radius:9999px;padding:4px 8px;font-size:9px;font-weight:500;background:#ecfdf5;color:#047857}.trend svg{height:11px;width:11px}.pulse-chart text{font:9px ui-sans-serif,system-ui;fill:#6b7280}.peak{display:inline-flex;align-items:center;gap:4px}.peak svg{height:11px;width:11px;color:var(--primary-5)}.window-foot{padding:13px 23px;background:#f8fafc26;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:10px;color:#64748b}.window-foot b{font-weight:500;color:#0f172a}.tiny-dot{width:5px;height:5px;background:var(--primary);border-radius:50%;display:inline-block;margin-right:5px}
+.collection-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:18px}.collection-head h3{margin:0 0 9px;font-size:21px;font-weight:600;letter-spacing:-.4px}.tags{display:flex;flex-wrap:wrap;gap:6px}.repo-stack{display:grid;gap:10px}.repo{position:relative;padding:14px 16px;border:1px solid #f1f5f9;border-left:4px solid #d1d5db;border-radius:12px;background:#fff;overflow:hidden;transition:transform .2s,box-shadow .2s,border-color .2s}.repo.healthy{border-left-color:#34d399}.repo.at-risk{border-left-color:#fbbf24}.repo.critical{border-left-color:#f87171}.repo-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.repo-name{margin:0;font-size:12px;font-weight:600;min-width:0;overflow-wrap:anywhere;line-height:1.3}.repo-facts{display:flex;align-items:center;gap:16px;margin-top:7px;font-size:9.5px;color:var(--muted)}.repo-facts span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;min-width:0}.repo-facts svg{height:11px;width:11px;flex-shrink:0}.repo-facts .reminder{color:#d97706;font-weight:500}.spark{display:block;height:32px;width:100%;margin-top:10px}.repo-actions{display:flex;align-items:center;gap:2px;margin-top:8px}.ghost-btn{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 6px;border-radius:6px;font-size:9px;color:var(--body)}.ghost-btn svg{height:11px;width:11px}.ghost-btn.danger{color:#ef4444}.collection-name-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.collection-count{margin:5px 0 0;font-size:10px;color:var(--muted)}.pill{border-radius:9999px;padding:3px 9px;font-size:9px;font-weight:500;line-height:1.45}.pill-course{background:#e0e7ff;color:#4338ca}.pill-term{background:#ede9fe;color:#6d28d9}.head-actions{display:flex;gap:2px;flex-shrink:0}.mini-icon{display:grid;place-items:center;height:26px;width:26px;border-radius:6px;color:var(--muted)}.mini-icon svg{height:14px;width:14px}.mini-stat{display:flex;gap:6px;align-items:center}
+
+.radar text{font:9px ui-sans-serif,system-ui;fill:#64748b}
+
+.pulse-chart{padding:8px 12px 0}.pulse-chart svg{width:100%;height:auto}.pulse-line{stroke-dasharray:1000;stroke-dashoffset:0}.scene:not([hidden]) .pulse-line{animation:draw 1.6s ease-out both}
+.footer{padding-bottom:22px;flex-shrink:0}.chapters{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:18px;padding:17px 0 20px;border-top:1px solid var(--line)}.chapter{appearance:none;text-align:left;background:none;border:0;padding:0;min-width:0}.chapter-label{display:flex;align-items:center;gap:9px;font-size:11px;color:#64748b;white-space:nowrap}.chapter-label span{font-size:9px;color:var(--muted)}.chapter[aria-current] .chapter-label{color:var(--ink)}.chapter[aria-current] .chapter-label span{color:var(--primary)}.chapter:hover .chapter-label{color:#0f172a}.chapter-track{height:2px;margin-top:13px;display:block;background:#f1f5f9;border-radius:2px;overflow:hidden}.chapter-track i{display:block;width:var(--chapter-progress,0%);height:100%;background:var(--primary);box-shadow:0 0 10px #4f46e5}.transport{display:flex;align-items:center;gap:13px;min-height:40px}.icon-button{height:32px;width:32px;border:1px solid var(--line);border-radius:8px;background:#f8fafc;display:grid;place-items:center;flex-shrink:0}.icon-button svg{height:14px;width:14px}.icon-button:hover:not(:disabled){border-color:#4f46e544;background:#4f46e509}.play-button{height:34px;min-width:100px;border:1px solid #4f46e53a;border-radius:8px;background:#4f46e50b;color:var(--primary);font-size:11px;display:flex;justify-content:center;align-items:center;gap:7px}.play-symbol{font-size:10px;width:12px;text-align:center}.seek{appearance:none;-webkit-appearance:none;min-width:35px;flex:1;height:3px;border-radius:3px;background:linear-gradient(to right,var(--primary) 0 var(--progress),#e2e8f0 var(--progress) 100%);cursor:pointer}.seek::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:10px;height:10px;background:var(--primary);border:2px solid #eef2ff;border-radius:50%}.seek::-moz-range-thumb{width:8px;height:8px;background:var(--primary);border:2px solid #eef2ff;border-radius:50%}.timecode{font-size:10px;color:var(--muted);white-space:nowrap}.timecode strong{color:#0f172a;font-weight:400}.keyboard-hint{margin-left:13px;color:var(--muted);font-size:9px;white-space:nowrap}.keyboard-hint kbd{font:inherit;color:#475569;padding:2px 4px;border:1px solid var(--line);border-radius:3px;margin:0 2px}
+.generate-button{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:36px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:11px;font-weight:500;color:var(--ink);transition:border-color .2s,background .2s;transform-origin:center}.generate-button[data-flying="true"]{z-index:20;border-color:var(--primary-3);background:var(--primary-50);box-shadow:0 10px 30px #4f46e524;will-change:transform}.generate-label{transition:opacity .2s ease-out}.generate-button[data-pressed="true"]{background:var(--primary-100);border-color:var(--primary)}.demo-cursor{position:fixed;left:0;top:0;width:22px;height:22px;z-index:80;pointer-events:none;opacity:0;transition:opacity .2s ease-out;will-change:transform}.demo-cursor[data-show="true"]{opacity:1}.demo-cursor svg{width:22px;height:22px;transition:transform .12s ease-out;filter:drop-shadow(0 1px 3px #0f172a59)}.demo-cursor[data-clicking="true"] svg{transform:scale(.8)}.demo-cursor:after{content:"";position:absolute;left:-3px;top:-3px;width:28px;height:28px;border-radius:50%;border:2px solid var(--primary);opacity:0;transform:scale(.4)}.demo-cursor[data-clicking="true"]:after{animation:click-ripple .5s ease-out}@keyframes click-ripple{from{opacity:.75;transform:scale(.4)}to{opacity:0;transform:scale(2.4)}}@media(prefers-reduced-motion:reduce){.demo-cursor{display:none}}.generate-button:hover{border-color:var(--primary-3);background:var(--primary-50)}.generate-spark{display:inline-flex;color:#7c3aed}.generate-spark svg{height:16px;width:16px}.generate-button[data-pending="true"] .generate-spark{animation:spark 1.4s ease-in-out infinite}@keyframes spark{0%{transform:rotate(0) scale(1)}50%{transform:rotate(180deg) scale(1.18)}100%{transform:rotate(360deg) scale(1)}}.generate-label{display:inline-grid;text-align:left}.generate-sizer{visibility:hidden;grid-area:1/1;padding-right:4px}.generate-text{grid-area:1/1;display:inline-flex;align-items:center;white-space:nowrap}.generate-button[data-pending="true"] .generate-text{color:#7c3aed}@media(prefers-reduced-motion:reduce){.generate-button[data-pending="true"] .generate-spark{animation:none}}.demo-tip{position:fixed;left:0;top:0;z-index:70;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:#fff;box-shadow:0 10px 15px -3px #0f172a1f;font-size:11px;line-height:1.4;color:var(--ink);white-space:nowrap;opacity:0;transition:opacity .16s ease-out;pointer-events:none}.demo-tip[data-show="true"]{opacity:1}.demo-tip b{font-weight:600}.demo-tip i{display:block;font-style:normal;color:var(--muted)}.demo-tip i+b{display:block;margin-top:3px;color:var(--primary);font-weight:600}.demo-tip .low{color:#b45309;font-weight:600}.repo[data-hover="true"]{box-shadow:0 4px 6px -1px #0f172a1a,0 2px 4px -2px #0f172a1a}.commit{transition:background .18s,box-shadow .18s}.commit[data-hover="true"]{background:#f7f7fb}.commit[data-selected="true"]{background:var(--primary-50);box-shadow:inset 0 0 0 2px #818cf8}@media(prefers-reduced-motion:reduce){.demo-tip{transition:none}}.summary-card{position:relative;overflow:hidden}.summary-head,.summary-body{position:relative;z-index:10}.summary-card[data-flying="true"] .summary-head{z-index:30}.summary-head h2{font-size:15px;font-weight:600;color:var(--ink)}.summary-head h2 svg{height:15px;width:15px;color:var(--muted)}.window .summary-body{padding:10px 23px 16px}.summary{display:flex;flex-direction:column;gap:6px;font-size:14px;line-height:1.55;color:var(--body);margin:0;min-height:5.25em}.summary p{margin:0;font-size:14px;line-height:1.55}.summary h3{margin:3px 0 0;font-size:14px;font-weight:600;color:var(--ink)}.summary h3:first-child{margin-top:0}.summary strong{font-weight:600;color:var(--ink)}.summary-meta{font-size:11px;color:var(--muted);margin:8px 0 0;opacity:0;transition:opacity .3s ease-out}.summary-body[data-has-summary="true"] .summary-meta{opacity:1}.summary[data-typing="true"]:after{content:"";display:inline-block;width:2px;height:1em;margin-left:2px;background:var(--primary);vertical-align:-2px;animation:caret 1s steps(1) infinite}@keyframes caret{50%{opacity:0}}.summary-liquid{position:absolute;inset:auto 0 0;height:56px;max-height:100%;pointer-events:none;overflow:hidden;z-index:0;opacity:.5;transition:opacity 1.8s ease;contain:paint}.summary-liquid[data-generating="true"]{opacity:.65}.summary-liquid-wave{position:absolute;bottom:-8px;left:0;width:200%;height:100%;max-width:none;animation:summary-liquid-flow 12s linear infinite}.summary-liquid-wave--back{animation-duration:18s;animation-delay:-6s}.summary-liquid-wave--middle{height:82%;animation-duration:14s;animation-delay:-4s;animation-direction:reverse}.summary-liquid-wave--front{height:65%;animation-delay:-9s}@keyframes summary-liquid-flow{from{transform:translateX(0)}to{transform:translateX(-50%)}}@media(prefers-reduced-motion:reduce){.summary-liquid{transition:none}.summary-liquid-wave{animation:none}.summary-liquid-wave--middle{transform:translateX(-18%)}.summary-liquid-wave--front{transform:translateX(-35%)}}@keyframes arrive{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}@keyframes spin{to{transform:rotate(360deg)}}@keyframes drift{to{transform:translate(-40px,80px) rotate(12deg)}}@keyframes draw{from{stroke-dashoffset:1000}to{stroke-dashoffset:0}}
+@media(min-width:1500px){.tour{gap:85px}.window-body:not(.summary-body){padding:30px}}
+@media(max-width:950px){.shell{padding:0 25px}.tour{gap:30px;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr)}h1{font-size:42px;letter-spacing:-1.9px}.description{font-size:14px}.window-body:not(.summary-body){padding:18px}.window-head,.window-foot{padding-left:18px;padding-right:18px}.edition{display:none}.keyboard-hint{display:none}.chapter-label{font-size:10px;gap:5px}}
+@media(max-width:700px){html[data-embed="true"] .shell{padding-top:64px}.shell{padding:0 21px}.masthead{height:72px}.brand{font-size:18px}.tour{grid-template-columns:minmax(0,1fr);gap:26px;min-height:0;padding:32px 0}.eyebrow{margin-bottom:16px;font-size:10px}h1{font-size:clamp(34px,8vw,48px);margin-bottom:16px;max-width:520px;letter-spacing:-1.8px}.description{font-size:13px;max-width:520px;line-height:1.7;margin-bottom:0}.takeaway,.scene-note{display:none}.stage{width:min(560px,100%);justify-self:center}.window{border-radius:15px}.window-body:not(.summary-body){padding:20px}.summary{font-size:13px}.chapter-label{font-size:9px;flex-direction:column;align-items:flex-start;gap:5px;white-space:normal;line-height:1.4;min-height:36px}.chapters{gap:10px;padding:15px 0}.chapter-track{margin-top:10px}.transport{gap:8px;flex-wrap:wrap}.play-button{min-width:75px}.icon-button{width:28px}.timecode{font-size:9px}.footer{padding-bottom:18px}.window-head .mono{font-size:8px}}
+@media(max-width:360px){.shell{padding:0 14px}.window-body:not(.summary-body){padding:15px}.chapter-label{font-size:8px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+/* Scrolled out of the landing page's hero. The playback clock stops in JS; this
+   stops what CSS was running on its own — a 60s orbit, two pulses, the sheen —
+   rather than leaving them burning cycles behind the reader. Paused, not
+   cancelled, so coming back resumes mid-animation instead of restarting. */
+html[data-offscreen="true"] *,html[data-offscreen="true"] *:before,html[data-offscreen="true"] *:after{animation-play-state:paused}[data-reduced="true"] *,[data-reduced="true"] *:before,[data-reduced="true"] *:after{animation:none!important}
+
+/* ── Embedded in the landing page ── */
+html[data-embed="true"] .masthead,html[data-embed="true"] .transport{display:none}
+html[data-embed="true"] .shell{padding-top:72px}
+html[data-embed="true"] .tour{min-height:0;padding:clamp(10px,2.6vh,34px) 0}
+html[data-embed="true"] .chapters{padding:clamp(10px,1.7vh,17px) 0 clamp(12px,2vh,20px)}
+html[data-embed="true"] .footer{padding-bottom:clamp(10px,1.7vh,22px)}
+html[data-embed="true"] .chapter{cursor:pointer}
+/* Embedded, the landing page owns scrolling entirely. */
+html[data-embed="true"]{overflow:hidden}
+/* The ring's cards animate in from translateY(44vh) and then orbit, and a
+   transform reaching outside its container still counts towards scrollable
+   overflow — which is what put a scrollbar down the side. Clip at the tour:
+   trimming the ring's apex by a few pixels beats a scrollbar. */
+.tour{overflow:hidden}
+/* No masthead and no transport leaves the ring ~150px more room, so the cards
+   grow into it. Paired values — the radius has to grow with the cards to keep
+   them clear of the wordmark — budgeted against the tallest panel (500px) so
+   the ring can never reach past the tour box. */
+@media(min-height:940px){html[data-embed="true"]{--ring:clamp(280px,31vmin,310px);--chip:.28}}
+@media(min-height:980px){html[data-embed="true"]{--ring:clamp(290px,31vmin,330px);--chip:.32}}
+@media(min-height:1100px){html[data-embed="true"]{--ring:clamp(310px,31vmin,360px);--chip:.38}}
+/* Short windows: claw back the vertical space the tallest scenes spend, so the
+   chapter rail stays on screen instead of being pushed past the fold. */
+@media(max-height:780px){
+  html[data-embed="true"] .window-body:not(.summary-body){padding:17px}
+  html[data-embed="true"] 
+  html[data-embed="true"] 
+  html[data-embed="true"] 
+  html[data-embed="true"] .summary{min-height:4.5em}
+}
+</style>
+<script>
+/* ?embed — the tour is the top section of the landing page: the landing page
+   supplies the header, so this drops our own masthead and playback transport
+   and leaves the chapter buttons as the only control. Set before first paint
+   so neither ever flashes. */
+if (new URLSearchParams(location.search).has('embed')) document.documentElement.dataset.embed = 'true';
+</script>
+</head>
+<body>
+<div class="ambient" aria-hidden="true">
+  <i class="pulse"></i>
+  <i class="pulse pulse--late"></i>
+</div>
+<span class="demo-cursor" id="demo-cursor" aria-hidden="true" data-show="false" data-clicking="false"><svg viewBox="0 0 24 24"><path d="M5 2 5 19 9.6 14.6 12.6 21 15.2 19.7 12.2 13.4 19 12.9Z" fill="#0f172a" stroke="#ffffff" stroke-width="1.3" stroke-linejoin="round"/></svg></span>
+<span class="demo-tip" id="demo-tip" aria-hidden="true" data-show="false"></span>
+<div class="shell">
+  <header class="masthead">
+    <a class="brand" href="#tour" aria-label="RepoPulse product tour"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>RepoPulse</a>
+  </header>
+  <main id="tour" class="tour">
+    <div class="intro">
+      <p id="eyebrow" class="eyebrow mono">01 / Collections</p>
+      <h1 id="headline">Every project.<br><em>One clear picture.</em></h1>
+      <p id="description" class="description">A dozen teams. Hundreds of commits. Bring every repository into one collection, and see where things stand.</p>
+      
+      
+    </div>
+    <div class="stage">
+      <section class="scene" id="scene-0" aria-labelledby="label-0">
+        <div class="window">
+          <div class="window-head"><h2 id="label-0">Collections</h2></div>
+          <div class="window-body">
+            <div class="collection-head">
+              <div>
+                <div class="collection-name-row">
+                  <h3>Fall Capstone</h3>
+                  <span class="pill pill-course">CS4500</span>
+                  <span class="pill pill-term">Fall 2026</span>
+                </div>
+                <p class="collection-count">2 repositories</p>
+              </div>
+              <div class="head-actions" aria-hidden="true">
+                <span class="mini-icon" title="Edit collection"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg></span>
+                <span class="mini-icon" title="Archive collection"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg></span>
+                <span class="mini-icon" title="Manage access"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+              </div>
+            </div>
+            <div class="repo-stack">
+              <article class="repo at-risk">
+                <div class="repo-top"><h4 class="repo-name">capstone-api</h4><span class="status amber">At Risk</span></div>
+                <div class="repo-facts"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>4 contributors</span><span class="reminder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>1 reminder</span></div>
+                <div class="repo-facts"><span title="Last synced"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Sep 14, 2026</span><span title="Last commit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><line x1="3" x2="9" y1="12" y2="12"/><line x1="15" x2="21" y1="12" y2="12"/></svg>Sep 14, 2026, 3:42 PM</span></div>
+                <svg class="spark" viewBox="0 0 90 30" preserveAspectRatio="none" aria-label="Weekly commits"><path d="M1 27 8 20 15 23 22 8 30 13 37 9 44 18 51 14 58 20 65 13 72 15 80 19 89 16" fill="none" stroke="#4f46e5" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>
+                <div class="repo-actions">
+                  <span class="ghost-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>GitHub</span>
+                  <span class="ghost-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg>VS Code</span>
+                  <span class="ghost-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>Sync</span>
+                  <span class="ghost-btn danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>Remove</span>
+                </div>
+              </article>
+              <article class="repo healthy">
+                <div class="repo-top"><h4 class="repo-name">capstone-web</h4><span class="status ">Healthy</span></div>
+                <div class="repo-facts"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>3 contributors</span></div>
+                <div class="repo-facts"><span title="Last synced"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Sep 15, 2026</span><span title="Last commit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><line x1="3" x2="9" y1="12" y2="12"/><line x1="15" x2="21" y1="12" y2="12"/></svg>Sep 15, 2026, 11:08 AM</span></div>
+                <svg class="spark" viewBox="0 0 90 30" preserveAspectRatio="none" aria-label="Weekly commits"><path d="M1 27 8 24 15 27 22 17 30 21 37 13 44 19 51 9 58 13 65 7 72 11 80 4 89 7" fill="none" stroke="#4f46e5" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>
+                <div class="repo-actions">
+                  <span class="ghost-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>GitHub</span>
+                  <span class="ghost-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg>VS Code</span>
+                  <span class="ghost-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>Sync</span>
+                  <span class="ghost-btn danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>Remove</span>
+                </div>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="scene" id="scene-1" aria-labelledby="label-1" hidden>
+        <div class="window">
+          <div class="window-head"><h2 id="label-1">Commits</h2><span class="outline-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg>Classify commits</span></div>
+          <div class="commit-head"><span>Author</span><span>Commit</span><span>Branch</span><span>Score</span></div>
+          <div class="commits">
+<div class="commit">
+            <div class="col-author"><span class="author-name">Amara Nwosu</span><span class="diffstat"><i class="add">+212</i> / <i class="del">-18</i></span></div>
+            <div class="col-commit">
+              <div class="commit-links"><span class="hash mono"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><line x1="3" x2="9" y1="12" y2="12"/><line x1="15" x2="21" y1="12" y2="12"/></svg>a3f91c2</span><span class="commit-date mono"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>Sep 14, 2026</span></div>
+              <p class="message">Add health signal weighting</p>
+              <span class="note-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><b>2</b></span>
+            </div>
+            <div class="col-branch mono">main</div>
+            <div class="col-score"><span class="score good">Good</span></div>
+          </div>
+<div class="commit">
+            <div class="col-author"><span class="author-name">Ben Rios</span><span class="diffstat"><i class="add">+64</i> / <i class="del">-9</i></span></div>
+            <div class="col-commit">
+              <div class="commit-links"><span class="hash mono"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><line x1="3" x2="9" y1="12" y2="12"/><line x1="15" x2="21" y1="12" y2="12"/></svg>7b2e480</span><span class="commit-date mono"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>Sep 14, 2026</span></div>
+              <p class="message">Fix contributor alias merge</p>
+              <span class="note-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+            </div>
+            <div class="col-branch mono">feat/alias-merge</div>
+            <div class="col-score"><span class="score good">Good</span></div>
+          </div>
+<div class="commit">
+            <div class="col-author"><span class="author-name">Amara Nwosu</span><span class="diffstat"><i class="add">+18</i> / <i class="del">-4</i></span></div>
+            <div class="col-commit">
+              <div class="commit-links"><span class="hash mono"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><line x1="3" x2="9" y1="12" y2="12"/><line x1="15" x2="21" y1="12" y2="12"/></svg>c19d5a6</span><span class="commit-date mono"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>Sep 13, 2026</span></div>
+              <p class="message">Handle empty commit ranges</p>
+              <span class="note-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+            </div>
+            <div class="col-branch mono">main</div>
+            <div class="col-score"><span class="score ok">OK</span></div>
+          </div>
+<div class="commit">
+            <div class="col-author"><span class="author-name">Jia Mehta</span><span class="diffstat"><i class="add">+131</i> / <i class="del">-27</i></span></div>
+            <div class="col-commit">
+              <div class="commit-links"><span class="hash mono"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><line x1="3" x2="9" y1="12" y2="12"/><line x1="15" x2="21" y1="12" y2="12"/></svg>4e80f13</span><span class="commit-date mono"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>Sep 12, 2026</span></div>
+              <p class="message">Cache the parsed commit list</p>
+              <span class="note-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><b>1</b></span>
+            </div>
+            <div class="col-branch mono">feat/sync-api</div>
+            <div class="col-score"><span class="score good">Good</span></div>
+          </div>
+<div class="commit">
+            <div class="col-author"><span class="author-name">Ben Rios</span><span class="diffstat"><i class="add">+7</i> / <i class="del">-7</i></span></div>
+            <div class="col-commit">
+              <div class="commit-links"><span class="hash mono"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><line x1="3" x2="9" y1="12" y2="12"/><line x1="15" x2="21" y1="12" y2="12"/></svg>d52a7be</span><span class="commit-date mono"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>Sep 11, 2026</span></div>
+              <p class="message">Rename the sync endpoint</p>
+              <span class="note-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+            </div>
+            <div class="col-branch mono">main</div>
+            <div class="col-score"><span class="score ok">OK</span></div>
+          </div>
+<div class="commit">
+            <div class="col-author"><span class="author-name">Amara Nwosu</span><span class="diffstat"><i class="add">+940</i> / <i class="del">-0</i></span></div>
+            <div class="col-commit">
+              <div class="commit-links"><span class="hash mono"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><line x1="3" x2="9" y1="12" y2="12"/><line x1="15" x2="21" y1="12" y2="12"/></svg>9c3b061</span><span class="commit-date mono"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>Sep 8, 2026</span></div>
+              <p class="message">wip</p>
+              <span class="note-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+            </div>
+            <div class="col-branch mono">main</div>
+            <div class="col-score"><span class="score bad">Bad</span></div>
+          </div>
+          </div>
+          <div class="window-foot">
+            <span class="page-size">Commits per page <i>5</i></span>
+            <span class="pager"><i>Previous</i><b>1</b><i>2</i><i>3</i><i class="gap">…</i><i>214</i><i>Next</i></span>
+          </div>
+        </div>
+      </section>
+      <section class="scene" id="scene-2" aria-labelledby="label-2" hidden>
+        <div class="window">
+          <div class="window-head"><h2 id="label-2">Signal balance</h2></div>
+          <div class="window-body signal-body">
+            <p class="signal-caption">Each signal scored out of 100, averaged across repos</p>
+            <svg class="radar" viewBox="0 0 360 360" role="img" aria-label="Six-signal radar: distribution is the weakest at 34 out of 100"><g fill="none" stroke="#e5e7eb" stroke-width="1"><path d="M180.0 152.0L204.2 166.0L204.2 194.0L180.0 208.0L155.8 194.0L155.8 166.0ZM180.0 124.0L228.5 152.0L228.5 208.0L180.0 236.0L131.5 208.0L131.5 152.0ZM180.0 96.0L252.7 138.0L252.7 222.0L180.0 264.0L107.3 222.0L107.3 138.0ZM180.0 68.0L277.0 124.0L277.0 236.0L180.0 292.0L83.0 236.0L83.0 124.0Z"/><path d="M180 180L180.0 68.0M180 180L277.0 124.0M180 180L277.0 236.0M180 180L180.0 292.0M180 180L83.0 236.0M180 180L83.0 124.0"/></g><path d="M180.0 83.7L271.2 127.4L213.0 199.0L180.0 260.6L119.9 214.7L102.4 135.2Z" fill="#6366f140" stroke="#4f46e5" stroke-width="2"/><circle class="vertex" data-signal="Frequency" data-value="86" cx="180.0" cy="83.7" r="10" fill="transparent"/><circle class="vertex" data-signal="Recency" data-value="94" cx="271.2" cy="127.4" r="10" fill="transparent"/><circle class="vertex" data-signal="Distribution" data-value="34" cx="213.0" cy="199.0" r="10" fill="transparent"/><circle class="vertex" data-signal="Branches" data-value="72" cx="180.0" cy="260.6" r="10" fill="transparent"/><circle class="vertex" data-signal="Msg Quality" data-value="62" cx="119.9" cy="214.7" r="10" fill="transparent"/><circle class="vertex" data-signal="Participation" data-value="80" cx="102.4" cy="135.2" r="10" fill="transparent"/><text x="180" y="40" text-anchor="middle">Frequency</text><text x="296" y="116" text-anchor="start">Recency</text><text x="296" y="250" text-anchor="start">Distribution</text><text x="180" y="324" text-anchor="middle">Branches</text><text x="64" y="250" text-anchor="end">Msg Quality</text><text x="64" y="116" text-anchor="end">Participation</text></svg>
+            <p class="weakest">Weakest signal: <span>Distribution</span> at 34/100.</p>
+          </div>
+        </div>
+      </section>
+      <section class="scene" id="scene-3" aria-labelledby="label-3" hidden>
+        <div class="window summary-card">
+          <div class="summary-liquid" aria-hidden="true" data-generating="false"><svg class="summary-liquid-wave summary-liquid-wave--back" viewBox="0 0 2000 140" preserveAspectRatio="none" focusable="false"><defs><linearGradient id="liq-back" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#a78bfa" stop-opacity="0.12"/><stop offset="100%" stop-color="#a78bfa" stop-opacity="0.015"/></linearGradient></defs><path d="M0 64 C125 64 125 28 250 28 S375 100 500 100 S625 28 750 28 S875 64 1000 64 C1125 64 1125 28 1250 28 S1375 100 1500 100 S1625 28 1750 28 S1875 64 2000 64 L2000 140 H0 Z" fill="url(#liq-back)"/><path d="M0 64 C125 64 125 28 250 28 S375 100 500 100 S625 28 750 28 S875 64 1000 64 C1125 64 1125 28 1250 28 S1375 100 1500 100 S1625 28 1750 28 S1875 64 2000 64" fill="none" stroke="#a78bfa" stroke-opacity="0.2" stroke-width="1" vector-effect="non-scaling-stroke"/></svg><svg class="summary-liquid-wave summary-liquid-wave--middle" viewBox="0 0 2000 140" preserveAspectRatio="none" focusable="false"><defs><linearGradient id="liq-middle" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#818cf8" stop-opacity="0.13"/><stop offset="100%" stop-color="#818cf8" stop-opacity="0.015"/></linearGradient></defs><path d="M0 64 C125 64 125 28 250 28 S375 100 500 100 S625 28 750 28 S875 64 1000 64 C1125 64 1125 28 1250 28 S1375 100 1500 100 S1625 28 1750 28 S1875 64 2000 64 L2000 140 H0 Z" fill="url(#liq-middle)"/><path d="M0 64 C125 64 125 28 250 28 S375 100 500 100 S625 28 750 28 S875 64 1000 64 C1125 64 1125 28 1250 28 S1375 100 1500 100 S1625 28 1750 28 S1875 64 2000 64" fill="none" stroke="#818cf8" stroke-opacity="0.2" stroke-width="1" vector-effect="non-scaling-stroke"/></svg><svg class="summary-liquid-wave summary-liquid-wave--front" viewBox="0 0 2000 140" preserveAspectRatio="none" focusable="false"><defs><linearGradient id="liq-front" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.1"/><stop offset="100%" stop-color="#8b5cf6" stop-opacity="0.015"/></linearGradient></defs><path d="M0 64 C125 64 125 28 250 28 S375 100 500 100 S625 28 750 28 S875 64 1000 64 C1125 64 1125 28 1250 28 S1375 100 1500 100 S1625 28 1750 28 S1875 64 2000 64 L2000 140 H0 Z" fill="url(#liq-front)"/><path d="M0 64 C125 64 125 28 250 28 S375 100 500 100 S625 28 750 28 S875 64 1000 64 C1125 64 1125 28 1250 28 S1375 100 1500 100 S1625 28 1750 28 S1875 64 2000 64" fill="none" stroke="#8b5cf6" stroke-opacity="0.2" stroke-width="1" vector-effect="non-scaling-stroke"/></svg></div>
+          <div class="window-head summary-head"><h2 id="label-3">AI Overview<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg></h2><button class="generate-button" id="generate-button" type="button" aria-label="Generating summary"><span class="generate-spark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg></span><span class="generate-label"><span class="generate-sizer" aria-hidden="true">Generate Summary</span><span class="generate-text" id="generate-text" aria-hidden="true">Generate Summary</span></span></button></div>
+          <div class="window-body summary-body">
+            <div class="summary" id="summary-text"></div>
+            <p class="summary-meta">Generated Sep 15, 2026, 9:42 AM · claude-sonnet-4-6</p>
+          </div>
+        </div>
+      </section>
+      <section class="scene" id="scene-4" aria-labelledby="label-4" hidden>
+        <div class="window">
+          <div class="window-head">
+            <h2 id="label-4">Workspace pulse</h2>
+            <div class="range-toggle" aria-hidden="true"><span>14d</span><span class="on">30d</span><span>90d</span></div>
+          </div>
+          <div class="pulse-stats">
+            <span class="big-number">412</span>
+            <span class="stat-label">commits in 30 days</span>
+            <span class="trend"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>34% up</span>
+          </div>
+          <div class="pulse-chart"><svg viewBox="0 0 520 200" role="img" aria-label="30-day commit activity: 412 commits, peak 31 on Sep 23">
+            <defs><linearGradient id="activity-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#6366f1" stop-opacity=".35"/><stop offset="100%" stop-color="#6366f1" stop-opacity="0"/></linearGradient></defs>
+            <g stroke="#e5e7eb" stroke-dasharray="3 5"><path d="M38 165h458M38 122h458M38 79h458M38 36h458"/></g>
+            <g><text x="24" y="168">0</text><text x="18" y="125">10</text><text x="18" y="82">20</text><text x="18" y="39">30</text><text x="38" y="190">Sep 1</text><text x="178" y="190">Sep 10</text><text x="340" y="190">Sep 20</text><text x="466" y="190">Sep 30</text></g>
+            <path id="activity-area" fill="url(#activity-fill)"/><polyline id="activity-line" class="pulse-line" fill="none" stroke="#4f46e5" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle id="activity-peak" r="9" fill="transparent"/>
+          </svg></div>
+          <div class="window-foot">
+            <span>30 active days / 30 days</span>
+            <span class="peak"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg>peak Sep 23 (31)</span>
+          </div>
+        </div>
+      </section>
+  </div>
+      <div class="finale" id="finale" aria-hidden="true">
+        <div>
+          <div class="finale-lockup"><svg class="finale-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><span class="finale-word">RepoPulse</span></div>
+          <div class="finale-rule"></div>
+          <p class="finale-tagline">Know where every project stands.</p>
+        </div>
+      </div>
+  </main>
+  <footer class="footer">
+    <nav class="chapters" aria-label="Tour chapters">
+      <button class="chapter" data-scene="0" aria-current="step" aria-controls="scene-0"><span class="chapter-label"><span class="mono">01</span>Collections</span><span class="chapter-track" aria-hidden="true"><i></i></span></button>
+      <button class="chapter" data-scene="1" aria-controls="scene-1"><span class="chapter-label"><span class="mono">02</span>Commits</span><span class="chapter-track" aria-hidden="true"><i></i></span></button>
+      <button class="chapter" data-scene="2" aria-controls="scene-2"><span class="chapter-label"><span class="mono">03</span>Signal balance</span><span class="chapter-track" aria-hidden="true"><i></i></span></button>
+      <button class="chapter" data-scene="3" aria-controls="scene-3"><span class="chapter-label"><span class="mono">04</span>AI Overview</span><span class="chapter-track" aria-hidden="true"><i></i></span></button>
+      <button class="chapter" data-scene="4" aria-controls="scene-4"><span class="chapter-label"><span class="mono">05</span>Workspace pulse</span><span class="chapter-track" aria-hidden="true"><i></i></span></button>
+    </nav>
+    <div class="transport" role="group" aria-label="Playback controls">
+      <button id="previous" class="icon-button" aria-label="Previous scene" title="Previous scene (left arrow)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+      <button id="play" class="play-button" aria-label="Pause tour"><span id="play-symbol" class="play-symbol" aria-hidden="true">Ⅱ</span><span id="play-text">Pause</span></button>
+      <button id="next" class="icon-button" aria-label="Next scene" title="Next scene (right arrow)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+      <label class="sr-only" for="timeline">Seek tour</label><input id="timeline" class="seek" type="range" min="0" max="40000" step="100" value="0" aria-valuetext="0 seconds of 40">
+      <span class="timecode mono"><strong id="elapsed">0:00</strong> / 0:40</span>
+      <span class="keyboard-hint"><kbd>Space</kbd> pause <kbd>←</kbd><kbd>→</kbd> explore</span>
+    </div>
+  </footer>
+</div>
+<p id="scene-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+<noscript><p>This tour needs JavaScript for scene navigation. The opening collection is shown above.</p></noscript>
+<script>
+(() => {
+  'use strict';
+  const DURATION = 40000;
+  // Embedded in the landing page: loop unattended, and let a chapter click
+  // move the tour without stranding it paused — there is no play button there.
+  const EMBED = document.documentElement.dataset.embed === 'true';
+  // How long the finished sign-off holds before the tour starts over.
+  const LOOP_HOLD = 30000;
+  // Three seconds of sign-off, after the last scene has been walked.
+  const FINALE_AT = 37000;
+  const scenes = [
+    { start: 0, label: 'Collections', title: 'Every project.<br><em>One clear picture.</em>', description: 'A dozen teams. Hundreds of commits. Bring every repository into one collection, and see where things stand.' },
+    { start: 6000, label: 'Commits', title: 'Go beyond<br><em>the latest commit.</em>', description: 'RepoPulse reads the full git history from a local clone, connecting commits, branches, and the people behind them.' },
+    { start: 14000, label: 'Signal balance', title: 'See the pattern.<br><em>Find the friction.</em>', description: 'Six health signals turn scattered activity into a clear picture of momentum, participation, and the places worth a closer look.' },
+    { start: 22000, label: 'AI Overview', title: 'From git history<br><em>to the bigger picture.</em>', description: 'An AI overview connects recent changes with health signals, giving you a starting point for a useful conversation with the team.' },
+    { start: 30000, label: 'Workspace pulse', title: 'Less catching up.<br><em>More moving forward.</em>', description: 'Start with the workspace pulse. Spot the quiet projects, recognize progress, and know which team to check in with next.' },
+  ];
+  const byId = id => document.getElementById(id);
+  const panels = [...document.querySelectorAll('.scene')];
+  const chapters = [...document.querySelectorAll('[data-scene]')];
+  const timeline = byId('timeline');
+  const playButton = byId('play');
+  const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
+  let position = 0;
+  let playing = !motionPreference.matches;
+  let lastTime = null;
+  let active = -1;
+  let raf = 0;
+  let loopTimer = 0;
+  // Embedded, the hero scrolls away while the rest of the landing page is read.
+  // A hidden tab is the case the browser tells us about; this is the one only
+  // the parent frame can see, so it sends it in. Treated the same either way.
+  let offscreen = false;
+
+  // The plotted counts and the headline share the same dataset.
+  const activity = [8,10,7,14,18,5,6,12,15,9,11,17,21,8,10,14,18,12,16,22,11,13,31,19,15,11,16,9,14,20];
+  const points = activity.map((count, index) => [38 + index / 29 * 458, 165 - count * 4.3]);
+  byId('activity-line').setAttribute('points', points.map(point => point.join(',')).join(' '));
+  byId('activity-area').setAttribute('d', `M38,165 L${points.map(point => point.join(',')).join(' L')} L496,165 Z`);
+  const peak = points[activity.indexOf(Math.max(...activity))];
+  byId('activity-peak').setAttribute('cx', peak[0]);
+  byId('activity-peak').setAttribute('cy', peak[1]);
+
+
+  // Ported from TypedMarkdown.tsx: the summary is already complete, and this
+  // only paces the reveal. Longer text types faster per tick so the whole
+  // thing lands in about the same time either way.
+  const SUMMARY_TEXT = [
+    '### Project status',
+    'capstone-api has stayed active through September, with 1,284 commits across main and two feature branches. Frequency and recency both score above 85, and the last commit landed this morning, so the team is working steadily rather than in bursts.',
+    '',
+    '### Activity patterns',
+    'Distribution is the weakest health signal at **34/100**: one author holds most of the commits, and the same pattern holds across the last two weeks. Commit messages are improving, though a handful are still single words.',
+    '',
+    '### Notable developments',
+    'The contributor alias merge landed cleanly, so the three identities behind one student now count once. Worth asking how work is being split before the next milestone.',
+  ].join('\n');
+  const TARGET_DURATION_MS = 3200;
+  const TICK_MS = 16;
+  let summaryTimer = 0;
+
+  function stopSummary() { clearInterval(summaryTimer); summaryTimer = 0; }
+
+  // The finished card: summary in place, caret gone, meta line shown. Used by
+  // reduced motion and by the finale, where the ring shows each card as it
+  // looks after its own demo rather than mid-animation.
+  function settleSummary() {
+    const el = byId('summary-text');
+    const body = document.querySelector('.summary-body');
+    const liquid = document.querySelector('.summary-liquid');
+    if (!el) return;
+    stopSummary();
+    stopThinking();
+    if (body) body.dataset.hasSummary = 'true';
+    el.innerHTML = renderMarkdown(SUMMARY_TEXT);
+    el.dataset.typing = 'false';
+    if (liquid) liquid.dataset.generating = 'false';
+  }
+
+  const escapeHtml = text => text.replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]));
+
+  // Ported from MarkdownContent.tsx, for the subset a summary uses: ###
+  // headings, **bold** inline, and paragraphs, one per line. Partial syntax
+  // renders as-is mid-type, exactly as the app's does.
+  function renderInline(text) {
+    return escapeHtml(text).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  }
+
+  function renderMarkdown(src) {
+    return src.split('\n').map(raw => {
+      const line = raw.trim();
+      if (!line) return '';
+      if (line.startsWith('### ')) return '<h3>' + renderInline(line.slice(4)) + '</h3>';
+      return '<p>' + renderInline(line) + '</p>';
+    }).join('');
+  }
+
+  function typeSummary() {
+    const el = byId('summary-text');
+    const liquid = document.querySelector('.summary-liquid');
+    if (!el) return;
+    stopSummary();
+    if (motionPreference.matches) { settleSummary(); return; }
+    const body = document.querySelector('.summary-body');
+    if (body) body.dataset.hasSummary = 'true';
+    el.innerHTML = '';
+    el.dataset.typing = 'true';
+    // The waves brighten while the model is working, as they do in the app.
+    if (liquid) liquid.dataset.generating = 'true';
+    const perTick = Math.max(1, Math.ceil(SUMMARY_TEXT.length / (TARGET_DURATION_MS / TICK_MS)));
+    let cursor = 0;
+    summaryTimer = setInterval(() => {
+      cursor += perTick;
+      el.innerHTML = renderMarkdown(SUMMARY_TEXT.slice(0, cursor));
+      if (cursor >= SUMMARY_TEXT.length) {
+        el.innerHTML = renderMarkdown(SUMMARY_TEXT);
+        el.dataset.typing = 'false';
+        if (liquid) liquid.dataset.generating = 'false';
+        stopThinking();
+        stopSummary();
+      }
+    }, TICK_MS);
+  }
+
+
+  // Ported from ThinkingLabel.tsx, including its timings: 35ms per deleted
+  // character, 240ms pause when empty, 80ms per typed character, 1400ms hold
+  // on a finished word. Decorative only — the button keeps a stable label.
+  const THINKING_WORDS = ['Building','Coding','Splurging','Blurbing','Thinking','Connecting dots',
+    'Analyzing','Synthesizing','Reasoning','Reviewing','Mapping','Parsing','Exploring','Assembling',
+    'Polishing','Refining','Distilling','Drafting','Evaluating','Organizing','Summarizing',
+    'Connecting','Compiling','Interpreting','Shaping','Checking'];
+  let thinkTimer = 0;
+
+  function stopThinking() {
+    clearTimeout(thinkTimer);
+    thinkTimer = 0;
+    const button = byId('generate-button');
+    const label = byId('generate-text');
+    if (button) button.dataset.pending = 'false';
+    if (label) label.textContent = 'Generate Summary';
+  }
+
+  function startThinking() {
+    const button = byId('generate-button');
+    const label = byId('generate-text');
+    if (!button || !label) return;
+    clearTimeout(thinkTimer);
+    button.dataset.pending = 'true';
+    if (motionPreference.matches) { label.textContent = 'Generating…'; return; }
+    let current = 'Generate Summary';
+    let word = 0;
+    let deleting = true;
+    function step() {
+      if (deleting) {
+        current = current.slice(0, -1);
+        label.textContent = current;
+        thinkTimer = setTimeout(step, current.length === 0 ? 240 : 35);
+        if (current.length === 0) deleting = false;
+      } else {
+        const target = THINKING_WORDS[word] + '\u2026';
+        current = target.slice(0, current.length + 1);
+        label.textContent = current;
+        if (current === target) {
+          deleting = true;
+          word = (word + 1) % THINKING_WORDS.length;
+          thinkTimer = setTimeout(step, 1400);
+        } else {
+          thinkTimer = setTimeout(step, 80);
+        }
+      }
+    }
+    thinkTimer = setTimeout(step, 200);
+  }
+
+
+  // ── The pointer walkthrough ───────────────────────────────────────────────
+  // One pointer drives all five scenes: it hovers, clicks and reads, so the
+  // tour shows the app being used rather than a slideshow of screenshots.
+  //
+  // Two rules learned the hard way:
+  //   * rects are measured inside requestAnimationFrame, one frame after the
+  //     scene is unhidden — measuring in the same tick returns zeros
+  //   * hover is scripted with data-hover, because :hover cannot be triggered
+  //     from script; the styles mirror the real ones so the behaviour shown is
+  //     the app's own
+  const TRAVEL = 620;
+  let steps = [];
+  let hovered = [];
+
+  const cursorEl = () => byId('demo-cursor');
+  const tipEl = () => byId('demo-tip');
+
+  function at(ms, fn) { steps.push(setTimeout(fn, ms)); }
+
+  function centreOf(el, fx, fy) {
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width * (fx === undefined ? 0.5 : fx),
+             y: r.top + r.height * (fy === undefined ? 0.5 : fy) };
+  }
+
+  function cursorPlace(x, y) {
+    const c = cursorEl();
+    c.style.transition = 'none';
+    c.style.transform = 'translate(' + x + 'px,' + y + 'px)';
+    void c.offsetWidth;
+  }
+
+  function cursorTo(x, y, ms) {
+    const c = cursorEl();
+    c.style.transition = 'transform ' + (ms || TRAVEL) + 'ms cubic-bezier(.22,.61,.36,1)';
+    c.style.transform = 'translate(' + x + 'px,' + y + 'px)';
+  }
+
+  const cursorShow = on => { cursorEl().dataset.show = on ? 'true' : 'false'; };
+
+  function cursorClick(after) {
+    const c = cursorEl();
+    c.dataset.clicking = 'true';
+    at(160, () => { c.dataset.clicking = 'false'; if (after) after(); });
+  }
+
+  function hover(el) {
+    if (!el) return;
+    el.dataset.hover = 'true';
+    hovered.push(el);
+  }
+
+  function clearHovers() {
+    hovered.forEach(el => { el.dataset.hover = 'false'; });
+    hovered = [];
+  }
+
+  /** A tooltip in the app's idiom, anchored above the element. */
+  // `anchor` lets a tooltip sit on a point along a plotted line, which is
+  // where the chart's own tooltip appears, rather than on an element's box.
+  function showTip(el, html, anchor) {
+    const tip = tipEl();
+    tip.innerHTML = html;
+    tip.dataset.show = 'true';
+    const r = el.getBoundingClientRect();
+    const t = tip.getBoundingClientRect();
+    const cx = anchor ? anchor.x : r.left + r.width / 2;
+    const top = anchor ? anchor.y : r.top;
+    const x = Math.max(8, Math.min(window.innerWidth - t.width - 8, cx - t.width / 2));
+    tip.style.transform = 'translate(' + x + 'px,' + (top - t.height - 10) + 'px)';
+  }
+
+  const hideTip = () => { tipEl().dataset.show = 'false'; };
+
+  function stopChoreography() {
+    steps.forEach(clearTimeout);
+    steps = [];
+    clearHovers();
+    hideTip();
+    cursorShow(false);
+    document.querySelectorAll('[data-selected="true"]').forEach(el => { el.dataset.selected = 'false'; });
+  }
+
+  function resetSummaryCard() {
+    const button = byId('generate-button');
+    const card = document.querySelector('.summary-card');
+    const summary = byId('summary-text');
+    const body = document.querySelector('.summary-body');
+    const liquid = document.querySelector('.summary-liquid');
+    if (button) { button.dataset.flying = 'false'; button.dataset.pressed = 'false'; button.style.transition = ''; button.style.transform = ''; }
+    if (card) card.dataset.flying = 'false';
+    if (summary) { summary.innerHTML = ''; summary.dataset.typing = 'false'; }
+    if (body) body.dataset.hasSummary = 'false';
+    if (liquid) liquid.dataset.generating = 'false';
+  }
+
+  const pick = sel => [...document.querySelectorAll(sel)];
+
+  // ── Scene 1 · Collections: compare two repos, open the one at risk ───────
+  function walkCollections() {
+    const cards = pick('#scene-0 .repo');
+    if (cards.length < 2) return;
+    const a = centreOf(cards[0], 0.32), b = centreOf(cards[1], 0.32);
+    cursorPlace(a.x + 150, a.y + 170);
+    at(400, () => { cursorShow(true); cursorTo(a.x, a.y, 700); });
+    at(1100, () => hover(cards[0]));
+    at(1900, () => { clearHovers(); cursorTo(b.x, b.y, 560); });
+    at(2500, () => hover(cards[1]));
+    at(3300, () => { clearHovers(); cursorTo(a.x, a.y, 560); });
+    at(3900, () => hover(cards[0]));
+    // Opening the at-risk repo is what leads into the commits scene.
+    at(4800, () => cursorClick());
+    at(5200, () => { cursorShow(false); clearHovers(); });
+  }
+
+  // ── Scene 2 · Commits: read down the list, single one out ────────────────
+  function walkCommits() {
+    const rows = pick('#scene-1 .commit');
+    if (!rows.length) return;
+    const p0 = centreOf(rows[0], 0.42);
+    cursorPlace(p0.x + 120, p0.y + 150);
+    at(350, () => { cursorShow(true); cursorTo(p0.x, p0.y, 620); });
+    at(970, () => hover(rows[0]));
+    [2, 4].forEach((idx, i) => {
+      const t = 1700 + i * 850;
+      at(t, () => { clearHovers(); const q = centreOf(rows[idx], 0.42); cursorTo(q.x, q.y, 420); });
+      at(t + 430, () => hover(rows[idx]));
+    });
+    at(3600, () => { clearHovers(); const q = centreOf(rows[1], 0.42); cursorTo(q.x, q.y, 460); });
+    at(4070, () => hover(rows[1]));
+    // The app marks a commit you jump to; this mirrors that highlight.
+    at(4500, () => cursorClick(() => { rows[1].dataset.selected = 'true'; }));
+    at(6000, () => { cursorShow(false); clearHovers(); });
+  }
+
+  // ── Scene 3 · Signal balance: hover the radar the way the card does ──────
+  // Recharts shows one tooltip per axis, reading "<signal>: <value>/100".
+  function walkSignals() {
+    const vertices = pick('#scene-2 .vertex');
+    const weakest = document.querySelector('#scene-2 .weakest');
+    if (!vertices.length) return;
+    const tipFor = dot => dot.dataset.signal + ': ' + dot.dataset.value + '/100';
+    // Distribution first: it is the one the card calls out underneath.
+    const order = [2, 1, 4];
+
+    const first = centreOf(vertices[order[0]]);
+    cursorPlace(first.x + 130, first.y + 150);
+    at(350, () => { cursorShow(true); cursorTo(first.x, first.y, 680); });
+    at(1030, () => showTip(vertices[order[0]], tipFor(vertices[order[0]])));
+    order.slice(1).forEach((index, i) => {
+      const t = 2500 + i * 1800;
+      at(t, () => { hideTip(); const q = centreOf(vertices[index]); cursorTo(q.x, q.y, 460); });
+      at(t + 460, () => showTip(vertices[index], tipFor(vertices[index])));
+    });
+    if (weakest) {
+      at(6000, () => { hideTip(); const q = centreOf(weakest, 0.25); cursorTo(q.x, q.y, 520); });
+    }
+    at(7300, () => { cursorShow(false); hideTip(); });
+  }
+
+  // ── Scene 4 · AI Overview: click Generate, watch it write ────────────────
+  const BEAT = { hold: 500, travel: 600, press: 160, loading: 500, shrink: 560 };
+
+  function walkOverview() {
+    const button = byId('generate-button');
+    const card = document.querySelector('.summary-card');
+    const liquid = document.querySelector('.summary-liquid');
+
+    if (!button || !card || motionPreference.matches) {
+      if (button) { button.dataset.flying = 'false'; button.style.transform = ''; }
+      typeSummary();
+      return;
+    }
+
+    const b = button.getBoundingClientRect();
+    const c = card.getBoundingClientRect();
+    if (!b.width || !c.width) { typeSummary(); return; }
+
+    const inset = 20;
+    const scale = Math.max(1, Math.min((c.width - inset * 2) / b.width, (c.height - inset * 2) / b.height));
+    const dx = (c.left + c.width / 2) - (b.left + b.width / 2);
+    const dy = (c.top + c.height / 2) - (b.top + b.height / 2);
+
+    button.dataset.flying = 'true';
+    card.dataset.flying = 'true';
+    button.style.transition = 'none';
+    button.style.transform = 'translate(' + dx + 'px,' + dy + 'px) scale(' + scale + ')';
+    void button.offsetWidth;
+
+    // Measured after the scale is applied, so this is the enlarged centre.
+    const target = centreOf(button);
+    cursorPlace(target.x + 150, target.y + 130);
+
+    at(BEAT.hold, () => { cursorShow(true); cursorTo(target.x, target.y, BEAT.travel); });
+    at(BEAT.hold + BEAT.travel, () => {
+      button.dataset.pressed = 'true';
+      if (liquid) liquid.dataset.generating = 'true';
+      startThinking();
+      cursorClick(() => { button.dataset.pressed = 'false'; cursorShow(false); });
+    });
+    at(BEAT.hold + BEAT.travel + BEAT.loading, () => {
+      button.style.transition = 'transform ' + BEAT.shrink + 'ms cubic-bezier(0,0,.2,1)';
+      button.style.transform = 'translate(0,0) scale(1)';
+    });
+    at(BEAT.hold + BEAT.travel + BEAT.loading + BEAT.shrink + 40, () => {
+      button.style.transition = '';
+      button.style.transform = '';
+      button.dataset.flying = 'false';
+      card.dataset.flying = 'false';
+      typeSummary();
+    });
+  }
+
+  // ── Scene 5 · Workspace pulse: read the graph, then the range ────────────
+  function walkWorkspace() {
+    const peak = byId('activity-peak');
+    const line = byId('activity-line');
+    const toggle = document.querySelector('#scene-4 .range-toggle .on');
+    if (!peak || !line) return;
+
+    // Two points off the plotted line, then the peak — the chart's tooltip
+    // follows the cursor across the series in the app, so this reads it.
+    const points = (line.getAttribute('points') || '').split(' ').map(pair => pair.split(',').map(Number));
+    const box = line.getBoundingClientRect();
+    const view = 520;
+    const svgPoint = index => {
+      const [x, y] = points[index] || [0, 0];
+      const svg = line.ownerSVGElement;
+      const rect = svg.getBoundingClientRect();
+      return { x: rect.left + (x / view) * rect.width, y: rect.top + (y / 200) * rect.height };
+    };
+    const tip = (label, count) => '<i>' + label + '</i><b>' + count + ' commits</b>';
+
+    if (box.width) {
+      const early = svgPoint(12);
+      cursorPlace(early.x + 130, early.y + 160);
+      at(400, () => { cursorShow(true); cursorTo(early.x, early.y, 720); });
+      at(1150, () => showTip(peak, tip('Sep 13', '21'), early));
+      at(2500, () => { hideTip(); const q = svgPoint(19); cursorTo(q.x, q.y, 460); });
+      at(2980, () => showTip(peak, tip('Sep 20', '22'), svgPoint(19)));
+    }
+    at(4100, () => { hideTip(); const q = centreOf(peak); cursorTo(q.x, q.y, 520); });
+    at(4620, () => showTip(peak, tip('Sep 23', '31')));
+    if (toggle) {
+      at(6100, () => { hideTip(); const q = centreOf(toggle); cursorTo(q.x, q.y, 560); });
+      at(6700, () => hover(toggle));
+    }
+    at(7400, () => { clearHovers(); cursorShow(false); hideTip(); });
+  }
+
+  const WALKS = [walkCollections, walkCommits, walkSignals, walkOverview, walkWorkspace];
+
+  function runScene(index) {
+    stopChoreography();
+    stopSummary();
+    stopThinking();
+    resetSummaryCard();
+    if (motionPreference.matches) { if (index === 3) typeSummary(); return; }
+    // One frame later the scene is laid out and its rects are real.
+    requestAnimationFrame(() => { if (WALKS[index]) WALKS[index](); });
+  }
+
+  function sceneIndex() {
+    return scenes.reduce((index, scene, i) => position >= scene.start ? i : index, 0);
+  }
+  function render() {
+    const index = sceneIndex();
+    if (index !== active) {
+      active = index;
+      const scene = scenes[index];
+      // While the ring is assembled every panel stays visible.
+      if (position < FINALE_AT) panels.forEach((panel, i) => { panel.hidden = i !== index; });
+      chapters.forEach((button, i) => {
+        if (i === index) button.setAttribute('aria-current', 'step');
+        else button.removeAttribute('aria-current');
+      });
+      const number = String(index + 1).padStart(2, '0');
+      byId('eyebrow').textContent = `${number} / ${scene.label}`;
+      // Titles are fixed strings defined above, never external content.
+      byId('headline').innerHTML = scene.title;
+      byId('description').textContent = scene.description;
+      byId('scene-status').textContent = `Scene ${index + 1} of 5: ${scene.label}`;
+      // The AI scene retypes each time it is entered.
+      runScene(index);
+    }
+    const finished = position >= DURATION;
+    // The last few seconds are the sign-off: name and mark, nothing else.
+    const showFinale = position >= FINALE_AT;
+    const tour = byId('tour');
+    if (tour.dataset.finale !== String(showFinale)) {
+      tour.dataset.finale = String(showFinale);
+      byId('finale').setAttribute('aria-hidden', String(!showFinale));
+      if (showFinale) {
+        stopChoreography();
+        // Every demo joins the ring, so they all have to be on screen. Their
+        // own animations keep running: the waves still flow, the spinner still
+        // turns, the charts stay drawn.
+        panels.forEach(panel => { panel.hidden = false; });
+        resetSummaryCard();
+        settleSummary();
+      } else {
+        panels.forEach((panel, i) => { panel.hidden = i !== index; });
+      }
+    }
+    playButton.setAttribute('aria-label', finished ? 'Replay tour' : playing ? 'Pause tour' : 'Play tour');
+    byId('play-text').textContent = finished ? 'Replay' : playing ? 'Pause' : 'Play';
+    byId('play-symbol').textContent = finished ? '↻' : playing ? 'Ⅱ' : '▶';
+    byId('previous').disabled = index === 0;
+    byId('next').disabled = index === scenes.length - 1;
+    timeline.value = String(position);
+    timeline.style.setProperty('--progress', `${position / DURATION * 100}%`);
+    const seconds = Math.floor(position / 1000);
+    timeline.setAttribute('aria-valuetext', `${seconds} seconds of 40, ${scenes[index].label}`);
+    byId('elapsed').textContent = `0:${String(seconds).padStart(2, '0')}`;
+    document.documentElement.dataset.playing = String(playing);
+    chapters.forEach((button, i) => {
+      const end = scenes[i + 1]?.start ?? DURATION;
+      const progress = Math.min(1, Math.max(0, (position - scenes[i].start) / (end - scenes[i].start)));
+      button.style.setProperty('--chapter-progress', `${progress * 100}%`);
+    });
+  }
+  // Waiting on the finale. Re-armed rather than fired while the tab is in the
+  // background, so nobody comes back to a tour mid-restart.
+  function armLoop() {
+    if (!EMBED || motionPreference.matches) return;
+    clearTimeout(loopTimer);
+    loopTimer = setTimeout(() => {
+      loopTimer = 0;
+      if (document.hidden || offscreen) { armLoop(); return; }
+      position = 0;
+      setPlaying(true);
+    }, LOOP_HOLD);
+  }
+  function cancelLoop() {
+    clearTimeout(loopTimer);
+    loopTimer = 0;
+  }
+  function schedule() {
+    if (playing && !document.hidden && !offscreen && !raf) raf = requestAnimationFrame(frame);
+  }
+  function frame(now) {
+    raf = 0;
+    if (!playing || document.hidden || offscreen) return;
+    if (lastTime !== null) position = Math.min(DURATION, position + Math.max(0, now - lastTime));
+    lastTime = now;
+    if (position >= DURATION) { playing = false; armLoop(); }
+    render();
+    schedule();
+  }
+  function setPlaying(value) {
+    if (value) cancelLoop();
+    playing = value;
+    lastTime = null;
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0;
+    render();
+    schedule();
+  }
+  function jump(index) {
+    const target = Math.max(0, Math.min(scenes.length - 1, index));
+    position = scenes[target].start;
+    // Standalone, a jump parks on the scene so it can be studied. Embedded,
+    // the tour keeps running: pausing it there would look broken.
+    setPlaying(EMBED);
+    // A link inside a scene may hide itself; keep keyboard focus visible.
+    chapters[target].focus({ preventScroll: true });
+    if (window.innerWidth <= 700) {
+      byId('tour').scrollIntoView({ behavior: motionPreference.matches ? 'instant' : 'smooth', block: 'start' });
+    }
+  }
+  function toggle() {
+    if (position >= DURATION) { position = 0; setPlaying(true); }
+    else setPlaying(!playing);
+  }
+  chapters.forEach((button, index) => button.addEventListener('click', () => jump(index)));
+  document.querySelectorAll('[data-go]').forEach(button => button.addEventListener('click', () => jump(Number(button.dataset.go))));
+  byId('previous').addEventListener('click', () => jump(sceneIndex() - 1));
+  byId('next').addEventListener('click', () => jump(sceneIndex() + 1));
+  playButton.addEventListener('click', toggle);
+  timeline.addEventListener('input', () => {
+    position = Math.max(0, Math.min(DURATION, Number(timeline.value)));
+    setPlaying(false);
+  });
+  document.addEventListener('keydown', event => {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    // Space retains native button/link activation; arrows still explore scenes.
+    if (event.key === ' ' && event.target.closest('button, a')) return;
+    if (event.key === ' ') { event.preventDefault(); toggle(); }
+    if (event.key === 'ArrowLeft') { event.preventDefault(); jump(sceneIndex() - 1); }
+    if (event.key === 'ArrowRight') { event.preventDefault(); jump(sceneIndex() + 1); }
+    if (event.key === 'Home') { event.preventDefault(); jump(0); }
+    if (event.key === 'End') { event.preventDefault(); jump(scenes.length - 1); }
+  });
+  document.addEventListener('visibilitychange', () => {
+    lastTime = null;
+    document.documentElement.dataset.hidden = String(document.hidden);
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0;
+    schedule();
+  });
+  // Embedded, the parent frame is the only thing that can tell whether the hero
+  // is still on screen, so it sends that in. Two words, from the parent only:
+  // a file:// page has an opaque origin nobody can name, so the sender is
+  // identified by its window rather than by a string, and anything else on the
+  // bus is ignored. Nothing here reads or returns any state.
+  if (EMBED) {
+    window.addEventListener('message', event => {
+      if (event.source !== window.parent) return;
+      const signal = event.data && event.data.repopulse;
+      if (signal !== 'offscreen' && signal !== 'onscreen') return;
+      offscreen = signal === 'offscreen';
+      document.documentElement.dataset.offscreen = String(offscreen);
+      // Same reset as a tab coming back: drop the stale timestamp so the gap
+      // is not added to the position as if it had been played.
+      lastTime = null;
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      schedule();
+    });
+  }
+  motionPreference.addEventListener('change', event => {
+    document.documentElement.dataset.reduced = String(event.matches);
+    if (event.matches) setPlaying(false);
+  });
+  document.documentElement.dataset.reduced = String(motionPreference.matches);
+  render();
+  schedule();
+})();
+</script>
+</body>
+</html>
