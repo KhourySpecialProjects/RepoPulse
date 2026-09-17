@@ -6,6 +6,7 @@ import {
   CartesianGrid,
   LabelList,
   ResponsiveContainer,
+  Text,
   Tooltip,
   XAxis,
   YAxis,
@@ -13,7 +14,7 @@ import {
 
 import { ChartCard, CrosshairTooltip, Meter } from '@/components/charts'
 import { CHROME, MARKS, SERIES, TICK } from '@/lib/chartTheme'
-import { formatBytes } from '@/lib/formatBytes'
+import { formatBytes, formatBytesUnbroken } from '@/lib/formatBytes'
 import {
   useAdminRepoStorage,
   useRecalculateAdminStorage,
@@ -58,6 +59,50 @@ import type { AdminStorageSummary } from '@/types'
  * synced since size measurement landed.
  */
 const TOP_REPOS = 10
+
+/**
+ * The repo-name column, and the gap it keeps between a name and the bars.
+ *
+ * The gutter replaces the tick line and margin recharts would otherwise put
+ * there — those are zeroed on the axis so a tick's `x` is the column's right
+ * edge exactly, with no offsets to unwind.
+ */
+const NAME_COLUMN = 104
+const NAME_GUTTER = 8
+
+interface TickProps {
+  x?: number
+  y?: number
+  width?: number
+  payload?: { value?: string | number }
+}
+
+/**
+ * A repo name anchored to the left edge of its column.
+ *
+ * Recharts right-aligns a left axis's ticks against the plot area, so short
+ * names floated inward and left a ragged gap at the card's edge — about the
+ * width of the size-label margin on the right, which made the chart read as
+ * centred rather than as a column starting at the left. Anchoring at
+ * `x - width` gives every name the same left edge whatever its length.
+ *
+ * The wrap width stops a gutter short of the bars, so a long name breaks
+ * rather than colliding with the mark it labels.
+ */
+export function RepoNameTick({ x = 0, y = 0, width = NAME_COLUMN, payload }: TickProps) {
+  return (
+    <Text
+      x={x - width}
+      y={y}
+      width={width - NAME_GUTTER}
+      textAnchor="start"
+      verticalAnchor="middle"
+      style={TICK}
+    >
+      {String(payload?.value ?? '')}
+    </Text>
+  )
+}
 
 function formatWhen(iso: string | null): string {
   if (!iso) return 'never'
@@ -204,10 +249,14 @@ export function StorageCard({ storage, isLoading, isError, onRetry }: Props) {
                   <YAxis
                     type="category"
                     dataKey="name"
-                    tick={TICK}
+                    tick={<RepoNameTick />}
                     axisLine={false}
                     tickLine={false}
-                    width={104}
+                    // Zeroed so the tick's x is the column's right edge and
+                    // RepoNameTick owns the gutter instead of recharts.
+                    tickSize={0}
+                    tickMargin={0}
+                    width={NAME_COLUMN}
                     interval={0}
                   />
                   <Tooltip
@@ -234,11 +283,14 @@ export function StorageCard({ storage, isLoading, isError, onRetry }: Props) {
                     className="cursor-pointer"
                   >
                     {/* Outside the bar end, so a label never overflows or is
-                        clipped by a short bar. */}
+                        clipped by a short bar. Unbroken because recharts
+                        hands the bar's own width down as a wrap width even
+                        out here, which would break "12.4 MB" after the space
+                        on the short bars only. */}
                     <LabelList
                       dataKey="size_bytes"
                       position="right"
-                      formatter={(value: number) => formatBytes(value)}
+                      formatter={(value: number) => formatBytesUnbroken(value)}
                       style={{ fontSize: 11, fill: CHROME.label }}
                     />
                   </Bar>

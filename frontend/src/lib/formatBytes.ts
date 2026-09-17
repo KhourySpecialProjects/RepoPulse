@@ -25,3 +25,20 @@ export function formatBytes(bytes: number): string {
   const rounded = unitIndex === 0 ? Math.round(value) : parseFloat(value.toFixed(1))
   return `${rounded} ${UNITS[unitIndex]}`
 }
+
+/**
+ * The same string, with the number welded to its unit.
+ *
+ * For chart labels. Recharts passes a mark's own pixel width down to its
+ * label as a wrap width — including for `position="right"`, where the label
+ * sits outside the mark and that number describes nothing the label occupies.
+ * A short bar therefore broke "12.4 MB" after the space while a long one did
+ * not, so a column of sizes wrapped or not by bar length alone.
+ *
+ * A non-breaking space is not in the set recharts splits on, so the label is
+ * one word and stays on one line whatever width it inherits. Plain
+ * `formatBytes` stays the default everywhere text is free to wrap normally.
+ */
+export function formatBytesUnbroken(bytes: number): string {
+  return formatBytes(bytes).replace(' ', ' ')
+}

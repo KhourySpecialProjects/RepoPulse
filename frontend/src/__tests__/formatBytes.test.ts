@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatBytes } from '@/lib/formatBytes'
+import { formatBytes, formatBytesUnbroken } from '@/lib/formatBytes'
 
 describe('formatBytes', () => {
   it('renders zero without a unit surprise', () => {
@@ -29,5 +29,26 @@ describe('formatBytes', () => {
     expect(formatBytes(-5)).toBe('0 B')
     expect(formatBytes(Number.NaN)).toBe('0 B')
     expect(formatBytes(Number.POSITIVE_INFINITY)).toBe('0 B')
+  })
+})
+
+describe('formatBytesUnbroken', () => {
+  it('joins the number to its unit with a non-breaking space', () => {
+    expect(formatBytesUnbroken(12 * 1024 * 1024)).toBe('12\u00a0MB')
+    expect(formatBytesUnbroken(0)).toBe('0\u00a0B')
+  })
+
+  it('leaves no breaking space for a chart label to wrap on', () => {
+    // Recharts splits label text on /[ \f\n\r\t\v\u2028\u2029]+/ and rewraps
+    // it to a width it inherits from the mark. A label with no breaking
+    // space is a single word, so it renders on one line whatever that
+    // width turns out to be.
+    expect(formatBytesUnbroken(1536)).not.toMatch(/[ \f\n\r\t\v\u2028\u2029]/)
+  })
+
+  it('otherwise reads exactly like formatBytes', () => {
+    for (const bytes of [0, 1023, 1024, 1536, 5 * 1024 ** 3, Number.NaN]) {
+      expect(formatBytesUnbroken(bytes)).toBe(formatBytes(bytes).replace(' ', '\u00a0'))
+    }
   })
 })

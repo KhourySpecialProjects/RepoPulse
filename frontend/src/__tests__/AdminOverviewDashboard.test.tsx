@@ -27,6 +27,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AdminPage } from '@/pages/AdminPage'
 import { server } from '@/mocks/server'
+import { LOCAL_PHOENIX_URL } from '@/lib/phoenixUrl'
 
 const mockUser = { role: 'admin' as string | undefined }
 
@@ -467,6 +468,22 @@ describe('LLM call volume', () => {
     expect(
       await screen.findByRole('heading', { name: /per-user usage and limits/i }),
     ).toBeInTheDocument()
+  })
+
+  it('points the Phoenix link at whatever this environment configured', async () => {
+    // Phoenix is deployed per environment, so the address is read from
+    // VITE_PHOENIX_URL rather than hardcoded. Unset here, as it is locally,
+    // so this asserts the Compose fallback; resolvePhoenixUrl's own tests
+    // cover the deployment value. It must never be an empty href, which
+    // would resolve to the current page and look live while going nowhere.
+    renderAdmin()
+
+    const card = await screen.findByTestId('llm-volume')
+    const link = await within(card).findByRole('link', { name: 'Phoenix' })
+
+    expect(link).toHaveAttribute('href', LOCAL_PHOENIX_URL)
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noreferrer')
   })
 })
 
