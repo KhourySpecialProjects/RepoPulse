@@ -21,6 +21,7 @@ import type {
   CreateCollectionData,
   CreateNoteData,
   CreateUserData,
+  CreateUserResponse,
   GenerateSummaryData,
   GetCommitsParams,
   GetNotesParams,
@@ -40,6 +41,8 @@ import type {
   ReminderListResponse,
   Repo,
   Summary,
+  SetupLink,
+  SetupTokenInfo,
   TokenQuota,
   TokenResponse,
   TokenUsageSummary,
@@ -103,6 +106,32 @@ export async function devLogin(userId: string): Promise<TokenResponse> {
 
 export async function login(email: string, password: string): Promise<TokenResponse> {
   const response = await apiClient.post<TokenResponse>('/auth/login', { email, password }, {
+    signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
+  })
+  return response.data
+}
+
+/**
+ * Check an account setup link and find out who it belongs to. Rejects with a
+ * 400 (never a 401) when the link is unusable, so the response interceptor
+ * above does not redirect the recipient away from the setup page.
+ */
+export async function verifySetupToken(token: string): Promise<SetupTokenInfo> {
+  const response = await apiClient.post<SetupTokenInfo>('/auth/account-setup/verify', { token }, {
+    signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
+  })
+  return response.data
+}
+
+/** Redeem a setup link, setting the password and signing the user in. */
+export async function completeAccountSetup(
+  token: string,
+  newPassword: string
+): Promise<TokenResponse> {
+  const response = await apiClient.post<TokenResponse>('/auth/account-setup/complete', {
+    token,
+    new_password: newPassword,
+  }, {
     signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
   })
   return response.data
@@ -334,8 +363,8 @@ export async function changePassword(data: ChangePasswordData): Promise<UserDeta
   return res.data
 }
 
-export async function createUser(data: CreateUserData): Promise<UserDetail> {
-  const res = await apiClient.post<UserDetail>('/users', data)
+export async function createUser(data: CreateUserData): Promise<CreateUserResponse> {
+  const res = await apiClient.post<CreateUserResponse>('/users', data)
   return res.data
 }
 
@@ -348,8 +377,13 @@ export async function deleteUser(id: string): Promise<void> {
   await apiClient.delete(`/users/${id}`)
 }
 
-export async function resetUserPassword(id: string, newPassword: string): Promise<void> {
-  await apiClient.post(`/users/${id}/reset-password`, { new_password: newPassword })
+/**
+ * Mint a fresh setup link for an existing user — this is how a password gets
+ * reset. The admin hands the link over instead of choosing a password.
+ */
+export async function generateSetupLink(id: string): Promise<SetupLink> {
+  const res = await apiClient.post<SetupLink>(`/users/${id}/setup-link`)
+  return res.data
 }
 
 // Collection access

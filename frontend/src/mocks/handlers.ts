@@ -287,6 +287,12 @@ const mockUserDetails: UserDetail[] = [
   },
 ]
 
+const mockSetupLink = {
+  token: 'setup-token-default',
+  setup_path: '/account-setup?token=setup-token-default',
+  expires_at: '2026-12-31T00:00:00Z',
+}
+
 const mockNoteComments: NoteComment[] = []
 
 const mockNotifications: Notification[] = []
@@ -686,6 +692,19 @@ export const handlers = [
   http.post(`${BASE}/auth/login`, () => {
     return HttpResponse.json(mockTokenResponse)
   }),
+  // Public: opened from an admin-issued setup link, before the user has any
+  // credentials. Rejections are 400, never 401 — a 401 would trip the api
+  // client's global interceptor and redirect away from the setup page.
+  http.post(`${BASE}/auth/account-setup/verify`, () => {
+    return HttpResponse.json({
+      email: 'new@example.com',
+      display_name: 'New User',
+      expires_at: mockSetupLink.expires_at,
+    })
+  }),
+  http.post(`${BASE}/auth/account-setup/complete`, () => {
+    return HttpResponse.json(mockTokenResponse)
+  }),
 
   // Collections
   http.get(`${BASE}/collections`, () => {
@@ -1009,7 +1028,12 @@ export const handlers = [
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }
-    return HttpResponse.json(newUser, { status: 201 })
+    // Creation mints a setup link rather than taking a password, so the
+    // response is an envelope: the user plus the link to hand over.
+    return HttpResponse.json(
+      { user: newUser, setup: mockSetupLink },
+      { status: 201 }
+    )
   }),
   http.patch(`${BASE}/users/:id`, async ({ params, request }) => {
     const user = mockUserDetails.find((u) => u.id === params.id)
@@ -1020,8 +1044,8 @@ export const handlers = [
   http.delete(`${BASE}/users/:id`, () => {
     return new HttpResponse(null, { status: 204 })
   }),
-  http.post(`${BASE}/users/:id/reset-password`, () => {
-    return new HttpResponse(null, { status: 204 })
+  http.post(`${BASE}/users/:id/setup-link`, () => {
+    return HttpResponse.json(mockSetupLink)
   }),
 
   // Collection access
