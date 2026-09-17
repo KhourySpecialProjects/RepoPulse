@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
@@ -293,7 +293,13 @@ describe('RepoDetailPage - multi-branch commit schema (branches: string[])', () 
     renderPage()
     await waitFor(() => expect(screen.getByText('feat: main branch commit')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByRole('button', { name: 'feature/auth' }))
+    // Scoped to the filter panel. A bare getByRole matched two elements —
+    // the chip in this panel and the one on the feature/auth commit's own
+    // row — so this line threw before the panel carried a role="group".
+    fireEvent.click(
+      within(screen.getByRole('group', { name: /commit branch/i }))
+        .getByRole('button', { name: 'feature/auth' })
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Branch' }))
 
     // Hiding the controls must not reset the filter they set.

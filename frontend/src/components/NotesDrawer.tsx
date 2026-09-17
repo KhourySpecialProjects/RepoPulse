@@ -1,18 +1,11 @@
-import { useEffect } from 'react'
-import { FileText, Archive, Trash2, CheckSquare, Square, GitCommit } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { FileText, Archive, Trash2, CheckSquare, Square, GitCommit, ChevronRight } from 'lucide-react'
 import { NoteForm, type NoteFormValues } from '@/components/NoteForm'
 import { NoteComments } from '@/components/NoteComments'
 import { cn } from '@/lib/utils'
 import type { Note, UserDetail } from '@/types'
 
-/**
- * The repo's notes, rendered inline as a permanent column.
- *
- * Previously a three-state drawer: an edge tab, a sliding overlay, and a
- * pinned inline mode, with the pin persisted per repo in localStorage. Reading
- * notes cost a click every visit, and the pin was a preference with no wrong
- * answer that the user still had to find. The panel is simply always here now.
- */
+/** Collapsible notes panel anchored to the right edge. */
 interface NotesDrawerProps {
   notes: Note[] | undefined
   noteCount: number
@@ -66,12 +59,16 @@ export function NotesDrawer({
   onScrollToCommit,
   highlightNoteId,
 }: NotesDrawerProps) {
+  const [open, setOpen] = useState(Boolean(highlightNoteId))
+  useEffect(() => {
+    if (highlightNoteId) setOpen(true)
+  }, [highlightNoteId])
   useEffect(() => {
     if (!highlightNoteId) return
     document
       .getElementById(`note-${highlightNoteId}`)
       ?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
-  }, [highlightNoteId, notes])
+  }, [highlightNoteId, notes, open])
 
   const visibleNotes = notes?.filter(n => showArchivedNotes ? true : !n.is_archived) ?? []
   const hasArchivedNotes = notes?.some(n => n.is_archived) ?? false
@@ -194,16 +191,41 @@ export function NotesDrawer({
     </div>
   )
 
-  // Sticky rather than fixed: it is a column of the page now, so it scrolls
-  // with the content until it reaches the top and then holds.
   return (
-    <div
-      data-testid="notes-panel"
-      className="w-80 flex-shrink-0 sticky top-6 self-start max-h-[calc(100vh-3rem)] flex flex-col bg-white rounded-xl border border-border overflow-hidden"
-    >
+    <div className={cn(
+      'sticky top-6 self-start shrink-0 transition-[width] duration-200 motion-reduce:transition-none',
+      open ? 'w-80 max-w-[calc(100vw-4rem)]' : 'w-0'
+    )}>
+      {!open && <button
+        type="button"
+        aria-label="Open notes"
+        aria-expanded={open}
+        aria-controls="repo-notes-panel"
+        onClick={() => setOpen(value => !value)}
+        className="fixed right-0 top-40 z-40 flex h-24 w-9 items-center justify-center rounded-l-2xl border border-r-0 border-border bg-white text-sm font-semibold text-muted-foreground shadow-md transition-colors hover:bg-brand-50 hover:text-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+      >
+        <span className="-rotate-90 whitespace-nowrap">Notes</span>
+      </button>}
+      <div
+        id="repo-notes-panel"
+        data-testid="notes-panel"
+        hidden={!open}
+        className={cn('max-h-[calc(100vh-9rem)] flex-col bg-white rounded-xl border border-border overflow-hidden shadow-sm', open && 'flex')}
+      >
       <div className="px-4 py-3 border-b border-border flex items-center gap-2 flex-shrink-0">
         <FileText className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-sm font-semibold">Notes</h2>
+        <button
+          type="button"
+          aria-label="Close notes"
+          aria-expanded={open}
+          aria-controls="repo-notes-panel"
+          onClick={() => setOpen(false)}
+          className="order-last ml-auto rounded p-1 text-muted-foreground hover:bg-brand-50 hover:text-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+          title="Collapse notes"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
         {noteCount > 0 && (
           <span className="text-xs bg-brand-100 text-brand-700 border border-brand-200 rounded-full px-2 py-0.5 font-medium">
             {noteCount}
@@ -211,6 +233,7 @@ export function NotesDrawer({
         )}
       </div>
       {notesBody}
+      </div>
     </div>
   )
 }

@@ -30,7 +30,12 @@ it('follows contributor IDs and restores the full graph', () => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date('2026-09-10T12:00:00Z'))
   const { rerender } = render(<ContextualActivityChart collectionId="collection" repoId="repo" selectedContributorIds={['alice']} />)
-  expect(screen.getByLabelText('Activity range').parentElement).toHaveClass('justify-end')
+  // The controls share the title's row and are pushed right by that row's
+  // justify-between, rather than by a justify-end on their own container as
+  // they were when they sat on a line of their own.
+  expect(
+    screen.getByLabelText('Activity range').closest('[data-testid="activity-header-row"]')
+  ).toHaveClass('justify-between')
   expect(screen.queryByLabelText('Student activity')).not.toBeInTheDocument()
   expect(screen.getByText('Alice — commits per day')).toBeInTheDocument()
   // Context strings used to be listed in <details> panels under the graph. Those
