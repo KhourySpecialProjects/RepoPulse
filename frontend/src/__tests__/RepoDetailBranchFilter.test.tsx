@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
@@ -217,18 +217,15 @@ describe('RepoDetailPage - multi-branch commit schema (branches: string[])', () 
     expect(screen.getAllByRole('button', { name: 'feature/auth' }).length).toBeGreaterThan(0)
   })
 
-  it('keeps the filter sections in view as the commit list scrolls', async () => {
+  it('groups commit filters separately from contributors', async () => {
     setupHandlers()
     renderPage()
     await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
 
-    // One sticky wrapper holds all four, so they travel together rather than
-    // piling up on each other at the same offset.
-    const wrapper = document.getElementById('branch-filter-content')?.closest('.sticky')
-    expect(wrapper).not.toBeNull()
-    expect(wrapper).toContainElement(document.getElementById('type-filter-content')!)
-    expect(wrapper).toContainElement(document.getElementById('date-filter-content')!)
-    expect(wrapper).toContainElement(document.getElementById('contributors-content')!)
+    const wrapper = screen.getByRole('group', { name: 'Commit filters' })
+    expect(wrapper).toContainElement(document.getElementById('branch-filter-content')!)
+    expect(wrapper).toContainElement(document.getElementById('type-date-filter-content')!)
+    expect(wrapper).not.toContainElement(document.getElementById('contributors-content')!)
   })
 
   it('remembers a collapsed section across remounts', async () => {
@@ -269,7 +266,7 @@ describe('RepoDetailPage - multi-branch commit schema (branches: string[])', () 
 
     // Closing Branch on this repo must not close Type, or Branch elsewhere.
     expect(screen.getByRole('button', { name: 'Branch' })).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.getByRole('button', { name: 'Type' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: 'Type and Date' })).toHaveAttribute('aria-expanded', 'true')
     expect(localStorage.getItem('repo-branch-filter-expanded-repo-2')).toBeNull()
   })
 
@@ -293,7 +290,13 @@ describe('RepoDetailPage - multi-branch commit schema (branches: string[])', () 
     renderPage()
     await waitFor(() => expect(screen.getByText('feat: main branch commit')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByRole('button', { name: 'feature/auth' }))
+    // Scoped to the filter panel. A bare getByRole matched two elements —
+    // the chip in this panel and the one on the feature/auth commit's own
+    // row — so this line threw before the panel carried a role="group".
+    fireEvent.click(
+      within(screen.getByRole('group', { name: /commit branch/i }))
+        .getByRole('button', { name: 'feature/auth' })
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Branch' }))
 
     // Hiding the controls must not reset the filter they set.

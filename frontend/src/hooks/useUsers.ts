@@ -7,7 +7,7 @@ import {
   createUser,
   updateUser,
   deleteUser,
-  resetUserPassword,
+  generateSetupLink,
 } from '@/services/api'
 import type { UpdateUserData, PatchMeData, ChangePasswordData, CreateUserData } from '@/types'
 
@@ -65,9 +65,8 @@ export function useDeleteUser() {
   })
 }
 
-export function useResetUserPassword() {
+export function useGenerateSetupLink() {
   return useMutation({
-    mutationFn: ({ id, password }: { id: string; password: string }) =>
-      resetUserPassword(id, password),
+    mutationFn: (id: string) => generateSetupLink(id),
   })
 }

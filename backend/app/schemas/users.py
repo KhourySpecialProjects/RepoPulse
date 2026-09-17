@@ -6,6 +6,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.auth import SetupLinkResponse
+
 
 class UserRead(BaseModel):
     """Safe to return to any authenticated user."""
@@ -25,12 +27,27 @@ class UserDetail(UserRead):
 
 
 class UserCreate(BaseModel):
-    """Admin-only: create a new user."""
+    """Admin-only: create a new user.
+
+    No password field. The admin does not choose one for someone else — the
+    account is created without a password and the response carries a setup
+    link the recipient uses to set their own.
+    """
     email: str
     display_name: str
     role: Literal["instructor", "ta", "admin"]
-    password: str
     github_token: Optional[str] = None
+
+
+class UserCreateResponse(BaseModel):
+    """The new user plus the one-time link that activates the account.
+
+    An envelope rather than extra fields on `UserDetail`: the link is not a
+    property of the user, it is a credential that exists only in this response
+    and is never readable again.
+    """
+    user: UserDetail
+    setup: SetupLinkResponse
 
 
 class UserUpdate(BaseModel):
@@ -40,9 +57,9 @@ class UserUpdate(BaseModel):
     role: Optional[Literal["instructor", "ta", "admin"]] = None
 
 
-class PasswordReset(BaseModel):
-    """Admin resets another user's password."""
-    new_password: str
+# No admin-set-password schema. Resetting someone else's password means
+# issuing a setup link (`POST /users/{id}/setup-link`) so only they ever know
+# it; see app/services/account_setup_service.py.
 
 
 class ChangePassword(BaseModel):

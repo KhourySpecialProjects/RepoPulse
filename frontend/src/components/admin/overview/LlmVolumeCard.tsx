@@ -13,6 +13,7 @@ import {
 
 import { ChartCard, CrosshairTooltip } from '@/components/charts'
 import { CHROME, MARKS, SERIES, STATUS, TICK } from '@/lib/chartTheme'
+import { PHOENIX_URL } from '@/lib/phoenixUrl'
 import type { AdminLlmUsage } from '@/types'
 
 /**
@@ -47,7 +48,6 @@ import type { AdminLlmUsage } from '@/types'
  * here across the whole window. Joining the points as given would draw a line
  * straight through a quiet week and hide the gap.
  */
-const PHOENIX_URL = 'http://localhost:6006'
 
 /** The kinds the API reports, each its own column in the table view. */
 const FEATURES = [

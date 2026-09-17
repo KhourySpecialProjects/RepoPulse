@@ -22,6 +22,7 @@ from app.models.llm_config import (  # noqa: F401
     LlmConfig,
 )
 from app.models.llm_token_usage import LlmTokenUsage  # noqa: F401
+from app.models.account_setup_token import AccountSetupToken  # noqa: F401
 
 __all__ = [
     "User",
@@ -44,5 +45,6 @@ __all__ = [
     "ReminderShare",
     "LlmConfig",
     "LlmTokenUsage",
+    "AccountSetupToken",
     "DEFAULT_MONTHLY_TOKEN_LIMIT",
 ]

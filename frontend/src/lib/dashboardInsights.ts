@@ -99,10 +99,16 @@ const SIGNALS: ReadonlyArray<readonly [SignalKey, string]> = [
   ['participation', 'Participation'],
 ]
 
+/** The backend grades each signal 0, 1 or 2; that scale is internal. */
+const BACKEND_SIGNAL_MAX = 2
+
+/** Everything user-facing is a score out of 100, like the composite badge. */
+export const SIGNAL_SCORE_MAX = 100
+
 export interface SignalAverage {
   key: SignalKey
   label: string
-  /** 0–2, on the same scale the health pills use. */
+  /** 0–100, rounded. A score, not the backend's raw 0–2 grade. */
   value: number
 }
 
@@ -121,10 +127,10 @@ export function averageHealthSignals(repos: Repo[]): SignalAverage[] {
     label,
     // Participation is the one nullable signal; the pills count an absent
     // expectation as zero, so this has to agree with them.
-    value:
-      Math.round(
-        (scores.reduce((sum, score) => sum + (score[key] ?? 0), 0) / scores.length) * 100
-      ) / 100,
+    value: Math.round(
+      (scores.reduce((sum, score) => sum + (score[key] ?? 0), 0) / scores.length / BACKEND_SIGNAL_MAX) *
+        SIGNAL_SCORE_MAX
+    ),
   }))
 }
 
@@ -172,8 +178,12 @@ export interface Insight {
 
 const TONE_RANK: Record<InsightTone, number> = { bad: 0, warn: 1, good: 2, neutral: 3 }
 
-/** Below this, on the 0–2 signal scale, a signal is worth naming. */
-const WEAK_SIGNAL = 1.2
+/** Below this, out of 100, a signal is worth naming. */
+const WEAK_SIGNAL = 60
+/** Below this it is not just weak but failing. */
+const FAILING_SIGNAL = 40
+/** At or above this, a signal is worth crediting. */
+const STRONG_SIGNAL = 80
 const SILENT_DAYS = 14
 const MAX_INSIGHTS = 4
 
@@ -218,10 +228,8 @@ export function buildInsights({
   if (weakest && weakest.value < WEAK_SIGNAL) {
     found.push({
       id: 'weak-signal',
-      tone: weakest.value < 0.8 ? 'bad' : 'warn',
-      text: `${weakest.label} is the weakest health signal across the workspace, averaging ${weakest.value.toFixed(
-        1
-      )} of 2.`,
+      tone: weakest.value < FAILING_SIGNAL ? 'bad' : 'warn',
+      text: `${weakest.label} is the weakest health signal across the workspace, averaging ${weakest.value}/${SIGNAL_SCORE_MAX}.`,
     })
   }
 
@@ -263,13 +271,11 @@ export function buildInsights({
   }
 
   const strongest = [...signals].sort((a, b) => b.value - a.value)[0]
-  if (strongest && strongest.value >= 1.6) {
+  if (strongest && strongest.value >= STRONG_SIGNAL) {
     found.push({
       id: 'strong-signal',
       tone: 'good',
-      text: `${strongest.label} is the workspace's strongest signal, averaging ${strongest.value.toFixed(
-        1
-      )} of 2.`,
+      text: `${strongest.label} is the workspace's strongest signal, averaging ${strongest.value}/${SIGNAL_SCORE_MAX}.`,
     })
   }
 

@@ -117,7 +117,7 @@ describe('RepoDetailPage - Contributors enriched stats', () => {
     expect(document.getElementById('contributors-content')).not.toHaveAttribute('hidden')
   })
 
-  it('collapses the expected-count control along with the list', async () => {
+  it('hides expected count when the list collapses', async () => {
     server.use(
       http.get('/api/v1/repos/:id', () => HttpResponse.json(mockRepo)),
       http.get('/api/v1/repos/:id/contributors', () =>
@@ -130,10 +130,11 @@ describe('RepoDetailPage - Contributors enriched stats', () => {
     // Expected moved out of the header row so the chevron could sit on the same
     // right edge as the other panels, which puts it inside the collapsible body.
     const body = document.getElementById('contributors-content')
-    expect(body).toContainElement(screen.getByText('Expected:'))
+    expect(body).not.toContainElement(screen.getByText('Expected:'))
 
     fireEvent.click(screen.getByRole('button', { name: 'Contributors' }))
     expect(body).toHaveAttribute('hidden')
+    expect(screen.queryByRole('spinbutton', { name: 'Expected contributors' })).not.toBeInTheDocument()
   })
 
   it('renders contributor commit count', async () => {
@@ -353,7 +354,7 @@ it('places Pull Requests above a sticky, scrollable Contributors panel', async (
   const contributorsHeading = await screen.findByRole('heading', { name: 'Contributors' })
   const pullRequestsHeading = screen.getByRole('heading', { name: 'Pull Requests' })
   expect(pullRequestsHeading.compareDocumentPosition(contributorsHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  const panel = contributorsHeading.parentElement!.parentElement!
+  const panel = contributorsHeading.closest('.sticky')!
   expect(panel).toHaveClass('sticky', 'top-6', 'overflow-y-auto', 'max-h-[calc(100vh-3rem)]')
   expect(panel.parentElement).toHaveClass('self-stretch')
 })

@@ -20,6 +20,9 @@ repo-pulse/
 ├── docker-compose.yml
 ├── frontend/
 │   ├── Dockerfile
+│   ├── public/
+│   │   ├── landing.html       # Public front door: / when signed out
+│   │   └── tour.html          # The product tour the landing hero frames
 │   ├── src/
 │   │   ├── components/
 │   │   │   └── ui/            # shadcn components
@@ -146,6 +149,10 @@ make test-backend
 # Frontend only
 make test-frontend
 # or: docker compose exec frontend npx vitest run
+
+# Landing page + product tour (static documents, no stack needed)
+make test-landing
+# or: node --test tests/*.test.cjs
 
 # Frontend watch mode
 make test-watch

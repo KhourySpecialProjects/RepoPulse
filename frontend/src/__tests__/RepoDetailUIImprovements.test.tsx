@@ -351,7 +351,7 @@ describe('RepoDetailPage - Commit row note count indicators', () => {
     await waitFor(() => expect(screen.getAllByText('abc1234').length).toBeGreaterThan(0))
     // The brand-purple badge on the commit button shows the total count
     const badge = document.querySelector(
-      '.bg-brand-100.text-brand-700.rounded-full.px-1\\.5'
+      '.bg-brand-100.text-brand-700.rounded-full.px-2'
     ) as HTMLElement
     expect(badge).not.toBeNull()
     expect(badge.textContent).toBe('1')
@@ -367,7 +367,7 @@ describe('RepoDetailPage - Commit row note count indicators', () => {
     renderPage()
     await waitFor(() => expect(screen.getAllByText('abc1234').length).toBeGreaterThan(0))
     const badge = document.querySelector(
-      '.bg-brand-100.text-brand-700.rounded-full.px-1\\.5'
+      '.bg-brand-100.text-brand-700.rounded-full.px-2'
     ) as HTMLElement
     expect(badge).not.toBeNull()
     expect(badge.textContent).toBe('1')
@@ -381,7 +381,7 @@ describe('RepoDetailPage - Commit row note count indicators', () => {
     renderPage()
     await waitFor(() => expect(screen.getAllByText('abc1234').length).toBeGreaterThan(0))
     const badge = document.querySelector(
-      '.bg-brand-100.text-brand-700.rounded-full.px-1\\.5'
+      '.bg-brand-100.text-brand-700.rounded-full.px-2'
     ) as HTMLElement
     expect(badge).not.toBeNull()
     expect(badge.textContent).toBe('2')

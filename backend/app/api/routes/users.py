@@ -9,17 +9,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db_session, require_admin_user
 from app.models.user import User
+from app.schemas.auth import SetupLinkResponse
 from app.schemas.errors import ErrorResponse
 from app.schemas.users import (
     ChangePassword,
     PatchMeRequest,
-    PasswordReset,
     UserCreate,
+    UserCreateResponse,
     UserDetail,
     UserListResponse,
     UserRead,
     UserUpdate,
 )
+from app.services.account_setup_service import build_setup_path, issue_setup_token
 from app.services.permission_service import get_accessible_collection_ids
 
 router = APIRouter()
@@ -215,7 +217,7 @@ async def _users_in_collections(
 
 @router.post(
     "/users",
-    response_model=UserDetail,
+    response_model=UserCreateResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
         403: {"model": ErrorResponse},
@@ -226,8 +228,13 @@ async def create_user(
     body: UserCreate,
     db: AsyncSession = Depends(get_db_session),
     current_user_id: str = Depends(get_current_user),
-) -> UserDetail:
-    """Admin-only: create a new user."""
+) -> UserCreateResponse:
+    """Admin-only: create a new user and mint their setup link.
+
+    The account starts with no password. The response carries a one-time link
+    for the admin to pass on; the recipient chooses their own password, so no
+    password is ever known to two people.
+    """
     await _require_admin(db, current_user_id)
 
     # Check email uniqueness
@@ -243,14 +250,25 @@ async def create_user(
         email=body.email,
         display_name=body.display_name,
         role=body.role,
-        password_hash=bcrypt.hash(body.password),
+        password_hash=None,
         github_token=body.github_token or None,
     )
     db.add(user)
     await db.flush()
+
+    raw, token = await issue_setup_token(db, user)
+
     await db.commit()
     await db.refresh(user)
-    return _to_user_detail(user)
+    await db.refresh(token)
+    return UserCreateResponse(
+        user=_to_user_detail(user),
+        setup=SetupLinkResponse(
+            token=raw,
+            setup_path=build_setup_path(raw),
+            expires_at=token.expires_at,
+        ),
+    )
 
 
 @router.get(
@@ -338,25 +356,33 @@ async def delete_user(
 
 
 @router.post(
-    "/users/{user_id}/reset-password",
-    response_model=UserRead,
+    "/users/{user_id}/setup-link",
+    response_model=SetupLinkResponse,
     responses={
         403: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
     },
 )
-async def reset_password(
+async def create_setup_link(
     user_id: uuid.UUID,
-    body: PasswordReset,
     db: AsyncSession = Depends(get_db_session),
     current_user_id: str = Depends(get_current_user),
-) -> UserRead:
-    """Admin-only: reset another user's password."""
+) -> SetupLinkResponse:
+    """Admin-only: mint a fresh setup link for an existing user.
+
+    This is how a password gets reset — the admin hands over a link rather
+    than choosing a password. Any previous link stops working, but the user's
+    current password keeps working until the new link is actually used, so
+    issuing one never locks anybody out.
+    """
     await _require_admin(db, current_user_id)
     user = await _get_user_or_404(db, user_id)
-    user.password_hash = bcrypt.hash(body.new_password)
-    await db.flush()
+
+    raw, token = await issue_setup_token(db, user)
     await db.commit()
-    # updated_at is server-generated, so it is unloaded until refreshed.
-    await db.refresh(user)
-    return _to_user_read(user)
+    await db.refresh(token)
+    return SetupLinkResponse(
+        token=raw,
+        setup_path=build_setup_path(raw),
+        expires_at=token.expires_at,
+    )
