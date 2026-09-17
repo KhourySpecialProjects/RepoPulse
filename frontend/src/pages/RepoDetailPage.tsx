@@ -158,6 +158,33 @@ function GenerateSummaryButton({
  * Mirrors the Pull Requests panel's chrome so the sidebar reads as one stack
  * rather than a set of one-off boxes. That panel keeps its own markup because
  * it also persists its open state per repo; everything else shares this. */
+/**
+ * Stands in for a filter's chips while the commit list loads.
+ *
+ * Chip-shaped and chip-sized, so the panel is the height it will settle at
+ * and swapping in the real controls moves nothing. Deliberately not an empty
+ * chip row: a row of live-looking buttons that cannot be clicked yet, then
+ * silently gains more, is worse than an obvious placeholder.
+ */
+function FilterPlaceholder() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading filters"
+      className="flex flex-wrap items-center gap-1.5"
+    >
+      {[10, 14, 8].map((w, i) => (
+        <span
+          key={i}
+          aria-hidden="true"
+          className="h-5 rounded border border-border bg-muted animate-pulse motion-reduce:animate-none"
+          style={{ width: `${w * 4}px` }}
+        />
+      ))}
+    </div>
+  )
+}
+
 function SidebarPanel({
   title, icon: Icon, id, expanded, onToggle, className, children,
 }: {
@@ -169,8 +196,11 @@ function SidebarPanel({
   className?: string
   children: ReactNode
 }) {
+  // bg-card, not bg-gray-50: the Pull Requests and Contributors panels in the
+  // same column are white, and a grey filter panel beside them read as a
+  // different kind of object rather than a peer.
   return (
-    <div className={cn('shrink-0 bg-gray-50 rounded-xl border border-border p-4', className)}>
+    <div className={cn('shrink-0 bg-card rounded-xl border border-border p-4', className)}>
       <h2 className="text-sm font-semibold">
         <button
           type="button"
@@ -454,6 +484,7 @@ export function RepoDetailPage() {
   const [showAllBranches, setShowAllBranches] = useState(false)
   // The commit filters and the contributor list each collapse independently and
   // remember their state per repo, open by default.
+  const [activityExpanded, toggleActivity] = usePersistedPanel(id, 'activity-expanded')
   const [branchFilterExpanded, toggleBranchFilter] = usePersistedPanel(id, 'branch-filter-expanded')
   const [typeFilterExpanded, toggleTypeFilter] = usePersistedPanel(id, 'type-filter-expanded')
   const [dateFilterExpanded, toggleDateFilter] = usePersistedPanel(id, 'date-filter-expanded')
@@ -1174,11 +1205,11 @@ export function RepoDetailPage() {
         </div>
       </div>
 
-      {/* Body — content beside the notes column, which is always present */}
-      <div className={cn(PAGE_BODY_CLASS, 'flex flex-row items-start gap-6')}>
+      {/* Body — notes open separately from the right edge */}
+      <div className={cn(PAGE_BODY_CLASS, 'flex flex-row items-start gap-4')}>
 
         {/* Main sections column */}
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-4">
         {/* No "Overview" heading — the cards below are self-labelling. */}
 
         {/* AI Summary — spans the full width above the two columns */}
@@ -1231,10 +1262,10 @@ export function RepoDetailPage() {
         {/* Two columns: sidebar (PRs + contributors) renders to the left of the
             main content via grid placement, so the DOM keeps main content first
             for screen readers and tab order. */}
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[20rem_minmax(0,1fr)] xl:grid-cols-[24rem_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[20rem_minmax(0,1fr)] xl:grid-cols-[24rem_minmax(0,1fr)]">
 
           {/* Main content column — commit activity + commits */}
-          <div className="min-w-0 flex flex-col gap-6 lg:col-start-2 lg:row-start-1">
+          <div className="min-w-0 flex flex-col gap-4 lg:col-start-2 lg:row-start-1">
 
             {/* Commit activity section */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible">
@@ -1268,7 +1299,10 @@ export function RepoDetailPage() {
 
                   </>}
                 >
-                  <HealthSignalPills health={healthScore} className="py-1" />
+                  {/* No py-1: the header's own spacing sets the gap, and the
+                      extra 4px top and bottom was the blank strip between the
+                      title row and these pills. */}
+                  <HealthSignalPills health={healthScore} />
                   {checkIns.length > 0 && <p className="text-xs text-muted-foreground">Last checked: {formatRelativeDays(checkIns[checkIns.length - 1])}</p>}
                     {showPastCheckIn && (
                       <div className="flex items-center gap-2 mt-2 pt-2 border-t">
@@ -1558,7 +1592,7 @@ export function RepoDetailPage() {
           {/* Sidebar column — Pull Requests + Contributors. self-stretch keeps
               this column as tall as the main content so the sticky Contributors
               panel has room to travel as you scroll. */}
-          <div className="min-w-0 self-stretch flex flex-col gap-6 lg:col-start-1 lg:row-start-1">
+          <div className="min-w-0 self-stretch flex flex-col gap-4 lg:col-start-1 lg:row-start-1">
 
             {/* Pull Requests panel */}
             <div className="shrink-0 bg-card rounded-xl border border-border p-4">
@@ -1694,7 +1728,7 @@ export function RepoDetailPage() {
                 travel as a block instead of piling up at the same offset,
                 and it scrolls internally when the stack outgrows the
                 viewport (otherwise its lower panels become unreachable). */}
-            <div className="sticky top-6 flex max-h-[calc(100vh-3rem)] flex-col gap-6 overflow-y-auto">
+            <div className="sticky top-6 flex max-h-[calc(100vh-3rem)] flex-col gap-4 overflow-y-auto">
             {/* Contributors panel */}
             <div className="shrink-0 bg-card rounded-xl border border-border p-4">
               {/* Header is the toggle and nothing else, so its chevron lands on
@@ -1866,9 +1900,17 @@ export function RepoDetailPage() {
             </div>
 
             {/* Commit filters. Each is its own section rather than a row in the
-                Commits card, and each renders only when it has something to
-                offer — an empty Branch panel would just be a dead header. */}
-            {allBranches.length > 0 && (
+                Commits card.
+
+                Rendered while the commit list is still loading, then hidden if
+                it turns out there is nothing to filter. Two separate rules:
+                the panels used to appear only once `allCommitsData` arrived,
+                and since the page body paints immediately they popped in a
+                beat later and shoved this column down on every refresh. The
+                original reason for the condition — an empty Branch panel is a
+                dead header — still holds for a repo with no commits, which is
+                why the check is `loading || has data` rather than dropped. */}
+            {(allCommitsLoading || allBranches.length > 0) && (
               <SidebarPanel
                 title="Branch"
                 icon={GitBranch}
@@ -1920,10 +1962,11 @@ export function RepoDetailPage() {
                     </button>
                   )}
                 </div>
+                )}
               </SidebarPanel>
             )}
 
-            {(allCommitsData?.items.length ?? 0) > 0 && (
+            {(allCommitsLoading || (allCommitsData?.items.length ?? 0) > 0) && (
               <SidebarPanel
                 title="Type"
                 icon={Tag}
@@ -1931,9 +1974,10 @@ export function RepoDetailPage() {
                 expanded={typeFilterExpanded}
                 onToggle={toggleTypeFilter}
               >
-                {/* role/aria-label so tests and screen readers can tell this
-                    group apart — "All" appears in the Branch panel and the
-                    chart range selector too. */}
+                {allCommitsLoading ? <FilterPlaceholder /> : (
+                /* role/aria-label so tests and screen readers can tell this
+                   group apart — "All" appears in the Branch panel and the
+                   chart range selector too. */
                 <div
                   role="group"
                   aria-label="Filter by commit type"
@@ -1970,10 +2014,11 @@ export function RepoDetailPage() {
                     )
                   })}
                 </div>
+                )}
               </SidebarPanel>
             )}
 
-            {commitDates.length > 0 && (
+            {(allCommitsLoading || commitDates.length > 0) && (
               <SidebarPanel
                 title="Date"
                 icon={Calendar}
@@ -1981,6 +2026,7 @@ export function RepoDetailPage() {
                 expanded={dateFilterExpanded}
                 onToggle={toggleDateFilter}
               >
+                {allCommitsLoading ? <FilterPlaceholder /> : (
                 <div
                   role="group"
                   aria-label="Filter by commit date"
@@ -2009,6 +2055,7 @@ export function RepoDetailPage() {
                     *only showing dates with commits
                   </span>
                 </div>
+                )}
               </SidebarPanel>
             )}
             </div>
