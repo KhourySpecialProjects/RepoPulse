@@ -9,6 +9,51 @@ export type CommitQualityScore = 'good' | 'ok' | 'bad'
 /** `unclassified` is a filter value only — it never appears on a commit. */
 export type CommitTypeFilter = CommitType | 'unclassified'
 
+/**
+ * The repo page's commit filters, as decoded from the query string.
+ *
+ * Empty means "All" for each of them — there is no separate "all" value, so a
+ * shared link only ever carries the filters that are actually narrowing the
+ * view. Read-only because these are derived from the URL, never mutated in
+ * place: a writer builds a fresh set and hands it back.
+ */
+export interface CommitFilters {
+  branches: ReadonlySet<string>
+  types: ReadonlySet<CommitTypeFilter>
+  /** A single local calendar day, `YYYY-MM-DD`; `''` is the All option. */
+  date: string
+  contributorIds: ReadonlySet<string>
+}
+
+/**
+ * The values a filter param is allowed to take, so a link that has rotted —
+ * a deleted branch, a contributor id destroyed by a merge — can be ignored
+ * rather than filtering the table to nothing.
+ *
+ * `null` means "not knowable yet", and the URL is trusted verbatim. It has to
+ * be a nullable set rather than a loading flag: `isLoading` is false both on
+ * error and on cached-but-empty data, either of which would throw away a
+ * perfectly good param.
+ */
+export interface CommitFilterOptions {
+  branches: ReadonlySet<string> | null
+  dates: ReadonlySet<string> | null
+  contributorIds: ReadonlySet<string> | null
+}
+
+/** A `useState`-shaped setter, so the filters read like the state they replaced. */
+export type SetCommitFilterValue<T> = (
+  next: ReadonlySet<T> | ((prev: ReadonlySet<T>) => ReadonlySet<T>)
+) => void
+
+export interface CommitFilterControls {
+  filters: CommitFilters
+  setBranches: SetCommitFilterValue<string>
+  setTypes: SetCommitFilterValue<CommitTypeFilter>
+  setDate: (next: string) => void
+  setContributorIds: SetCommitFilterValue<string>
+}
+
 export interface CommitActivityPoint {
   date: string // YYYY-MM-DD
   count: number
