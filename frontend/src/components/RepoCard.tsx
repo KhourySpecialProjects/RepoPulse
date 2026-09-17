@@ -10,6 +10,7 @@ import { SyncIndicator } from '@/components/SyncIndicator'
 import { useSyncRepo, useDeleteRepo } from '@/hooks/useRepos'
 import { useCurrentUser } from '@/hooks/useUsers'
 import { useBackState } from '@/hooks/useBackTarget'
+import { vscodeDevUrl } from '@/lib/vscodeUrl'
 import type { Repo, HealthStatus } from '@/types'
 
 const healthBorderClass: Record<HealthStatus, string> = {
@@ -44,14 +45,15 @@ export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
   const [syncing, setSyncing] = useState(false)
   const { data: currentUser } = useCurrentUser()
   const hasToken = Boolean(currentUser?.github_token_configured)
+  const vscodeUrl = vscodeDevUrl(repo.github_url)
 
   function handleGitHub() {
     window.open(repo.github_url, '_blank', 'noopener,noreferrer')
   }
 
   function handleVSCode() {
-    if (repo.local_path) {
-      window.open(`vscode://file/${repo.local_path}`)
+    if (vscodeUrl) {
+      window.open(vscodeUrl, '_blank', 'noopener,noreferrer')
     }
   }
 
@@ -142,8 +144,12 @@ export function RepoCard({ repo, weeklyCommits = [] }: RepoCardProps) {
               size="sm"
               className="h-7 px-2 text-xs"
               onClick={handleVSCode}
-              disabled={!repo.local_path}
-              title="Open in VS Code"
+              disabled={!vscodeUrl}
+              title={
+                vscodeUrl
+                  ? 'Open in VS Code for the Web (a private repo will ask you to sign in to GitHub)'
+                  : 'Only GitHub-hosted repositories can be opened in VS Code for the Web'
+              }
             >
               <Code2 className="h-3.5 w-3.5 mr-1" />
               VS Code
