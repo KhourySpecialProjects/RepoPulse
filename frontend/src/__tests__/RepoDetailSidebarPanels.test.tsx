@@ -122,8 +122,7 @@ function panel(name: RegExp): HTMLElement {
 
 const PANELS: [string, RegExp][] = [
   ['Branch', /^branch$/i],
-  ['Type', /^type$/i],
-  ['Date', /^date$/i],
+  ['Type and Date', /^type and date$/i],
 ]
 
 beforeEach(() => {
@@ -183,7 +182,7 @@ describe('present from the first paint', () => {
     setupHandlers(null)
     renderPage()
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /^type$/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /^type and date$/i })).toBeInTheDocument()
     )
 
     // A chip row that is empty and then fills in is its own layout shift.
@@ -214,7 +213,19 @@ describe('a repo with nothing to filter', () => {
       expect(screen.queryByRole('status', { name: /loading filters/i })).not.toBeInTheDocument()
     )
     expect(screen.queryByRole('button', { name: /^branch$/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /^type$/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /^date$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^type and date$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^type and date$/i })).not.toBeInTheDocument()
   })
 })
+
+ it('orders filters before pull requests and contributors', async () => {
+    setupHandlers([mockCommit])
+    renderPage()
+    const first = await screen.findByRole('button', { name: 'Type and Date' })
+    const branch = screen.getByRole('button', { name: 'Branch' })
+    const prs = screen.getByRole('button', { name: /pull requests/i })
+    const contributors = screen.getByRole('button', { name: 'Contributors' })
+    for (const [a, b] of [[first, branch], [branch, prs], [prs, contributors]]) {
+      expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
+  })
