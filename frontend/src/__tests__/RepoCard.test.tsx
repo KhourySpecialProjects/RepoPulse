@@ -77,8 +77,29 @@ describe('RepoCard', () => {
     expect(screen.getByRole('button', { name: /vs code/i })).toBeInTheDocument()
   })
 
-  it('VS Code button is disabled when no local_path', () => {
+  it('opens the repo in vscode.dev, not a local clone path', () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+    renderCard()
+    fireEvent.click(screen.getByRole('button', { name: /vs code/i }))
+    expect(openSpy).toHaveBeenCalledWith(
+      'https://vscode.dev/github/student/project',
+      '_blank',
+      'noopener,noreferrer'
+    )
+    openSpy.mockRestore()
+  })
+
+  // The button used to be gated on local_path, which is the path *inside* the
+  // backend container. It resolved on no user's machine, and on a public
+  // deployment the clones sit in a Docker volume no browser can reach. The URL
+  // now comes from github_url alone, so a repo that was never cloned still opens.
+  it('VS Code button stays enabled when there is no local clone', () => {
     renderCard({ ...mockRepo, local_path: null })
+    expect(screen.getByRole('button', { name: /vs code/i })).toBeEnabled()
+  })
+
+  it('VS Code button is disabled when the repo URL is not a GitHub URL', () => {
+    renderCard({ ...mockRepo, github_url: 'https://gitlab.com/student/project' })
     expect(screen.getByRole('button', { name: /vs code/i })).toBeDisabled()
   })
 

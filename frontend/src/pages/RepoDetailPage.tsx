@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS, SECTION_GAP, PANEL_PADDING } from '@/lib/layout'
+import { vscodeDevUrl } from '@/lib/vscodeUrl'
 import {
   COMMIT_TYPE_FILTERS,
   commitRowClass,
@@ -1114,6 +1115,8 @@ export function RepoDetailPage() {
     )
   }
 
+  const vscodeUrl = vscodeDevUrl(repo.github_url)
+
   return (
     <div>
       {/* NProgress-style loading bar */}
@@ -1174,9 +1177,14 @@ export function RepoDetailPage() {
             {repo.last_synced_at ? `Synced ${formatDateTime(repo.last_synced_at)}` : 'Never synced'}
           </span>
           <div className="flex items-center justify-self-end gap-2">
-              {repo.local_path && (
+              {vscodeUrl && (
                 <Button variant="outline" size="sm" asChild>
-                  <a href={`vscode://file/${repo.local_path}`}>
+                  <a
+                    href={vscodeUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Open in VS Code for the Web (a private repo will ask you to sign in to GitHub)"
+                  >
                     <Code2 className="h-4 w-4 mr-1.5" />
                     VS Code
                   </a>
