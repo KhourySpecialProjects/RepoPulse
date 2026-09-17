@@ -232,9 +232,18 @@ else {
   const body = doc.body.textContent;
   if (/sign\s*up/i.test(body)) fail('a sign-up control or mention survives');
   else ok('no sign-up control or mention anywhere on the page');
-  if (/docker compose up|localhost:5173/.test(doc.querySelector('.cta').textContent)) {
-    fail('the docker/localhost hint survives in the closing CTA');
-  } else ok('closing CTA carries no setup hint');
+  // Setup instructions belong in the README, read by whoever runs the stack.
+  // A visitor to a deployed instance is not that person: the stack is already
+  // running, they have no .env, and a port on localhost is not where they are.
+  const SETUP = [
+    /docker\s*compose/i, /localhost:\d+/, /\.env\b/, /ANTHROPIC_API_KEY/,
+    /npm (run|install)/i, /pip install/i, /clone (this|the) repo/i, /start the stack/i,
+  ];
+  const pageText = doc.body.textContent.replace(/\s+/g, ' ');
+  const instructions = SETUP.filter(rx => rx.test(pageText)).map(rx => String(rx));
+  instructions.length
+    ? fail(`the page tells a visitor how to install it: ${instructions.join(', ')}`)
+    : ok('nothing on the page, help included, explains how to run the stack');
   const help = doc.getElementById('help-button');
   if (!help || help.tagName !== 'BUTTON') fail('Help is not a button');
   const authHrefs = [...nav.querySelectorAll('a[href]')].map(a => a.getAttribute('href'));
