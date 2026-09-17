@@ -101,6 +101,9 @@ class TestListUsers:
 
 
 class TestCreateUser:
+    """Creation takes no password — it mints a setup link instead. The link
+    itself is covered in test_account_setup.py."""
+
     async def test_admin_can_create_user(self, test_client, admin):
         resp = await test_client.post(
             "/api/v1/users",
@@ -108,15 +111,14 @@ class TestCreateUser:
                 "email": "newuser@test.com",
                 "display_name": "New User",
                 "role": "instructor",
-                "password": "mypassword",
             },
             headers=_auth(admin),
         )
         assert resp.status_code == 201
         data = resp.json()
-        assert data["email"] == "newuser@test.com"
-        assert "password_hash" not in data
-        assert "github_token" not in data
+        assert data["user"]["email"] == "newuser@test.com"
+        assert "password_hash" not in data["user"]
+        assert "github_token" not in data["user"]
 
     async def test_non_admin_cannot_create_user(self, test_client, instructor):
         resp = await test_client.post(
@@ -125,7 +127,6 @@ class TestCreateUser:
                 "email": "another@test.com",
                 "display_name": "Another",
                 "role": "ta",
-                "password": "pw",
             },
             headers=_auth(instructor),
         )
@@ -138,7 +139,6 @@ class TestCreateUser:
                 "email": instructor.email,
                 "display_name": "Duplicate",
                 "role": "ta",
-                "password": "pw",
             },
             headers=_auth(admin),
         )
@@ -218,22 +218,9 @@ class TestDeleteUser:
         assert resp.status_code == 403
 
 
-class TestResetPassword:
-    async def test_admin_can_reset_password(self, test_client, admin, instructor):
-        resp = await test_client.post(
-            f"/api/v1/users/{instructor.id}/reset-password",
-            json={"new_password": "newpass123"},
-            headers=_auth(admin),
-        )
-        assert resp.status_code == 200
-
-    async def test_non_admin_cannot_reset_password(self, test_client, instructor, ta):
-        resp = await test_client.post(
-            f"/api/v1/users/{ta.id}/reset-password",
-            json={"new_password": "newpass123"},
-            headers=_auth(instructor),
-        )
-        assert resp.status_code == 403
+# Admin-set passwords are gone. `POST /users/{id}/setup-link` replaces the old
+# reset-password route; its access control and behaviour live in
+# tests/api/test_account_setup.py.
 
 
 class TestPatchMe:

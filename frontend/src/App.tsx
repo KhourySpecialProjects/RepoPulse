@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import { useAuth } from '@/hooks/useAuth'
 import { LoginPage } from '@/pages/LoginPage'
+import { AccountSetupPage } from '@/pages/AccountSetupPage'
 import { NotificationsPage } from '@/pages/NotificationsPage'
 import { CollectionsPage } from '@/pages/CollectionsPage'
 import { DashboardPage } from '@/pages/DashboardPage'
@@ -48,6 +49,10 @@ function AppRoutes() {
           path="/login"
           element={isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />}
         />
+        {/* Public, and deliberately not redirected when already signed in the
+            way /login is: an admin checking a link they just generated should
+            reach the page, which warns them before replacing their session. */}
+        <Route path="/account-setup" element={<AccountSetupPage />} />
         <Route
           path="/"
           element={

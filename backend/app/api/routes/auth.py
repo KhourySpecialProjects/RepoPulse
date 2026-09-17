@@ -10,8 +10,16 @@ from app.core.auth import create_access_token
 from app.core.config import settings
 from app.core.deps import get_db_session
 from app.models.user import User
-from app.schemas.auth import DevLoginRequest, LoginRequest, TokenResponse
+from app.schemas.auth import (
+    CompleteSetupRequest,
+    DevLoginRequest,
+    LoginRequest,
+    SetupTokenInfo,
+    TokenResponse,
+    VerifySetupTokenRequest,
+)
 from app.schemas.errors import ErrorResponse
+from app.services.account_setup_service import complete_setup, resolve_setup_token
 
 router = APIRouter()
 
@@ -108,6 +116,62 @@ async def dev_login(
     token = create_access_token({"sub": str(user.id)})
     return TokenResponse(
         access_token=token,
+        token_type="bearer",
+        user_id=str(user.id),
+        display_name=user.display_name,
+        role=user.role,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Account setup links
+#
+# Both routes are public by necessity — the caller is someone who has no
+# credentials yet, which is the whole point of the link. Authority comes from
+# holding the token, which `resolve_setup_token` checks.
+#
+# They answer 400, never 401, on a bad token. The frontend api client redirects
+# to /login on any 401, which would throw the user off the setup page before
+# they could read what went wrong.
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/account-setup/verify",
+    response_model=SetupTokenInfo,
+    responses={400: {"model": ErrorResponse}},
+)
+async def verify_account_setup_token(
+    body: VerifySetupTokenRequest,
+    db: AsyncSession = Depends(get_db_session),
+) -> SetupTokenInfo:
+    """Check a setup link and report who it is for, without spending it."""
+    token = await resolve_setup_token(db, body.token)
+    user = token.user
+    return SetupTokenInfo(
+        email=user.email,
+        display_name=user.display_name,
+        expires_at=token.expires_at,
+    )
+
+
+@router.post(
+    "/account-setup/complete",
+    response_model=TokenResponse,
+    responses={400: {"model": ErrorResponse}},
+)
+async def complete_account_setup(
+    body: CompleteSetupRequest,
+    db: AsyncSession = Depends(get_db_session),
+) -> TokenResponse:
+    """Set the password chosen by the link's recipient and sign them in.
+
+    Returning a session token saves sending someone who has just chosen a
+    password to a login form to type it again.
+    """
+    user = await complete_setup(db, body.token, body.new_password)
+    return TokenResponse(
+        access_token=create_access_token({"sub": str(user.id)}),
         token_type="bearer",
         user_id=str(user.id),
         display_name=user.display_name,

@@ -352,8 +352,31 @@ export interface CreateUserData {
   email: string
   display_name: string
   role: 'instructor' | 'ta' | 'admin'
-  password: string
   github_token?: string
+}
+
+/**
+ * A one-time account setup link. The token is readable only in the response
+ * that mints it — the server stores just a hash — so it has to be handed over
+ * before the dialog closes.
+ */
+export interface SetupLink {
+  token: string
+  /** Relative; prefix with the current origin to get a shareable URL. */
+  setup_path: string
+  expires_at: string
+}
+
+export interface CreateUserResponse {
+  user: UserDetail
+  setup: SetupLink
+}
+
+/** What the setup page learns about a link before anyone has signed in. */
+export interface SetupTokenInfo {
+  email: string
+  display_name: string
+  expires_at: string
 }
 
 export interface UpdateUserData {

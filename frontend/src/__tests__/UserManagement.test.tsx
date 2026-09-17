@@ -92,11 +92,22 @@ describe('API: user management endpoints', () => {
     expect(filteredUsers).toHaveLength(1)
   })
 
-  it('createUser posts to /users', async () => {
+  it('createUser posts to /users and returns the setup link', async () => {
+    let sent: Record<string, unknown> = {}
     server.use(
       http.post('/api/v1/users', async ({ request }) => {
-        const body = await request.json() as Record<string, unknown>
-        return HttpResponse.json({ ...mockUserDetail, email: body.email as string }, { status: 201 })
+        sent = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json(
+          {
+            user: { ...mockUserDetail, email: sent.email as string },
+            setup: {
+              token: 'setup-token-abc',
+              setup_path: '/account-setup?token=setup-token-abc',
+              expires_at: '2026-01-03T00:00:00Z',
+            },
+          },
+          { status: 201 }
+        )
       })
     )
     const { createUser } = await import('@/services/api')
@@ -104,9 +115,26 @@ describe('API: user management endpoints', () => {
       email: 'new@example.com',
       display_name: 'New User',
       role: 'ta',
-      password: 'password123',
     })
-    expect(result.email).toBe('new@example.com')
+    expect(result.user.email).toBe('new@example.com')
+    expect(result.setup.setup_path).toBe('/account-setup?token=setup-token-abc')
+    // No password is chosen on the admin's behalf.
+    expect(sent).not.toHaveProperty('password')
+  })
+
+  it('generateSetupLink posts to /users/:id/setup-link', async () => {
+    server.use(
+      http.post('/api/v1/users/:id/setup-link', () =>
+        HttpResponse.json({
+          token: 'reset-token-xyz',
+          setup_path: '/account-setup?token=reset-token-xyz',
+          expires_at: '2026-01-03T00:00:00Z',
+        })
+      )
+    )
+    const { generateSetupLink } = await import('@/services/api')
+    const result = await generateSetupLink('user-1')
+    expect(result.token).toBe('reset-token-xyz')
   })
 
   it('deleteUser sends DELETE to /users/:id', async () => {
