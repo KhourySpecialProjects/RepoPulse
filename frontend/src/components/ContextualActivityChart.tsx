@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
-import { Area, AreaChart, CartesianGrid, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Area, AreaChart, CartesianGrid, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { TrickleProgress } from '@/components/ui/trickle-progress'
 import { useContextualActivity } from '@/hooks/useContextualActivity'
@@ -11,6 +11,17 @@ import type { ActivityContextKind, ContextActivityPoint } from '@/types'
 
 /** A day the graph puts a marker on — `kind` is known non-null. */
 type MarkedPoint = ContextActivityPoint & { kind: ActivityContextKind }
+
+/** `2026-09-12` as `Sep 12`, for the highlighted day's label.
+ *
+ * Split and passed as numbers rather than `new Date('2026-09-12')`, which
+ * parses a bare date as UTC midnight and renders the previous day in any
+ * negative-offset timezone. */
+function formatDayLabel(key: string): string {
+  const [year, month, day] = key.split('-').map(Number)
+  if (!year || !month || !day) return key
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
 
 function ActivityTooltip({ active, payload }: { active?: boolean; payload?: { payload?: ContextActivityPoint }[] }) {
   const point = payload?.[0]?.payload
@@ -30,26 +41,69 @@ function ChartLoading() {
   )
 }
 
-export function ContextualActivityChart({ collectionId, repoId, children, actions, selectedContributorIds = [] }: { collectionId: string; repoId: string; children?: ReactNode; actions?: ReactNode; selectedContributorIds?: string[] }) {
+export function ContextualActivityChart({ collectionId, repoId, children, actions, selectedContributorIds = [], activityOverride = null, filterLabel, highlightDate }: {
+  collectionId: string
+  repoId: string
+  children?: ReactNode
+  actions?: ReactNode
+  selectedContributorIds?: string[]
+  /**
+   * A pre-filtered daily series that replaces the repo's own history.
+   *
+   * Set by RepoDetailPage when its Branch or Type filters are active, derived
+   * from the same commit list the table below the chart is showing — so the
+   * graph and the list cannot disagree about what a filter selected. `null`
+   * means no filter; `[]` means a filter that matched nothing, which is a
+   * different thing from a repo with no history.
+   */
+  activityOverride?: { date: string; count: number }[] | null
+  /** Names the active filter, so a smaller series is explained rather than puzzling. */
+  filterLabel?: string
+  /**
+   * A single day to mark in place, from the page's Date filter.
+   *
+   * Deliberately not a filter on this series: the date picker selects one
+   * exact day, and an area chart of one point carries no trend. Marking it
+   * keeps the surrounding weeks on screen, which is the only thing that makes
+   * a single day's count meaningful.
+   */
+  highlightDate?: string
+}) {
   const { data, isLoading, isError, refetch } = useContextualActivity(collectionId)
   const [range, setRange] = useState('30')
   const repo = data?.repositories.find(r => r.id === repoId)
+  const filtered = activityOverride !== null
   const students = repo?.students.filter(s => selectedContributorIds.includes(s.id)) ?? []
   const allSelected = !selectedContributorIds.length || (Boolean(repo?.students.length) && students.length === repo?.students.length)
   const counts = new Map<string, number>()
   students.forEach(student => student.activity.forEach(p => counts.set(p.date, (counts.get(p.date) ?? 0) + p.count)))
-  const activity = allSelected ? repo?.activity ?? [] : Array.from(counts, ([date, count]) => ({ date, count }))
-  const authorLabel = allSelected ? 'All students' : students.map(s => s.name).join(', ') || 'Selected students'
+  // The override already has the contributor filter applied — it comes from the
+  // page's filtered commit list — so it must not be narrowed again here.
+  const activity = filtered ? activityOverride : allSelected ? repo?.activity ?? [] : Array.from(counts, ([date, count]) => ({ date, count }))
+  const contributorLabel = allSelected ? 'All students' : students.map(s => s.name).join(', ') || 'Selected students'
+  const authorLabel = filterLabel ? `${contributorLabel} · ${filterLabel}` : contributorLabel
   const today = new Date().toISOString().slice(0, 10)
-  const start = range === 'all' ? repo?.activity[0]?.date ?? today : new Date(Date.parse(today) - (Number(range) - 1) * 86400000).toISOString().slice(0, 10)
+  const rangeStart = range === 'all' ? repo?.activity[0]?.date ?? today : new Date(Date.parse(today) - (Number(range) - 1) * 86400000).toISOString().slice(0, 10)
+  // A highlighted day outside the window would mark nothing, so the window
+  // stretches to reach it rather than the selection silently doing nothing.
+  const start = highlightDate && highlightDate < rangeStart ? highlightDate : rangeStart
   // Analyze full history before slicing so range changes do not erase the baseline.
   const historyStart = repo?.activity[0]?.date ?? start
+  const generateFrom = highlightDate && highlightDate < historyStart ? highlightDate : historyStart
   const peers = data?.repositories.filter(r => r.id !== repoId && r.available).map(r => r.activity) ?? []
-  const points = contextualizeActivity(activity, peers, historyStart, today).filter(p => p.date >= start)
+  const points = contextualizeActivity(activity, peers, generateFrom, today).filter(p => p.date >= start)
   // `kind` rather than `context`: it is the discriminator the marker colour and
   // the legend both read, and narrowing it here drops a non-null assertion.
+  //
+  // Computed on the filtered series too, so quiet periods and bursts stay
+  // visible while a filter is on. The peer clause in a quiet period's text
+  // then compares this slice against each peer's *total* activity — not
+  // like-for-like, since the activity endpoint carries no type or branch
+  // dimension to filter them by. Stated once in the caption below rather than
+  // repeated in every tooltip.
   const annotations = points.filter((p): p is MarkedPoint => p.kind !== null)
   const normalPoint = annotations.length === 0 ? points[points.length - 1] : undefined
+  const highlightPoint = highlightDate ? points.find(p => p.date === highlightDate) : undefined
   return <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
     <Card>
       <CardHeader>
@@ -68,6 +122,11 @@ export function ContextualActivityChart({ collectionId, repoId, children, action
           {/* Drawn from the last sync's snapshot, not the clone. */}
           {repo.stale && <p className="mb-2 text-xs text-amber-700">Showing the last synced history — the local clone could not be read.</p>}
           <p className="mb-2 text-sm font-medium">{authorLabel} — commits per day</p>
+          {/* Distinct from the "No commit history available" state above: the
+              repo has history, this filter just excludes all of it. Telling
+              someone their repo is empty when it is not sends them to sync a
+              repository that was never the problem. */}
+          {filtered && activity.length === 0 && <p className="mb-2 text-sm text-muted-foreground">No commits match the current filter.</p>}
           <div className="h-56" aria-label="Commit activity graph">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={points} margin={{ top: 12, right: 16, bottom: 0, left: 0 }}>
@@ -86,11 +145,24 @@ export function ContextualActivityChart({ collectionId, repoId, children, action
                 <Area dataKey="count" type="monotone" stroke={BRAND.violet} strokeWidth={2} fill="url(#contextualActivityGradient)" />
                 {normalPoint && <ReferenceDot x={normalPoint.date} y={normalPoint.count} r={0} label={{ value: '✓', position: 'top', fill: GOOD_HISTORY_COLOR, fontSize: 20 }} />}
                 {annotations.map(p => <ReferenceDot key={p.date} x={p.date} y={p.count} r={6} fill={activityContextColor(p.kind)} stroke={MARKER_RING} strokeWidth={1.5} />)}
+                {/* The Date filter's selected day. A line rather than a dot so
+                    it reads against the x-axis even on a day with no commits,
+                    which is exactly when someone asks "was anything pushed?" */}
+                {highlightDate && <ReferenceLine x={highlightDate} stroke={BRAND.violet} strokeDasharray="4 3" strokeWidth={1.5} label={{ value: formatDayLabel(highlightDate), position: 'insideTopLeft', fill: BRAND.violet, fontSize: 11 }} />}
+                {highlightPoint && <ReferenceDot x={highlightPoint.date} y={highlightPoint.count} r={5} fill={BRAND.violet} stroke={MARKER_RING} strokeWidth={1.5} />}
               </AreaChart>
             </ResponsiveContainer>
           </div>
+          {/* Said once, here, instead of in every tooltip: the markers now
+              describe the filtered slice, and the peer numbers they quote are
+              each peer's total activity, because the activity endpoint has no
+              type or branch dimension to narrow them by. Without this line a
+              gap in one commit type reads as a quiet student. */}
+          {filtered && <p className="mt-2 text-xs text-muted-foreground">Markers describe the filtered series. A quiet period here means no commits <em>matching this filter</em>, and peer comparisons use each peer&apos;s total activity.</p>}
           {/* Every kind is listed whether or not it is on the chart today, so
-              the legend reads as a key rather than a changing summary. */}
+              the legend reads as a key rather than a changing summary. Kept
+              under a filter too: it is a key to the colours, and hiding it
+              would imply the colours changed meaning. */}
           <ul aria-label="Marker legend" className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
             {ACTIVITY_LEGEND.map(entry => (
                 <li key={entry.key} className="flex items-center gap-1.5 text-xs text-muted-foreground">

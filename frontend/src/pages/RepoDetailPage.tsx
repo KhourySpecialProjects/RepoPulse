@@ -40,6 +40,7 @@ import {
 import { toast } from 'sonner'
 import type {
   ClassifyCommitsResponse,
+  Commit,
   CreateNoteData,
   Summary,
   Contributor,
@@ -675,10 +676,15 @@ export function RepoDetailPage() {
     })
   }
 
-  const filteredCommits = useMemo(() => {
+  // Two lists from one set of predicates. `filteredCommits` is what the table
+  // shows; `graphCommits` is the same minus the date filter, because the graph
+  // marks the selected day in place rather than collapsing to it — a one-point
+  // area chart carries no trend. Sharing the predicates is what keeps the two
+  // from drifting apart.
+  const { filteredCommits, graphCommits } = useMemo(() => {
     const allContributorsSelected = selectedContributorIds.size === 0 ||
       (contributors != null && contributors.length > 0 && contributors.every(contributor => selectedContributorIds.has(contributor.id)))
-    return (allCommitsData?.items ?? []).filter(c => {
+    const matchesExceptDate = (c: Commit) => {
       // Match the owning branch exactly. `c.branches.some(...)` matched any
       // branch *containing* the commit, so selecting `dev` returned all of
       // trunk's history too.
@@ -690,12 +696,54 @@ export function RepoDetailPage() {
       // "show me what still needs classifying" is expressible.
       const typeMatch =
         selectedTypes.size === 0 || selectedTypes.has(c.commit_type ?? 'unclassified')
+      return branchMatch && contributorMatch && typeMatch
+    }
+    const forGraph = (allCommitsData?.items ?? []).filter(matchesExceptDate)
+    return {
       // Exact calendar day, compared in the viewer's timezone so it agrees
       // with the date shown in the row.
-      const dateMatch = !selectedDate || toLocalDateKey(c.date) === selectedDate
-      return branchMatch && contributorMatch && typeMatch && dateMatch
-    })
+      filteredCommits: selectedDate
+        ? forGraph.filter(c => toLocalDateKey(c.date) === selectedDate)
+        : forGraph,
+      graphCommits: forGraph,
+    }
   }, [allCommitsData, selectedBranches, selectedContributorIds, contributors, emailToContributorId, selectedTypes, selectedDate])
+
+  /**
+   * The graph's series, or null to let it draw the repo's own history.
+   *
+   * Only overridden when Branch or Type is narrowing things. Contributor
+   * selection is left to the chart, which has per-student series from the
+   * activity endpoint covering the repo's full history — deriving it here
+   * instead would silently cap the graph at the 500 commits this page loads.
+   *
+   * Days are keyed in the viewer's timezone, matching the table and the date
+   * picker rather than the endpoint's UTC buckets. Under a filter the graph's
+   * job is to mirror the list below it, and disagreeing with it by a day at
+   * the midnight boundary would be the worse error.
+   */
+  const graphActivityOverride = useMemo(() => {
+    if (selectedBranches.size === 0 && selectedTypes.size === 0) return null
+    const counts = new Map<string, number>()
+    graphCommits.forEach(c => {
+      const key = toLocalDateKey(c.date)
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    })
+    return Array.from(counts, ([date, count]) => ({ date, count }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+  }, [graphCommits, selectedBranches, selectedTypes])
+
+  /** Names the active Branch/Type filters for the chart's series label. */
+  const graphFilterLabel = useMemo(() => {
+    const parts: string[] = []
+    if (selectedTypes.size > 0) {
+      parts.push(Array.from(selectedTypes).map(t => commitTypeStyle(t).label).join(' + '))
+    }
+    if (selectedBranches.size > 0) {
+      parts.push(`on ${Array.from(selectedBranches).join(', ')}`)
+    }
+    return parts.length > 0 ? parts.join(' ') : undefined
+  }, [selectedTypes, selectedBranches])
 
   const displayedCommits = filteredCommits.slice(
     commitPage * COMMITS_PER_PAGE,
@@ -1193,6 +1241,9 @@ export function RepoDetailPage() {
               <div className="flex flex-col gap-5">
                 <ContextualActivityChart key={id} collectionId={repo.collection_id} repoId={repo.id}
                   selectedContributorIds={Array.from(selectedContributorIds)}
+                  activityOverride={graphActivityOverride}
+                  filterLabel={graphFilterLabel}
+                  highlightDate={selectedDate || undefined}
                   actions={<>
                         <button
                           onClick={handleCheckIn}
@@ -1825,7 +1876,16 @@ export function RepoDetailPage() {
                 expanded={branchFilterExpanded}
                 onToggle={toggleBranchFilter}
               >
-                <div className="flex flex-wrap items-center gap-1.5">
+                {/* role/aria-label to match the Type and Date panels below.
+                    Without it this group was unaddressable: every commit row
+                    also renders a clickable chip for its own branch, so
+                    `getByRole('button', { name: 'feature/auth' })` matched two
+                    elements and could not be scoped to the filter. */}
+                <div
+                  role="group"
+                  aria-label="Filter by commit branch"
+                  className="flex flex-wrap items-center gap-1.5"
+                >
                   <button
                     onClick={() => setSelectedBranches(new Set())}
                     className={cn(
