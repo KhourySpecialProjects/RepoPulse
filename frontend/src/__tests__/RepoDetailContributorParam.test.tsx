@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/mocks/server'
@@ -71,8 +71,17 @@ function commit(hash: string, name: string, email: string): Commit {
   }
 }
 
-const alice = contributor('c-alice', 'Alice Nguyen', 'alice@example.com')
-const bob = contributor('c-bob', 'Bob Ray', 'bob@example.com')
+// DashboardSearch links with the contributor's full uuid, so that is what
+// arrives here. The page's own writes shorten it; an inbound link is left
+// exactly as it came.
+const ALICE_ID = '550e8400-e29b-41d4-a716-446655440000'
+const ALICE_SHORT = '550e8400'
+
+const alice = contributor(ALICE_ID, 'Alice Nguyen', 'alice@example.com')
+const bob = contributor('6ba7b810-9dad-11d1-80b4-00c04fd430c8', 'Bob Ray', 'bob@example.com')
+// A third, so selecting two people is not the whole roster — that collapses
+// to `?contributor=all` and would not exercise the shortening.
+const chen = contributor('3f2504e0-4f89-11d3-9a0c-0305e82c3301', 'Chen Wei', 'chen@example.com')
 
 function setupHandlers() {
   server.use(
@@ -89,7 +98,7 @@ function setupHandlers() {
         offset: 0,
       })
     ),
-    http.get('/api/v1/repos/:id/contributors', () => HttpResponse.json([alice, bob])),
+    http.get('/api/v1/repos/:id/contributors', () => HttpResponse.json([alice, bob, chen])),
     http.get('/api/v1/repos/:id/summaries', () => HttpResponse.json([])),
     http.get('/api/v1/notes', () =>
       HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 })
@@ -97,10 +106,21 @@ function setupHandlers() {
   )
 }
 
+/** MemoryRouter never touches window.location, so the URL is read from here. */
+function LocationProbe() {
+  const { search } = useLocation()
+  return <span data-testid="search">{search}</span>
+}
+
+function currentSearch(): string {
+  return screen.getByTestId('search').textContent ?? ''
+}
+
 function renderAt(entry: string) {
   return render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <MemoryRouter initialEntries={[entry]}>
+        <LocationProbe />
         <Routes>
           <Route path="/repos/:id" element={<RepoDetailPage />} />
         </Routes>
@@ -117,7 +137,7 @@ function renderAt(entry: string) {
 describe('RepoDetailPage — ?contributor= from workspace search', () => {
   it('filters the commit list to the contributor named in the URL', async () => {
     setupHandlers()
-    renderAt('/repos/repo-1?contributor=c-alice')
+    renderAt(`/repos/repo-1?contributor=${ALICE_ID}`)
 
     expect(await screen.findByText(/work by Alice Nguyen/)).toBeInTheDocument()
     await waitFor(() =>
@@ -133,13 +153,36 @@ describe('RepoDetailPage — ?contributor= from workspace search', () => {
     expect(screen.getByText(/work by Bob Ray/)).toBeInTheDocument()
   })
 
-  // Left in the URL, a reload would silently re-apply a filter the reader had
-  // since cleared.
-  it('consumes the param so a reload does not re-apply the filter', async () => {
+  // The param used to be consumed and deleted on arrival, which meant a
+  // reload — or passing the link on — silently dropped the filter. It is now
+  // the filter itself, so it stays.
+  it('keeps the param so the filtered view survives a reload', async () => {
     setupHandlers()
-    renderAt('/repos/repo-1?contributor=c-alice')
+    renderAt(`/repos/repo-1?contributor=${ALICE_ID}`)
 
     await screen.findByText(/work by Alice Nguyen/)
-    await waitFor(() => expect(window.location.search).not.toContain('contributor'))
+    await waitFor(() => expect(currentSearch()).toBe(`?contributor=${ALICE_ID}`))
+  })
+
+  it('shortens the id once the reader touches the filter', async () => {
+    setupHandlers()
+    renderAt(`/repos/repo-1?contributor=${ALICE_ID}`)
+
+    await screen.findByText(/work by Alice Nguyen/)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Bob Ray' }))
+
+    await waitFor(() => expect(currentSearch()).toContain(ALICE_SHORT))
+    expect(currentSearch()).not.toContain(ALICE_ID)
+  })
+
+  it('drops the param when the contributor is unchecked again', async () => {
+    setupHandlers()
+    renderAt(`/repos/repo-1?contributor=${ALICE_ID}`)
+
+    await screen.findByText(/work by Alice Nguyen/)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Alice Nguyen' }))
+
+    await waitFor(() => expect(currentSearch()).not.toContain('contributor'))
+    expect(await screen.findByText(/work by Bob Ray/)).toBeInTheDocument()
   })
 })

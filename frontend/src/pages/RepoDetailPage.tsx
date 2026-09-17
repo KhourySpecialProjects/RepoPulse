@@ -1,6 +1,6 @@
 import { ContextualActivityChart } from '@/components/ContextualActivityChart'
 import { useState, useEffect, useMemo, Fragment, type ComponentType, type ReactNode } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { TrickleProgress } from '@/components/ui/trickle-progress'
 import { ArrowLeft, ExternalLink, Code2, GitBranch, Tag, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed, TriangleAlert } from 'lucide-react'
@@ -11,6 +11,7 @@ import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '@/hooks/u
 import { useUsers, useCurrentUser } from '@/hooks/useUsers'
 import { useAuth } from '@/hooks/useAuth'
 import { useBackTarget } from '@/hooks/useBackTarget'
+import { useCommitFilterParams } from '@/hooks/useCommitFilterParams'
 import { HealthBadge } from '@/components/HealthBadge'
 import { HealthSignalPills } from '@/components/HealthSignalPills'
 import { CommitScorePill } from '@/components/CommitScorePill'
@@ -461,6 +462,7 @@ export function RepoDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
   // Held separately from `searchParams` so the banner survives the param being
   // cleared, and so it can be shown during the initial load when there are no
   // commits to scroll to yet.
@@ -472,12 +474,6 @@ export function RepoDetailPage() {
   const [highlightedCommitHash, setHighlightedCommitHash] = useState<string | null>(null)
   // Set when arriving from a notification about a note; opens the drawer on it.
   const [highlightedNoteId, setHighlightedNoteId] = useState<string | null>(null)
-  const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
-  const [selectedTypes, setSelectedTypes] = useState<Set<CommitTypeFilter>>(new Set())
-  // Empty string means "no date filter" — it is the "All" option's value. Held
-  // as YYYY-MM-DD so it compares directly against toLocalDateKey; the year is
-  // hidden in the label only, so days never collide across years.
-  const [selectedDate, setSelectedDate] = useState('')
   // Set when the backend answers `status: 'preview'` — holds the counts the
   // confirmation dialog quotes back to the user.
   const [classifyPreview, setClassifyPreview] = useState<ClassifyCommitsResponse | null>(null)
@@ -489,7 +485,6 @@ export function RepoDetailPage() {
   const [typeFilterExpanded, toggleTypeFilter] = usePersistedPanel(id, 'type-filter-expanded')
   const [dateFilterExpanded, toggleDateFilter] = usePersistedPanel(id, 'date-filter-expanded')
   const [contributorsExpanded, toggleContributors] = usePersistedPanel(id, 'contributors-expanded')
-  const [selectedContributorIds, setSelectedContributorIds] = useState<Set<string>>(new Set())
   const [editingContributorId, setEditingContributorId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
   const [showMerge, setShowMerge] = useState(false)
@@ -551,6 +546,62 @@ export function RepoDetailPage() {
   // prefetch is a cache hit here rather than a second identical request.
   const { data: allCommitsData, isLoading: allCommitsLoading } = useRepoCommits(id ?? '', ALL_COMMITS_PARAMS)
   const { data: contributors, isLoading: contributorsLoading } = useRepoContributors(id ?? '')
+
+  // Distinct days that actually have commits, newest first to match the commit
+  // list's own order. Options rather than a calendar, so empty days can't be
+  // picked and the year can stay off the label.
+  const commitDates = useMemo(() => {
+    const keys = new Set((allCommitsData?.items ?? []).map(c => toLocalDateKey(c.date)))
+    return Array.from(keys).sort().reverse()
+  }, [allCommitsData])
+
+  // Owning branches only. Building this from `branches` listed every branch
+  // that merely contains a commit, so branches with no work of their own still
+  // got a chip that then matched most of the repo.
+  const allBranches = useMemo(() => {
+    const names = new Set<string>()
+    allCommitsData?.items.forEach(c => { if (c.origin_branch) names.add(c.origin_branch) })
+    return Array.from(names).sort()
+  }, [allCommitsData])
+
+  // The values each filter param may legally take. A link can rot — a branch
+  // gets deleted, a merge destroys a contributor id — and an unrecognised
+  // value is ignored rather than left filtering the table to nothing with no
+  // chip lit to explain it. `null` means "not loaded yet, trust the URL".
+  const branchOptions = useMemo(
+    () => (allCommitsData ? new Set(allBranches) : null),
+    [allCommitsData, allBranches]
+  )
+  const dateOptions = useMemo(
+    () => (allCommitsData ? new Set(commitDates) : null),
+    [allCommitsData, commitDates]
+  )
+  const contributorOptions = useMemo(
+    () => (contributors ? new Set(contributors.map(c => c.id)) : null),
+    [contributors]
+  )
+  const commitFilterOptions = useMemo(
+    () => ({ branches: branchOptions, dates: dateOptions, contributorIds: contributorOptions }),
+    [branchOptions, dateOptions, contributorOptions]
+  )
+
+  // The commit filters live in the query string, so the address bar always
+  // describes what is on screen and the URL can just be pasted to someone
+  // else. Named like the `useState` pairs they replaced — the call sites below
+  // are unchanged, including the functional-updater form.
+  const {
+    filters: commitFilters,
+    setBranches: setSelectedBranches,
+    setTypes: setSelectedTypes,
+    setDate: setSelectedDate,
+    setContributorIds: setSelectedContributorIds,
+  } = useCommitFilterParams(commitFilterOptions, () => setCommitPage(0))
+  const {
+    branches: selectedBranches,
+    types: selectedTypes,
+    date: selectedDate,
+    contributorIds: selectedContributorIds,
+  } = commitFilters
   const updateContributorMutation = useUpdateContributor(id ?? '')
   const mergeContributorsMutation = useMergeContributors(id ?? '')
   const unmergeContributorMutation = useUnmergeContributor(id ?? '')
@@ -671,23 +722,6 @@ export function RepoDetailPage() {
 
   const resolvedAuthor = (commit: { author_name: string; author_email: string }) =>
     emailToDisplayName[commit.author_email.toLowerCase()] ?? commit.author_name
-
-  // Distinct days that actually have commits, newest first to match the commit
-  // list's own order. Options rather than a calendar, so empty days can't be
-  // picked and the year can stay off the label.
-  const commitDates = useMemo(() => {
-    const keys = new Set((allCommitsData?.items ?? []).map(c => toLocalDateKey(c.date)))
-    return Array.from(keys).sort().reverse()
-  }, [allCommitsData])
-
-  // Owning branches only. Building this from `branches` listed every branch
-  // that merely contains a commit, so branches with no work of their own still
-  // got a chip that then matched most of the repo.
-  const allBranches = useMemo(() => {
-    const names = new Set<string>()
-    allCommitsData?.items.forEach(c => { if (c.origin_branch) names.add(c.origin_branch) })
-    return Array.from(names).sort()
-  }, [allCommitsData])
 
   function toggleBranch(branch: string) {
     setSelectedBranches(prev => {
@@ -881,8 +915,11 @@ export function RepoDetailPage() {
   }
 
   function handleScrollToCommit(hash: string) {
-    const allItems = allCommitsData?.items ?? []
-    const idx = allItems.findIndex(c => c.hash === hash)
+    // Index into the filtered list, not the full one: the table pages over
+    // `filteredCommits`, so with a filter active the full list's index names
+    // the wrong page. `-1` means the commit is hidden by the active filter, so
+    // leave the page where it is rather than jumping somewhere arbitrary.
+    const idx = filteredCommits.findIndex(c => c.hash === hash)
     if (idx !== -1) {
       const targetPage = Math.floor(idx / COMMITS_PER_PAGE)
       setCommitPage(targetPage)
@@ -909,7 +946,10 @@ export function RepoDetailPage() {
   // reload, does not silently drag the user back to this commit.
   useEffect(() => {
     const targetHash = searchParams.get('commit')
-    if (!targetHash || allCommitsLoading) return
+    // Also waits on the contributors, since they are what validates a
+    // `?contributor=` filter — jumping before that lands would look for the
+    // commit in a list still filtered by an id about to be discarded.
+    if (!targetHash || allCommitsLoading || contributorsLoading) return
 
     handleScrollToCommit(targetHash)
     setPendingCommitJump(null)
@@ -919,9 +959,11 @@ export function RepoDetailPage() {
         next.delete('commit')
         return next
       },
-      { replace: true }
+      // `state` carries the origin this page's back arrow is named after;
+      // navigate() drops it when it is not passed through.
+      { replace: true, state: location.state }
     )
-  }, [searchParams, allCommitsLoading])
+  }, [searchParams, allCommitsLoading, contributorsLoading])
 
   // Deep link from a notification about a note: `/repos/:id?note=<id>`. The
   // drawer opens on that note. Unlike the commit jump this needs nothing
@@ -940,32 +982,25 @@ export function RepoDetailPage() {
         next.delete('note')
         return next
       },
-      { replace: true }
+      { replace: true, state: location.state }
     )
   }, [searchParams])
 
-  // Arriving from workspace search for a person: open the page already filtered
-  // to them, so the reader sees that person's commits rather than an
-  // unexplained repo. Cleared like `?note=` so a reload drops the filter.
-  useEffect(() => {
-    const targetContributor = searchParams.get('contributor')
-    if (!targetContributor) return
+  // `?contributor=` is read by useCommitFilterParams like any other filter, so
+  // arriving from workspace search for a person opens the page filtered to
+  // them and the link keeps working when it is passed on. It used to be
+  // consumed and deleted on arrival, which meant a reload silently dropped the
+  // filter.
 
-    setSelectedContributorIds(new Set([targetContributor]))
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current)
-        next.delete('contributor')
-        return next
-      },
-      { replace: true }
-    )
-  }, [searchParams])
-
-  // Reset to page 0 when filters change
+  // Filter changes reset pagination at the write, in the hook's onChange.
+  // This covers only what no write can: a browser Back onto a filtered URL, or
+  // an options list landing late and narrowing the results out from under the
+  // current page.
   useEffect(() => {
-    setCommitPage(0)
-  }, [selectedBranches, selectedContributorIds, selectedTypes, selectedDate])
+    if (commitPage > 0 && commitPage * COMMITS_PER_PAGE >= filteredCommits.length) {
+      setCommitPage(0)
+    }
+  }, [commitPage, COMMITS_PER_PAGE, filteredCommits.length])
 
   useEffect(() => {
     if (repo?.expected_contributor_count != null) {
