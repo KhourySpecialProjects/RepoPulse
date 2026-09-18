@@ -344,6 +344,120 @@ class TestComplete:
         assert resp.status_code == 200
 
 
+class TestCompleteAcceptsAGitHubToken:
+    """The recipient supplies their own PAT, if they have one.
+
+    An admin never types it: the credential is the user's, and a link the
+    admin already holds is not a reason for them to learn a second secret.
+    The field is optional at every step, and blank never clears a token that
+    is already there — the same link doubles as password reset.
+    """
+
+    async def test_token_is_stored_when_supplied(
+        self, test_client, db_session, pending_user
+    ):
+        raw, _ = await issue_setup_token(db_session, pending_user)
+        resp = await test_client.post(
+            COMPLETE,
+            json={
+                "token": raw,
+                "new_password": "chosen-password",
+                "github_token": "ghp_from_the_recipient",
+            },
+        )
+        assert resp.status_code == 200
+        await db_session.refresh(pending_user)
+        assert pending_user.github_token == "ghp_from_the_recipient"
+
+    async def test_omitting_the_field_leaves_no_token(
+        self, test_client, db_session, pending_user
+    ):
+        raw, _ = await issue_setup_token(db_session, pending_user)
+        resp = await test_client.post(
+            COMPLETE, json={"token": raw, "new_password": "chosen-password"}
+        )
+        assert resp.status_code == 200
+        await db_session.refresh(pending_user)
+        assert pending_user.github_token is None
+
+    async def test_omitting_the_field_keeps_an_existing_token(
+        self, test_client, db_session, pending_user
+    ):
+        """Redeeming a reset link is not a request to drop the PAT."""
+        pending_user.github_token = "ghp_already_mine"
+        await db_session.flush()
+        raw, _ = await issue_setup_token(db_session, pending_user)
+        resp = await test_client.post(
+            COMPLETE, json={"token": raw, "new_password": "chosen-password"}
+        )
+        assert resp.status_code == 200
+        await db_session.refresh(pending_user)
+        assert pending_user.github_token == "ghp_already_mine"
+
+    async def test_blank_field_keeps_an_existing_token(
+        self, test_client, db_session, pending_user
+    ):
+        """The form submits "" for an untouched input; treat it as untouched."""
+        pending_user.github_token = "ghp_already_mine"
+        await db_session.flush()
+        raw, _ = await issue_setup_token(db_session, pending_user)
+        resp = await test_client.post(
+            COMPLETE,
+            json={
+                "token": raw,
+                "new_password": "chosen-password",
+                "github_token": "",
+            },
+        )
+        assert resp.status_code == 200
+        await db_session.refresh(pending_user)
+        assert pending_user.github_token == "ghp_already_mine"
+
+    async def test_a_new_token_replaces_the_old_one(
+        self, test_client, db_session, pending_user
+    ):
+        pending_user.github_token = "ghp_stale"
+        await db_session.flush()
+        raw, _ = await issue_setup_token(db_session, pending_user)
+        await test_client.post(
+            COMPLETE,
+            json={
+                "token": raw,
+                "new_password": "chosen-password",
+                "github_token": "ghp_fresh",
+            },
+        )
+        await db_session.refresh(pending_user)
+        assert pending_user.github_token == "ghp_fresh"
+
+    async def test_the_pat_is_never_echoed_back(
+        self, test_client, db_session, pending_user
+    ):
+        raw, _ = await issue_setup_token(db_session, pending_user)
+        resp = await test_client.post(
+            COMPLETE,
+            json={
+                "token": raw,
+                "new_password": "chosen-password",
+                "github_token": "ghp_from_the_recipient",
+            },
+        )
+        assert "ghp_from_the_recipient" not in resp.text
+
+    async def test_a_rejected_password_does_not_store_the_pat(
+        self, test_client, db_session, pending_user
+    ):
+        """Nothing is written when the link is not actually redeemed."""
+        raw, _ = await issue_setup_token(db_session, pending_user)
+        resp = await test_client.post(
+            COMPLETE,
+            json={"token": raw, "new_password": "short", "github_token": "ghp_x"},
+        )
+        assert resp.status_code == 422
+        await db_session.refresh(pending_user)
+        assert pending_user.github_token is None
+
+
 class TestSetupTokenIsNotACredential:
     async def test_raw_token_is_not_accepted_as_a_bearer_token(
         self, test_client, db_session, pending_user

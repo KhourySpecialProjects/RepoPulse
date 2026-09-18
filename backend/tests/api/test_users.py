@@ -120,6 +120,25 @@ class TestCreateUser:
         assert "password_hash" not in data["user"]
         assert "github_token" not in data["user"]
 
+    async def test_admin_cannot_seed_a_github_token(
+        self, test_client, db_session, admin
+    ):
+        """A token sent at creation is ignored, like a password would be."""
+        resp = await test_client.post(
+            "/api/v1/users",
+            json={
+                "email": "tokenless@test.com",
+                "display_name": "Tokenless",
+                "role": "instructor",
+                "github_token": "ghp_set_by_an_admin",
+            },
+            headers=_auth(admin),
+        )
+        assert resp.status_code == 201
+        assert resp.json()["user"]["github_token_configured"] is False
+        created = await db_session.get(User, uuid.UUID(resp.json()["user"]["id"]))
+        assert created.github_token is None
+
     async def test_non_admin_cannot_create_user(self, test_client, instructor):
         resp = await test_client.post(
             "/api/v1/users",
@@ -196,6 +215,30 @@ class TestUpdateUser:
             headers=_auth(instructor),
         )
         assert resp.status_code == 403
+
+    async def test_admin_cannot_set_a_github_token(self, test_client, admin, ta):
+        """The PAT is the user's own — set at account setup or in Settings."""
+        resp = await test_client.patch(
+            f"/api/v1/users/{ta.id}",
+            json={"github_token": "ghp_set_by_an_admin"},
+            headers=_auth(admin),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["github_token_configured"] is False
+
+    async def test_admin_cannot_overwrite_an_existing_github_token(
+        self, test_client, db_session, admin, ta
+    ):
+        ta.github_token = "ghp_belongs_to_the_ta"
+        await db_session.flush()
+        resp = await test_client.patch(
+            f"/api/v1/users/{ta.id}",
+            json={"github_token": "ghp_set_by_an_admin"},
+            headers=_auth(admin),
+        )
+        assert resp.status_code == 200
+        await db_session.refresh(ta)
+        assert ta.github_token == "ghp_belongs_to_the_ta"
 
 
 class TestDeleteUser:
