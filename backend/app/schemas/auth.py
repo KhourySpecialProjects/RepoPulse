@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -55,11 +56,18 @@ class VerifySetupTokenRequest(BaseModel):
 
 
 class CompleteSetupRequest(BaseModel):
-    """Redeem a setup link and choose a password.
+    """Redeem a setup link, choose a password, and optionally hand over a PAT.
 
     The token travels in the body rather than the path so it stays out of
     server access logs and `Referer` headers.
+
+    `github_token` is the recipient's own GitHub credential, offered here
+    because this is the first and only moment they are identified without an
+    admin in the room. Absent or empty means *leave it alone*, never *clear
+    it*: the same link doubles as password reset, and someone resetting a
+    forgotten password has no reason to re-type a working token.
     """
 
     token: str
     new_password: str = Field(min_length=8)
+    github_token: Optional[str] = None

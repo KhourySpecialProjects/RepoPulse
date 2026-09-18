@@ -42,16 +42,12 @@ function CreateUserDialog({
     email: '',
     display_name: '',
     role: 'ta',
-    github_token: '',
   })
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     try {
-      const result = await createUser.mutateAsync({
-        ...form,
-        github_token: form.github_token || undefined,
-      })
+      const result = await createUser.mutateAsync(form)
       toast.success('User created')
       // Straight to the link rather than closing: the token is readable only
       // in this response, so this is the one chance to hand it over.
@@ -103,19 +99,9 @@ function CreateUserDialog({
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium">GitHub Token (optional)</label>
-            <Input
-              type="password"
-              value={form.github_token ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, github_token: e.target.value }))}
-              placeholder="ghp_..."
-              className="font-mono text-sm"
-            />
-          </div>
           <p className="text-xs text-muted-foreground">
-            No password needed — you will get a one-time link to send them so they can
-            set their own.
+            No password and no GitHub token needed — you will get a one-time link to
+            send them, and they supply both themselves.
           </p>
           <DialogFooter>
             <Button variant="outline" type="button" onClick={onClose}>
@@ -137,16 +123,12 @@ function EditUserDialog({ user, onClose }: { user: UserDetail; onClose: () => vo
   const [form, setForm] = useState<UpdateUserData>({
     display_name: user.display_name,
     role: user.role,
-    github_token: '',
   })
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     try {
-      await updateUser.mutateAsync({
-        id: user.id,
-        data: { ...form, github_token: form.github_token || undefined },
-      })
+      await updateUser.mutateAsync({ id: user.id, data: form })
       toast.success('User updated')
       onClose()
     } catch {
@@ -185,21 +167,18 @@ function EditUserDialog({ user, onClose }: { user: UserDetail; onClose: () => vo
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium">
-              GitHub Token
-              {user.github_token_configured && (
-                <span className="ml-2 text-xs font-normal text-emerald-600">(configured)</span>
-              )}
-            </label>
-            <Input
-              type="password"
-              value={form.github_token ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, github_token: e.target.value }))}
-              placeholder={user.github_token_configured ? 'Leave blank to keep existing' : 'ghp_...'}
-              className="font-mono text-sm"
-            />
-          </div>
+          {/* No token field: a PAT is the user's own credential, set when they
+              redeem their setup link or from their own Settings page. The
+              admin can see whether there is one, and that is all. */}
+          <p className="text-xs text-muted-foreground">
+            GitHub token:{' '}
+            {user.github_token_configured ? (
+              <span className="text-emerald-600 font-medium">configured</span>
+            ) : (
+              'not set'
+            )}
+            . Only {user.display_name} can change it.
+          </p>
           <DialogFooter>
             <Button variant="outline" type="button" onClick={onClose}>
               Cancel

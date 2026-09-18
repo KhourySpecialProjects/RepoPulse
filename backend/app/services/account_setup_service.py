@@ -110,8 +110,18 @@ async def resolve_setup_token(db: AsyncSession, raw: str) -> AccountSetupToken:
     return token
 
 
-async def complete_setup(db: AsyncSession, raw: str, new_password: str) -> User:
-    """Set the password the token's owner chose and spend the token."""
+async def complete_setup(
+    db: AsyncSession,
+    raw: str,
+    new_password: str,
+    github_token: str | None = None,
+) -> User:
+    """Set the password the token's owner chose and spend the token.
+
+    `github_token` is written only when it has a value. A blank one means the
+    recipient left the optional field alone, which must not wipe a token an
+    existing user already has — this link is also how a password is reset.
+    """
     # Imported here to match users.py, which hashes with the same backend.
     from passlib.hash import bcrypt
 
@@ -122,6 +132,8 @@ async def complete_setup(db: AsyncSession, raw: str, new_password: str) -> User:
         raise AppError(400, INVALID_TOKEN_DETAIL, INVALID_TOKEN_CODE)
 
     user.password_hash = bcrypt.hash(new_password)
+    if github_token:
+        user.github_token = github_token
     token.used_at = datetime.now(timezone.utc)
 
     await db.flush()

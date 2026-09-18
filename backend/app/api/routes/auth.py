@@ -167,9 +167,12 @@ async def complete_account_setup(
     """Set the password chosen by the link's recipient and sign them in.
 
     Returning a session token saves sending someone who has just chosen a
-    password to a login form to type it again.
+    password to a login form to type it again. A GitHub token, if the
+    recipient supplied one, is stored on their account and never echoed back.
     """
-    user = await complete_setup(db, body.token, body.new_password)
+    user = await complete_setup(
+        db, body.token, body.new_password, body.github_token
+    )
     return TokenResponse(
         access_token=create_access_token({"sub": str(user.id)}),
         token_type="bearer",

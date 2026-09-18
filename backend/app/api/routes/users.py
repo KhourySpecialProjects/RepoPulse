@@ -231,9 +231,10 @@ async def create_user(
 ) -> UserCreateResponse:
     """Admin-only: create a new user and mint their setup link.
 
-    The account starts with no password. The response carries a one-time link
-    for the admin to pass on; the recipient chooses their own password, so no
-    password is ever known to two people.
+    The account starts with no password and no GitHub token. The response
+    carries a one-time link for the admin to pass on; the recipient chooses
+    their own password and supplies their own token, so neither secret is ever
+    known to two people.
     """
     await _require_admin(db, current_user_id)
 
@@ -251,7 +252,6 @@ async def create_user(
         display_name=body.display_name,
         role=body.role,
         password_hash=None,
-        github_token=body.github_token or None,
     )
     db.add(user)
     await db.flush()
@@ -310,7 +310,11 @@ async def update_user(
     db: AsyncSession = Depends(get_db_session),
     current_user_id: str = Depends(get_current_user),
 ) -> UserDetail:
-    """Admin-only: update a user's display_name, role, or github_token."""
+    """Admin-only: update a user's display_name or role.
+
+    Not their github_token — that is theirs to set, on the account setup page
+    or via PATCH /users/me.
+    """
     await _require_admin(db, current_user_id)
     user = await _get_user_or_404(db, user_id)
 
@@ -318,8 +322,6 @@ async def update_user(
         user.display_name = body.display_name
     if body.role is not None:
         user.role = body.role
-    if body.github_token is not None:
-        user.github_token = body.github_token if body.github_token else None
 
     await db.flush()
     await db.commit()

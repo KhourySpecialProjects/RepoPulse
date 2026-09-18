@@ -40,6 +40,7 @@ export function AccountSetupPage() {
   const [linkError, setLinkError] = useState<string | null>(null)
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [githubToken, setGithubToken] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -72,7 +73,7 @@ export function AccountSetupPage() {
 
     setIsSubmitting(true)
     try {
-      await completeSetup(token, password)
+      await completeSetup(token, password, githubToken.trim())
       navigate('/')
     } catch (err: unknown) {
       // The link can go stale between loading this page and submitting it.
@@ -185,6 +186,27 @@ export function AccountSetupPage() {
                       minLength={8}
                       autoComplete="new-password"
                     />
+                  </div>
+                  {/* Optional, and asked for here because this is the only
+                      moment the recipient is identified without an admin in
+                      the room. Blank leaves any existing token untouched. */}
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="github-token" className="text-sm font-medium">
+                      GitHub Token <span className="text-muted-foreground">(optional)</span>
+                    </label>
+                    <Input
+                      id="github-token"
+                      type="password"
+                      value={githubToken}
+                      onChange={(e) => setGithubToken(e.target.value)}
+                      placeholder="ghp_..."
+                      autoComplete="off"
+                      className="font-mono text-sm"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Lets RepoPulse clone and sync repositories on your behalf. You can
+                      add or change this later in Settings.
+                    </p>
                   </div>
                   <Button
                     type="submit"
