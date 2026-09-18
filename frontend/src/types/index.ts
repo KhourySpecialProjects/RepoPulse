@@ -393,11 +393,11 @@ export interface UserDetail {
   updated_at: string
 }
 
+/** No password and no token: the recipient supplies both on the setup page. */
 export interface CreateUserData {
   email: string
   display_name: string
   role: 'instructor' | 'ta' | 'admin'
-  github_token?: string
 }
 
 /**
@@ -424,10 +424,10 @@ export interface SetupTokenInfo {
   expires_at: string
 }
 
+/** What an admin may change about someone else. Not their GitHub token. */
 export interface UpdateUserData {
   display_name?: string
   role?: 'instructor' | 'ta' | 'admin'
-  github_token?: string
 }
 
 export interface PatchMeData {

@@ -209,6 +209,79 @@ describe('AccountSetupPage — setting the password', () => {
   })
 })
 
+describe('AccountSetupPage — the optional GitHub token', () => {
+  function captureComplete(received: { body: unknown }) {
+    server.use(
+      http.post(COMPLETE, async ({ request }) => {
+        received.body = await request.json()
+        return HttpResponse.json({
+          access_token: 'fresh-token',
+          token_type: 'bearer',
+          user_id: 'user-new-1',
+          display_name: 'Sam Student',
+          role: 'ta',
+        })
+      })
+    )
+  }
+
+  it('offers a token field that is not required', async () => {
+    mockValidToken()
+    renderAt('/account-setup?token=good-token')
+
+    const field = await screen.findByLabelText(/github token/i)
+    expect(field).toBeInTheDocument()
+    expect(field).not.toBeRequired()
+  })
+
+  it('sends the token the recipient typed', async () => {
+    mockValidToken()
+    const received: { body: unknown } = { body: null }
+    captureComplete(received)
+    renderAt('/account-setup?token=good-token')
+
+    await userEvent.type(await screen.findByLabelText('New Password'), 'chosen-password')
+    await userEvent.type(screen.getByLabelText('Confirm Password'), 'chosen-password')
+    await userEvent.type(screen.getByLabelText(/github token/i), 'ghp_mine')
+    await userEvent.click(screen.getByRole('button', { name: /set password/i }))
+
+    await waitFor(() =>
+      expect(received.body).toEqual({
+        token: 'good-token',
+        new_password: 'chosen-password',
+        github_token: 'ghp_mine',
+      })
+    )
+  })
+
+  it('omits the field entirely when left blank', async () => {
+    // An empty string would read as "clear my token" on a reset link.
+    mockValidToken()
+    const received: { body: unknown } = { body: null }
+    captureComplete(received)
+    renderAt('/account-setup?token=good-token')
+
+    await userEvent.type(await screen.findByLabelText('New Password'), 'chosen-password')
+    await userEvent.type(screen.getByLabelText('Confirm Password'), 'chosen-password')
+    await userEvent.click(screen.getByRole('button', { name: /set password/i }))
+
+    await waitFor(() => expect(received.body).not.toBeNull())
+    expect(received.body).not.toHaveProperty('github_token')
+  })
+
+  it('still completes setup when no token is given', async () => {
+    mockValidToken()
+    captureComplete({ body: null })
+    renderAt('/account-setup?token=good-token')
+
+    await userEvent.type(await screen.findByLabelText('New Password'), 'chosen-password')
+    await userEvent.type(screen.getByLabelText('Confirm Password'), 'chosen-password')
+    await userEvent.click(screen.getByRole('button', { name: /set password/i }))
+
+    expect(await screen.findByText('Dashboard')).toBeInTheDocument()
+  })
+})
+
 describe('AccountSetupPage — already signed in', () => {
   it('warns that finishing setup will replace the current session', async () => {
     localStorage.setItem('auth_token', 'existing-token')

@@ -22,7 +22,7 @@ interface AuthContextValue {
   isLoading: boolean
   login: (email: string, password: string) => Promise<void>
   devLogin: (userId: string) => Promise<void>
-  completeSetup: (token: string, newPassword: string) => Promise<void>
+  completeSetup: (token: string, newPassword: string, githubToken?: string) => Promise<void>
   logout: () => void
 }
 
@@ -80,9 +80,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     applyToken(await apiDevLogin(userId))
   }, [applyToken])
 
-  const completeSetup = useCallback(async (token: string, newPassword: string) => {
-    applyToken(await apiCompleteAccountSetup(token, newPassword))
-  }, [applyToken])
+  const completeSetup = useCallback(
+    async (token: string, newPassword: string, githubToken?: string) => {
+      applyToken(await apiCompleteAccountSetup(token, newPassword, githubToken))
+    },
+    [applyToken]
+  )
 
   const logout = useCallback(() => {
     clearAuthToken()

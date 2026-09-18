@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { http, HttpResponse } from 'msw'
@@ -387,6 +388,43 @@ describe('AdminPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/users/i)).toBeInTheDocument()
     })
+  })
+
+  // A PAT is the user's own credential: they supply it on the account setup
+  // page or in their own Settings, never through an admin.
+  it('offers no GitHub token field when creating a user', async () => {
+    server.use(
+      http.get('/api/v1/users/me', () => HttpResponse.json(mockAdminUser)),
+      http.get('/api/v1/users', () =>
+        HttpResponse.json({ items: [mockUserDetail], total: 1, limit: 50, offset: 0 })
+      )
+    )
+    const { AdminPage } = await import('@/pages/AdminPage')
+    renderWithProviders(<AdminPage />, { route: '/admin' })
+
+    await userEvent.click(await screen.findByRole('tab', { name: 'Users' }))
+    await userEvent.click(await screen.findByRole('button', { name: /new user/i }))
+    await screen.findByRole('dialog')
+    expect(screen.queryByLabelText(/github token/i)).toBeNull()
+    expect(screen.queryByPlaceholderText(/ghp_/i)).toBeNull()
+  })
+
+  it('offers no GitHub token field when editing a user', async () => {
+    server.use(
+      http.get('/api/v1/users/me', () => HttpResponse.json(mockAdminUser)),
+      http.get('/api/v1/users', () =>
+        HttpResponse.json({ items: [mockUserDetail], total: 1, limit: 50, offset: 0 })
+      )
+    )
+    const { AdminPage } = await import('@/pages/AdminPage')
+    renderWithProviders(<AdminPage />, { route: '/admin' })
+
+    await userEvent.click(await screen.findByRole('tab', { name: 'Users' }))
+    await userEvent.click(await screen.findByTitle('Edit user'))
+    await screen.findByRole('dialog')
+    expect(screen.queryByLabelText(/github token/i)).toBeNull()
+    expect(screen.queryByPlaceholderText(/ghp_/i)).toBeNull()
+    expect(screen.queryByPlaceholderText(/leave blank to keep existing/i)).toBeNull()
   })
 })
 

@@ -136,14 +136,23 @@ export async function verifySetupToken(token: string): Promise<SetupTokenInfo> {
   return response.data
 }
 
-/** Redeem a setup link, setting the password and signing the user in. */
+/**
+ * Redeem a setup link, setting the password and signing the user in.
+ *
+ * `githubToken` is omitted from the body when blank rather than sent as an
+ * empty string: the backend reads a present-but-empty value the same way, but
+ * a reset link redeemed with an untouched field should not even look like a
+ * request to clear the token already on the account.
+ */
 export async function completeAccountSetup(
   token: string,
-  newPassword: string
+  newPassword: string,
+  githubToken?: string
 ): Promise<TokenResponse> {
   const response = await apiClient.post<TokenResponse>('/auth/account-setup/complete', {
     token,
     new_password: newPassword,
+    ...(githubToken ? { github_token: githubToken } : {}),
   }, {
     signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
   })
