@@ -18,9 +18,57 @@ class NotificationRead(BaseModel):
     created_at: datetime
     note_content_preview: Optional[str] = None
     repo_id: Optional[uuid.UUID] = None
+    # The commit the underlying note was written against, when there is one.
+    # Lets the client deep-link straight to that commit instead of dropping the
+    # reader on the repo page to hunt for what the notification was about.
+    commit_hash: Optional[str] = None
+    # Set on repo-scoped events, which carry their own text instead of reading
+    # it from a note. NULL for mention/note_comment/reminder.
+    subject: Optional[str] = None
+    body: Optional[str] = None
 
 
 class NotificationListResponse(BaseModel):
     items: list[NotificationRead]
     total: int
     unread_count: int
+
+
+class ReminderRead(BaseModel):
+    """An outstanding reminder, as shown in the notifications panel."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    content: str
+    remind_at: Optional[datetime] = None
+    reminder_context: Optional[str] = None
+    repo_id: Optional[uuid.UUID] = None
+    commit_hash: Optional[str] = None
+    created_at: datetime
+    # Who set it, and the other people it was shared with
+    owner_display_name: str = ""
+    shared_with: list[str] = []
+    is_owner: bool = True
+
+
+class ReminderListResponse(BaseModel):
+    items: list[ReminderRead]
+    total: int
+
+
+class RecentlyDeletedItem(BaseModel):
+    """A soft-deleted notification or reminder, restorable until purged."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    kind: str  # "notification" | "reminder"
+    label: str
+    detail: Optional[str] = None
+    deleted_at: datetime
+
+
+class RecentlyDeletedListResponse(BaseModel):
+    items: list[RecentlyDeletedItem]
+    total: int

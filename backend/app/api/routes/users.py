@@ -7,19 +7,21 @@ from passlib.hash import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user, get_db_session
+from app.core.deps import get_current_user, get_db_session, require_admin_user
 from app.models.user import User
+from app.schemas.auth import SetupLinkResponse
 from app.schemas.errors import ErrorResponse
 from app.schemas.users import (
     ChangePassword,
     PatchMeRequest,
-    PasswordReset,
     UserCreate,
+    UserCreateResponse,
     UserDetail,
     UserListResponse,
     UserRead,
     UserUpdate,
 )
+from app.services.account_setup_service import build_setup_path, issue_setup_token
 from app.services.permission_service import get_accessible_collection_ids
 
 router = APIRouter()
@@ -43,10 +45,12 @@ async def _get_user_or_404(db: AsyncSession, user_id: uuid.UUID) -> User:
 
 
 async def _require_admin(db: AsyncSession, current_user_id: str) -> User:
-    me = await db.get(User, uuid.UUID(current_user_id))
-    if me is None or me.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-    return me
+    """Delegates to the shared gate in core.deps.
+
+    Kept as a wrapper rather than an alias so the local name stays greppable
+    and monkeypatch targets on this module keep working.
+    """
+    return await require_admin_user(db, current_user_id)
 
 
 @router.post(
@@ -213,7 +217,7 @@ async def _users_in_collections(
 
 @router.post(
     "/users",
-    response_model=UserDetail,
+    response_model=UserCreateResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
         403: {"model": ErrorResponse},
@@ -224,8 +228,14 @@ async def create_user(
     body: UserCreate,
     db: AsyncSession = Depends(get_db_session),
     current_user_id: str = Depends(get_current_user),
-) -> UserDetail:
-    """Admin-only: create a new user."""
+) -> UserCreateResponse:
+    """Admin-only: create a new user and mint their setup link.
+
+    The account starts with no password and no GitHub token. The response
+    carries a one-time link for the admin to pass on; the recipient chooses
+    their own password and supplies their own token, so neither secret is ever
+    known to two people.
+    """
     await _require_admin(db, current_user_id)
 
     # Check email uniqueness
@@ -241,19 +251,32 @@ async def create_user(
         email=body.email,
         display_name=body.display_name,
         role=body.role,
-        password_hash=bcrypt.hash(body.password),
-        github_token=body.github_token or None,
+        password_hash=None,
     )
     db.add(user)
     await db.flush()
+
+    raw, token = await issue_setup_token(db, user)
+
     await db.commit()
     await db.refresh(user)
-    return _to_user_detail(user)
+    await db.refresh(token)
+    return UserCreateResponse(
+        user=_to_user_detail(user),
+        setup=SetupLinkResponse(
+            token=raw,
+            setup_path=build_setup_path(raw),
+            expires_at=token.expires_at,
+        ),
+    )
 
 
 @router.get(
     "/users/{user_id}",
-    response_model=UserRead,
+    # Admin/self get UserDetail, everyone else UserRead. 
+    # UserDetail first: UserRead would match every payload and drop the extra
+    # field, since UserDetail is a superset of it.
+    response_model=UserDetail | UserRead,
     responses={
         401: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
@@ -287,7 +310,11 @@ async def update_user(
     db: AsyncSession = Depends(get_db_session),
     current_user_id: str = Depends(get_current_user),
 ) -> UserDetail:
-    """Admin-only: update a user's display_name, role, or github_token."""
+    """Admin-only: update a user's display_name or role.
+
+    Not their github_token — that is theirs to set, on the account setup page
+    or via PATCH /users/me.
+    """
     await _require_admin(db, current_user_id)
     user = await _get_user_or_404(db, user_id)
 
@@ -295,8 +322,6 @@ async def update_user(
         user.display_name = body.display_name
     if body.role is not None:
         user.role = body.role
-    if body.github_token is not None:
-        user.github_token = body.github_token if body.github_token else None
 
     await db.flush()
     await db.commit()
@@ -333,23 +358,33 @@ async def delete_user(
 
 
 @router.post(
-    "/users/{user_id}/reset-password",
-    response_model=UserRead,
+    "/users/{user_id}/setup-link",
+    response_model=SetupLinkResponse,
     responses={
         403: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
     },
 )
-async def reset_password(
+async def create_setup_link(
     user_id: uuid.UUID,
-    body: PasswordReset,
     db: AsyncSession = Depends(get_db_session),
     current_user_id: str = Depends(get_current_user),
-) -> UserRead:
-    """Admin-only: reset another user's password."""
+) -> SetupLinkResponse:
+    """Admin-only: mint a fresh setup link for an existing user.
+
+    This is how a password gets reset — the admin hands over a link rather
+    than choosing a password. Any previous link stops working, but the user's
+    current password keeps working until the new link is actually used, so
+    issuing one never locks anybody out.
+    """
     await _require_admin(db, current_user_id)
     user = await _get_user_or_404(db, user_id)
-    user.password_hash = bcrypt.hash(body.new_password)
-    await db.flush()
+
+    raw, token = await issue_setup_token(db, user)
     await db.commit()
-    return _to_user_read(user)
+    await db.refresh(token)
+    return SetupLinkResponse(
+        token=raw,
+        setup_path=build_setup_path(raw),
+        expires_at=token.expires_at,
+    )

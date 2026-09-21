@@ -11,7 +11,7 @@ function renderNoteContent(content: string) {
     if (part.startsWith('@') && part.length > 1) {
       const name = part.slice(1).replace(/_/g, ' ')
       return (
-        <span key={i} className="inline-flex items-center bg-violet-100 text-violet-700 rounded px-1 py-0.5 text-xs font-medium">
+        <span key={i} className="inline-flex items-center bg-orchid-100 text-orchid-700 rounded px-1 py-0.5 text-xs font-medium">
           @{name}
         </span>
       )
@@ -32,11 +32,12 @@ export function CommitNotesPanel({ repoId, commitHash, collectionId }: CommitNot
   const { data: users } = useUsers(collectionId ? { collection_id: collectionId } : undefined)
   const { user: currentUser } = useAuth()
 
-  async function handleSubmit(values: { content: string; is_reminder: boolean; reminder_context: string }) {
+  async function handleSubmit(values: { content: string; is_reminder: boolean; reminder_context: string; remind_at: string | null }) {
     const noteData: CreateNoteData = {
       content: values.content,
       is_reminder: values.is_reminder,
       reminder_context: values.reminder_context || null,
+      remind_at: values.remind_at,
       repo_id: repoId,
       commit_hash: commitHash,
     }
@@ -44,7 +45,7 @@ export function CommitNotesPanel({ repoId, commitHash, collectionId }: CommitNot
   }
 
   return (
-    <div className="bg-gray-50 rounded-lg border border-border p-3 mx-2">
+    <div className="bg-brand-50 rounded-lg border border-border p-3 mx-2">
       <NoteForm onSubmit={handleSubmit} isLoading={createNoteMutation.isPending} submitLabel="Add Note" users={users ?? []} />
       {notes && notes.length > 0 && (
         <div className="mt-3 flex flex-col gap-2">
@@ -62,6 +63,7 @@ export function CommitNotesPanel({ repoId, commitHash, collectionId }: CommitNot
                   note={note}
                   currentUserId={currentUser.id}
                   currentUserRole={currentUser.role}
+                  users={users ?? []}
                 />
               )}
             </div>

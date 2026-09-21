@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
@@ -48,12 +48,17 @@ const mockRepo: Repo = {
   local_path: '/repos/student-project',
   health_status: 'green',
   health_score: null,
+  last_commit_at: null,
   last_synced_at: '2025-10-15T10:00:00Z',
   created_at: '2025-09-01T00:00:00Z',
   updated_at: '2025-10-15T10:00:00Z',
   contributor_count: 2,
   active_reminder_count: 0,
   expected_contributor_count: null,
+  sync_status: 'idle',
+  sync_started_at: null,
+  sync_started_by_name: null,
+  sync_error: null,
 }
 
 // Commits using the new branches: string[] schema
@@ -64,9 +69,12 @@ const commitMain: Commit = {
   date: '2025-10-14T14:00:00Z',
   message: 'feat: main branch commit',
   branches: ['main'],
+  origin_branch: 'main',
   insertions: 10,
   deletions: 2,
   files_changed: 1,
+  commit_type: null,
+  quality_score: null,
 }
 
 const commitFeature: Commit = {
@@ -76,9 +84,12 @@ const commitFeature: Commit = {
   date: '2025-10-13T09:30:00Z',
   message: 'feat: feature branch commit',
   branches: ['feature/auth'],
+  origin_branch: 'feature/auth',
   insertions: 5,
   deletions: 1,
   files_changed: 1,
+  commit_type: null,
+  quality_score: null,
 }
 
 const commitMultiBranch: Commit = {
@@ -88,9 +99,12 @@ const commitMultiBranch: Commit = {
   date: '2025-10-12T10:00:00Z',
   message: 'merge: merged into main',
   branches: ['main', 'feature/auth'],
+  origin_branch: 'main',
   insertions: 0,
   deletions: 0,
   files_changed: 0,
+  commit_type: null,
+  quality_score: null,
 }
 
 const mockCommits = [commitMain, commitFeature, commitMultiBranch]
@@ -141,24 +155,156 @@ describe('RepoDetailPage - multi-branch commit schema (branches: string[])', () 
     expect(mainBadges.length).toBeGreaterThan(0)
   })
 
-  it('renders multiple branch badges for a commit on multiple branches', async () => {
+  it('labels a commit with its owning branch, not every branch containing it', async () => {
     setupHandlers()
     renderPage()
     await waitFor(() => expect(screen.getByText('merge: merged into main')).toBeInTheDocument())
-    // commitMultiBranch has ['main', 'feature/auth'] — both badges should be in the DOM
+    // commitMultiBranch is contained in ['main', 'feature/auth'] but was made
+    // on main, so it wears one badge — the owning branch. The feature/auth
+    // badges in the DOM belong to commitFeature and the filter chip row.
     const featureAuthBadges = screen.getAllByText('feature/auth')
     expect(featureAuthBadges.length).toBeGreaterThan(0)
   })
 
-  it('renders a branch filter dropdown', async () => {
+  it('selecting a branch shows only commits made on it', async () => {
+    // The regression this guards: `branches` lists every branch *containing* a
+    // commit, so filtering on it made `feature/auth` also match main's history
+    // — clicking a branch returned nearly the whole repo.
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('feat: main branch commit')).toBeInTheDocument())
+
+    // Both the filter chip row and commitFeature's own badge are buttons named
+    // "feature/auth"; the chip row comes first in the DOM.
+    fireEvent.click(screen.getAllByRole('button', { name: 'feature/auth' })[0])
+
+    expect(screen.getByText('feat: feature branch commit')).toBeInTheDocument()
+    expect(screen.queryByText('feat: main branch commit')).not.toBeInTheDocument()
+    // Contained in feature/auth, but owned by main — must not come along.
+    expect(screen.queryByText('merge: merged into main')).not.toBeInTheDocument()
+  })
+
+  it('selecting trunk excludes commits made on branches cut from it', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('feat: main branch commit')).toBeInTheDocument())
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'main' })[0])
+
+    expect(screen.getByText('feat: main branch commit')).toBeInTheDocument()
+    expect(screen.getByText('merge: merged into main')).toBeInTheDocument()
+    expect(screen.queryByText('feat: feature branch commit')).not.toBeInTheDocument()
+  })
+
+  it('offers a chip only for branches that own commits', async () => {
     setupHandlers()
     renderPage()
     await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
-    // The Select trigger should show "All branches"
-    expect(screen.getByText('All branches')).toBeInTheDocument()
+    // Both fixtures' owning branches, and nothing else.
+    expect(screen.getAllByRole('button', { name: 'feature/auth' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'main' }).length).toBeGreaterThan(0)
   })
 
-  it('shows all commits when filter is "All branches"', async () => {
+  it('renders a branch filter chip row', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+    // The chips live in their own collapsible sidebar section now, so the
+    // heading is the panel's toggle rather than an inline "Branch:" label.
+    // Queried by role because the commits table also has a "Branch" column.
+    expect(screen.getByRole('button', { name: 'Branch' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getAllByText('All').length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'feature/auth' }).length).toBeGreaterThan(0)
+  })
+
+  it('groups commit filters separately from contributors', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+
+    const wrapper = screen.getByRole('group', { name: 'Commit filters' })
+    expect(wrapper).toContainElement(document.getElementById('branch-filter-content')!)
+    expect(wrapper).toContainElement(document.getElementById('type-date-filter-content')!)
+    expect(wrapper).not.toContainElement(document.getElementById('contributors-content')!)
+  })
+
+  it('remembers a collapsed section across remounts', async () => {
+    setupHandlers()
+    const first = renderPage()
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Branch' }))
+    expect(localStorage.getItem('repo-branch-filter-expanded-repo-1')).toBe('false')
+
+    first.unmount()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+
+    // Navigating away and back must not quietly reopen what the user closed.
+    expect(screen.getByRole('button', { name: 'Branch' })).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('remembers a reopened section too', async () => {
+    localStorage.setItem('repo-branch-filter-expanded-repo-1', 'false')
+    setupHandlers()
+    const first = renderPage()
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Branch' }))
+    first.unmount()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+
+    expect(screen.getByRole('button', { name: 'Branch' })).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('keeps each panel and each repo on its own key', async () => {
+    localStorage.setItem('repo-branch-filter-expanded-repo-1', 'false')
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+
+    // Closing Branch on this repo must not close Type, or Branch elsewhere.
+    expect(screen.getByRole('button', { name: 'Branch' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: 'Type and Date' })).toHaveAttribute('aria-expanded', 'true')
+    expect(localStorage.getItem('repo-branch-filter-expanded-repo-2')).toBeNull()
+  })
+
+  it('collapses and restores the branch section', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
+    const toggle = screen.getByRole('button', { name: 'Branch' })
+
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(document.getElementById('branch-filter-content')).toHaveAttribute('hidden')
+
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(document.getElementById('branch-filter-content')).not.toHaveAttribute('hidden')
+  })
+
+  it('keeps filtering while its section is collapsed', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('feat: main branch commit')).toBeInTheDocument())
+
+    // Scoped to the filter panel. A bare getByRole matched two elements —
+    // the chip in this panel and the one on the feature/auth commit's own
+    // row — so this line threw before the panel carried a role="group".
+    fireEvent.click(
+      within(screen.getByRole('group', { name: /commit branch/i }))
+        .getByRole('button', { name: 'feature/auth' })
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Branch' }))
+
+    // Hiding the controls must not reset the filter they set.
+    expect(screen.getByText('feat: feature branch commit')).toBeInTheDocument()
+    expect(screen.queryByText('feat: main branch commit')).not.toBeInTheDocument()
+  })
+
+  it('shows all commits when no branch filter is selected', async () => {
     setupHandlers()
     renderPage()
     await waitFor(() => expect(screen.getByText('feat: main branch commit')).toBeInTheDocument())

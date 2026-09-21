@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.schemas.activity import ContextualActivity
+from app.services.activity_service import collect_activity
 from app.core.deps import get_current_user, get_db_session
 from app.models.collection import Collection
 from app.models.repo import Repo
@@ -19,6 +23,7 @@ from app.schemas.collections import (
     PaginatedCollections,
 )
 from app.schemas.errors import ErrorResponse
+from app.services import commit_snapshot_service
 from app.services.git_service import GitService
 from app.services.permission_service import (
     can_access_collection,
@@ -26,6 +31,8 @@ from app.services.permission_service import (
     can_write_collection,
     get_accessible_collection_ids,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -309,11 +316,11 @@ async def get_collection_commit_activity(
             detail="Collection not found",
         )
 
+    # Pathless repos are included rather than filtered out: they may still
+    # have a snapshot from a sync done elsewhere, and filtering them here would
+    # put that history out of reach.
     result = await db.execute(
-        select(Repo).where(
-            Repo.collection_id == collection_id,
-            Repo.local_path.is_not(None),
-        )
+        select(Repo).where(Repo.collection_id == collection_id)
     )
     repos = result.scalars().all()
 
@@ -321,10 +328,25 @@ async def get_collection_commit_activity(
     date_counts: dict[str, int] = {}
 
     for repo in repos:
-        try:
-            commits = await _git_service.parse_commits(repo.local_path)
-        except Exception:
-            continue
+        # The clone is the source of truth and is tried first. When it will not
+        # open — never cloned on this machine, recreated bind mount, a seeded
+        # database with no clones behind it — the last sync's snapshot stands in,
+        # matching what `get_repo_commits` and `collect_activity` already do.
+        # Without that fallback this endpoint was the one commit reader that
+        # returned a flat, empty graph next to a populated commits table.
+        commits: list[dict] = []
+        if repo.local_path:
+            try:
+                commits = await _git_service.parse_commits(repo.local_path)
+            except Exception as exc:
+                logger.warning(
+                    "commit-activity: parse_commits failed for repo %s (%s); "
+                    "falling back to the last synced snapshot: %s",
+                    repo.name, repo.local_path, exc,
+                )
+                commits = await commit_snapshot_service.load(db, repo.id)
+        else:
+            commits = await commit_snapshot_service.load(db, repo.id)
 
         for commit in commits:
             commit_hash = commit.get("hash", "")
@@ -348,21 +370,27 @@ async def get_collection_commit_activity(
     return CollectionCommitActivity(activity=activity)
 
 
-async def _sync_all_repos(collection_id: uuid.UUID) -> None:
-    """Background task: fetch all repos in a collection."""
+async def _sync_all_repos(collection_id: uuid.UUID, token: str | None = None) -> None:
+    """Background task: sync every repo in a collection.
+
+    This used to call `fetch_repo` and stop there — no commit re-parse, no
+    health recompute, no `last_synced_at`, and no token, so "Sync All" left the
+    dashboard showing exactly what it showed before and failed outright on
+    private repos. Reusing the per-repo indexer makes a collection sync mean
+    the same thing as syncing each repo by hand, including clearing the shared
+    `sync_status` each one is now marked with.
+    """
+    from app.api.routes.repos import _fetch_and_recompute
     from app.db.database import async_session_maker
 
     async with async_session_maker() as db:
         result = await db.execute(
-            select(Repo).where(Repo.collection_id == collection_id)
+            select(Repo.id).where(Repo.collection_id == collection_id)
         )
-        repos = result.scalars().all()
-        for repo in repos:
-            if repo.local_path:
-                try:
-                    await _git_service.fetch_repo(repo.local_path)
-                except Exception:
-                    pass
+        repo_ids = list(result.scalars().all())
+
+    for repo_id in repo_ids:
+        await _fetch_and_recompute(repo_id, token)
 
 
 @router.post(
@@ -391,5 +419,42 @@ async def sync_collection(
             detail="Collection not found",
         )
 
-    background_tasks.add_task(_sync_all_repos, collection_id)
+    user_record = await db.get(User, user_uuid)
+    if not user_record or not user_record.github_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="GitHub token not configured. Add a token in your profile to enable syncing.",
+        )
+
+    # Mark the whole collection before returning, so every other viewer's
+    # dashboard shows the sync running rather than a set of idle cards.
+    started = datetime.now(timezone.utc)
+    repos_result = await db.execute(
+        select(Repo).where(Repo.collection_id == collection_id)
+    )
+    for repo in repos_result.scalars().all():
+        repo.sync_status = "syncing"
+        repo.sync_started_at = started
+        repo.sync_started_by = user_record
+        repo.sync_error = None
+    await db.commit()
+
+    background_tasks.add_task(
+        _sync_all_repos, collection_id, user_record.github_token
+    )
     return {"detail": "Sync started", "collection_id": str(collection_id)}
+
+
+
+
+@router.get('/collections/{collection_id}/contextual-activity', response_model=ContextualActivity,
+            responses={404: {'model': ErrorResponse}})
+async def get_contextual_activity(
+    collection_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> ContextualActivity:
+    if not await can_access_collection(db, uuid.UUID(current_user_id), collection_id):
+        raise HTTPException(status_code=404, detail='Collection not found')
+    result = await db.execute(select(Repo).where(Repo.collection_id == collection_id))
+    return ContextualActivity(repositories=await collect_activity(result.scalars().all(), _git_service, db))

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useNavigate, useLocation, useParams } from 'react-router-dom'
+import { Link, useNavigate, useLocation, useParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   GitBranch,
@@ -13,26 +13,21 @@ import {
   Settings,
   Shield,
   LogOut,
-  X,
-  MessageSquare,
-  AtSign,
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { useAuth } from '@/hooks/useAuth'
+import { useBackState } from '@/hooks/useBackTarget'
 import { useCollections } from '@/hooks/useCollections'
 import { useRepos, useRepo } from '@/hooks/useRepos'
-import {
-  useUnreadCount,
-  useNotifications,
-  useMarkNotificationRead,
-  useMarkAllNotificationsRead,
-} from '@/hooks/useNotifications'
+import { useUnreadCount, useReminders } from '@/hooks/useNotifications'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
   TooltipProvider,
 } from '@/components/ui/tooltip'
-import { useSidebar } from '@/contexts/SidebarContext'
+import { UnreadBadge } from '@/components/UnreadBadge'
+import { useSidebar, COLLAPSED_GUTTER } from '@/contexts/SidebarContext'
 import type { HealthStatus } from '@/types'
 
 // ── Health dot ──────────────────────────────────────────────────────────────
@@ -40,131 +35,14 @@ const HEALTH_DOT_CLASS: Record<HealthStatus | 'unknown', string> = {
   green: 'bg-emerald-400',
   yellow: 'bg-amber-400',
   red: 'bg-red-400',
-  unknown: 'bg-slate-500',
+  unknown: 'bg-plum-500',
 }
 
 // ── Nav item base class ──────────────────────────────────────────────────────
 const NAV_BASE =
   'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer select-none'
-const NAV_DEFAULT = 'text-slate-300 hover:text-white hover:bg-slate-800'
-const NAV_ACTIVE = 'bg-indigo-600/20 text-indigo-300'
-
-// ── Notification dropdown ────────────────────────────────────────────────────
-function NotificationDropdown({ onClose }: { onClose: () => void }) {
-  const navigate = useNavigate()
-  const { data: notificationsData } = useNotifications({ limit: 20 })
-  const { data: unreadData } = useUnreadCount()
-  const markRead = useMarkNotificationRead()
-  const markAllRead = useMarkAllNotificationsRead()
-
-  const unreadCount = unreadData?.unread_count ?? 0
-  const notifications = notificationsData?.items ?? []
-
-  function formatTimeAgo(isoStr: string): string {
-    const ms = Date.now() - new Date(isoStr).getTime()
-    const minutes = Math.floor(ms / 60000)
-    if (minutes < 1) return 'just now'
-    if (minutes < 60) return `${minutes}m ago`
-    const hours = Math.floor(minutes / 60)
-    if (hours < 24) return `${hours}h ago`
-    const days = Math.floor(hours / 24)
-    return `${days}d ago`
-  }
-
-  async function handleNotificationClick(id: string, repoId: string | null) {
-    await markRead.mutateAsync(id)
-    onClose()
-    if (repoId) navigate(`/repos/${repoId}`)
-  }
-
-  async function handleMarkAllRead() {
-    await markAllRead.mutateAsync()
-  }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, x: -8, scale: 0.96 }}
-      animate={{ opacity: 1, x: 0, scale: 1 }}
-      exit={{ opacity: 0, x: -8, scale: 0.96 }}
-      transition={{ duration: 0.15 }}
-      className="absolute left-full top-0 ml-2 w-80 z-50 bg-white border border-border rounded-xl shadow-xl overflow-hidden"
-    >
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
-        <span className="text-sm font-semibold text-foreground">
-          Notifications
-          {unreadCount > 0 && (
-            <span className="ml-1.5 text-xs font-normal text-amber-600">
-              {unreadCount} unread
-            </span>
-          )}
-        </span>
-        <div className="flex items-center gap-1">
-          {unreadCount > 0 && (
-            <button
-              type="button"
-              onClick={handleMarkAllRead}
-              className="text-xs text-indigo-600 hover:text-indigo-700 transition-colors px-1.5 py-0.5 rounded"
-            >
-              Mark all read
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground p-0.5"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-      <div className="max-h-80 overflow-y-auto">
-        {notifications.length === 0 ? (
-          <div className="py-8 text-center text-muted-foreground">
-            <Bell className="h-6 w-6 mx-auto mb-2 opacity-30" />
-            <p className="text-sm">No notifications</p>
-          </div>
-        ) : (
-          notifications.map((notif) => (
-            <button
-              key={notif.id}
-              type="button"
-              onClick={() => handleNotificationClick(notif.id, notif.repo_id)}
-              className={`w-full text-left flex items-start gap-3 px-3 py-2.5 hover:bg-muted/50 transition-colors border-b border-border/50 last:border-0 ${
-                !notif.is_read ? 'bg-indigo-50/50' : ''
-              }`}
-            >
-              <div className="flex-shrink-0 mt-0.5">
-                {notif.type === 'mention' ? (
-                  <AtSign className="h-4 w-4 text-violet-500" />
-                ) : (
-                  <MessageSquare className="h-4 w-4 text-indigo-500" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-foreground">
-                  {notif.type === 'mention'
-                    ? 'You were mentioned'
-                    : 'New comment on your note'}
-                </p>
-                {notif.note_content_preview && (
-                  <p className="text-xs text-muted-foreground truncate mt-0.5">
-                    {notif.note_content_preview}
-                  </p>
-                )}
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  {formatTimeAgo(notif.created_at)}
-                </p>
-              </div>
-              {!notif.is_read && (
-                <div className="flex-shrink-0 w-2 h-2 rounded-full bg-amber-500 mt-1.5" />
-              )}
-            </button>
-          ))
-        )}
-      </div>
-    </motion.div>
-  )
-}
+const NAV_DEFAULT = 'text-plum-300 hover:text-white hover:bg-plum-800'
+const NAV_ACTIVE = 'bg-brand-600/20 text-brand-300'
 
 // ── Collection tree item ──────────────────────────────────────────────────────
 function CollectionTreeItem({
@@ -181,6 +59,7 @@ function CollectionTreeItem({
   collapsed: boolean
 }) {
   const navigate = useNavigate()
+  const backState = useBackState()
   const { data: reposData } = useRepos(collection.id, 50, 0)
   const repos = reposData?.items ?? []
 
@@ -210,25 +89,25 @@ function CollectionTreeItem({
       <div className={`w-full ${NAV_BASE} ${NAV_DEFAULT} justify-between pr-1`}>
         <button
           type="button"
-          onClick={() => navigate(`/collections/${collection.id}`)}
+          onClick={() => navigate(`/collections/${collection.id}`, { state: backState })}
           className="flex items-center gap-2.5 min-w-0 flex-1 text-left"
         >
           {expanded ? (
-            <FolderOpen className="h-4 w-4 flex-shrink-0 text-slate-400" />
+            <FolderOpen className="h-4 w-4 flex-shrink-0 text-plum-400" />
           ) : (
-            <Folder className="h-4 w-4 flex-shrink-0 text-slate-400" />
+            <Folder className="h-4 w-4 flex-shrink-0 text-plum-400" />
           )}
           <span className="truncate">{collection.name}</span>
         </button>
         <button
           type="button"
           onClick={onToggle}
-          className="flex-shrink-0 p-0.5 rounded hover:bg-slate-700 transition-colors"
+          className="flex-shrink-0 p-0.5 rounded hover:bg-plum-700 transition-colors"
         >
           {expanded ? (
-            <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+            <ChevronDown className="h-3.5 w-3.5 text-plum-500" />
           ) : (
-            <ChevronRightSmall className="h-3.5 w-3.5 text-slate-500" />
+            <ChevronRightSmall className="h-3.5 w-3.5 text-plum-500" />
           )}
         </button>
       </div>
@@ -240,10 +119,10 @@ function CollectionTreeItem({
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.15 }}
-            className="overflow-hidden pl-3 border-l border-slate-700 ml-4 mt-0.5"
+            className="overflow-hidden pl-3 border-l border-plum-700 ml-4 mt-0.5"
           >
             {repos.length === 0 ? (
-              <p className="text-xs text-slate-500 py-1.5 pl-1">No repos</p>
+              <p className="text-xs text-plum-500 py-1.5 pl-1">No repos</p>
             ) : (
               repos.map((repo) => {
                 const isActive = repo.id === activeRepoId
@@ -251,11 +130,11 @@ function CollectionTreeItem({
                   <button
                     key={repo.id}
                     type="button"
-                    onClick={() => navigate(`/repos/${repo.id}`)}
+                    onClick={() => navigate(`/repos/${repo.id}`, { state: backState })}
                     className={`w-full flex items-center gap-2 px-2 py-1.5 text-sm transition-colors rounded-md ${
                       isActive
-                        ? 'bg-indigo-600/20 text-indigo-300 border-l-2 border-indigo-400 rounded-l-none pl-1.5'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        ? 'bg-brand-600/20 text-brand-300 border-l-2 border-brand-400 rounded-l-none pl-1.5'
+                        : 'text-plum-400 hover:text-white hover:bg-plum-800'
                     }`}
                   >
                     <span
@@ -293,7 +172,7 @@ function SidebarNavItem({
 }) {
   const baseClass = `${NAV_BASE} ${
     danger
-      ? 'text-slate-400 hover:text-red-400 hover:bg-red-950/30'
+      ? 'text-plum-400 hover:text-red-400 hover:bg-red-950/30'
       : isActive
         ? NAV_ACTIVE
         : NAV_DEFAULT
@@ -308,7 +187,7 @@ function SidebarNavItem({
             onClick={onClick}
             className={`w-full flex items-center justify-center py-2 rounded-md transition-colors ${
               danger
-                ? 'text-slate-400 hover:text-red-400 hover:bg-red-950/30'
+                ? 'text-plum-400 hover:text-red-400 hover:bg-red-950/30'
                 : isActive
                   ? NAV_ACTIVE
                   : NAV_DEFAULT
@@ -330,14 +209,13 @@ function SidebarNavItem({
   )
 }
 
-const COLLAPSED_WIDTH = 56
 const MIN_WIDTH = 160
 const MAX_WIDTH = 480
 const COLLAPSE_THRESHOLD = 120
 
 // ── Main sidebar ─────────────────────────────────────────────────────────────
 export function AppSidebar() {
-  const { collapsed, setCollapsed, width, setWidth } = useSidebar()
+  const { collapsed, setCollapsed, width, setWidth, dragging, setDragging } = useSidebar()
   const isDragging = useRef(false)
   const { user, logout } = useAuth()
   const navigate = useNavigate()
@@ -369,9 +247,16 @@ export function AppSidebar() {
   })
 
   // Notification bell state
-  const [notifOpen, setNotifOpen] = useState(false)
   const { data: unreadData } = useUnreadCount()
-  const unreadCount = unreadData?.unread_count ?? 0
+  const { data: remindersData } = useReminders()
+  // Unread notifications plus outstanding reminders: the things still wanting
+  // attention. Reading a notification drops the number, so clicking one has a
+  // visible effect without needing Mark all read. Soft-deleted rows are already
+  // excluded server-side, so Recently deleted never counts.
+  const pendingCount =
+    (unreadData?.unread_count ?? 0) + (remindersData?.total ?? 0)
+  const unreadLabel =
+    pendingCount > 0 ? `Notifications, ${pendingCount} pending` : 'Notifications'
 
   // Auto-expand collection containing the active repo
   useEffect(() => {
@@ -414,6 +299,7 @@ export function AppSidebar() {
   function handleDragStart(e: React.MouseEvent) {
     e.preventDefault()
     isDragging.current = true
+    setDragging(true)
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
 
@@ -435,6 +321,7 @@ export function AppSidebar() {
 
     function onMouseUp() {
       isDragging.current = false
+      setDragging(false)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
       document.removeEventListener('mousemove', onMouseMove)
@@ -449,40 +336,70 @@ export function AppSidebar() {
     return location.pathname.startsWith(path)
   }
 
-  const sidebarWidth = collapsed ? COLLAPSED_WIDTH : width
+  // Collapsed leaves only a slim rail holding the expand arrow. The rail is
+  // exactly COLLAPSED_GUTTER wide — the same space App reserves — so page
+  // headers butt against its right border and read as closed off rather than
+  // stopping short with a raw edge. The arrow keeps the same horizontal line as
+  // the collapse arrow it replaces (h-14 header = 56px, so top-3 + h-8 centres
+  // both at 28px).
+  // Both states render TooltipProvider > div, so React reuses the panel element
+  // instead of unmounting one and mounting the other. That reuse is what lets
+  // the width transition run at all — a fresh node has no previous width to
+  // animate from, and the panel would snap.
+  const shellClass = cn(
+    'fixed left-0 top-0 bottom-0 z-40 flex flex-col overflow-hidden border-r',
+    collapsed ? 'bg-brand-50 border-border' : 'bg-plum-900 border-plum-900',
+    !dragging && 'transition-[width,background-color] duration-300 ease-out',
+    'motion-reduce:transition-none'
+  )
+
+  if (collapsed) {
+    return (
+      <TooltipProvider delayDuration={0}>
+        <div className={shellClass} style={{ width: COLLAPSED_GUTTER }}>
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            title="Expand sidebar"
+            aria-label="Expand sidebar"
+            className="fixed left-3 top-3 z-50 flex h-8 w-8 items-center justify-center rounded-md bg-brand-600 text-white shadow-sm hover:bg-brand-700 transition-colors"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </TooltipProvider>
+    )
+  }
 
   return (
     <TooltipProvider delayDuration={0}>
-      <div
-        className="fixed left-0 top-0 bottom-0 z-40 bg-slate-900 flex flex-col overflow-hidden"
-        style={{ width: sidebarWidth }}
-      >
+      <div className={shellClass} style={{ width }}>
         {/* Drag handle */}
         <div
           onMouseDown={handleDragStart}
-          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize z-50 hover:bg-indigo-500/50 transition-colors group"
+          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize z-50 hover:bg-brand-500/50 transition-colors group"
           title="Drag to resize"
         >
-          <div className="absolute inset-y-0 -left-0.5 -right-0.5 group-hover:bg-indigo-500/20" />
+          <div className="absolute inset-y-0 -left-0.5 -right-0.5 group-hover:bg-brand-500/20" />
         </div>
         {/* ── Header ── */}
-        <div className="h-14 flex items-center justify-between flex-shrink-0 border-b border-slate-700/50 px-3">
+        <div className="h-14 flex items-center justify-between flex-shrink-0 border-b border-plum-700/50 px-3">
           {!collapsed && (
-            <div className="flex items-center gap-2 min-w-0">
-              <GitBranch className="h-5 w-5 text-indigo-400 flex-shrink-0" />
-              <span className="font-semibold text-white text-sm truncate">RepoPulse</span>
-            </div>
+            <Link to="/" aria-label="RepoPulse home dashboard" className="flex items-center gap-2 min-w-0 rounded-md hover:bg-plum-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400">
+              <GitBranch className="h-6 w-6 text-brand-400 flex-shrink-0" />
+              <span className="font-semibold text-white text-base truncate">RepoPulse</span>
+            </Link>
           )}
           {collapsed && (
-            <div className="flex items-center justify-center w-full">
-              <GitBranch className="h-5 w-5 text-indigo-400" />
-            </div>
+            <Link to="/" aria-label="RepoPulse home dashboard" className="flex items-center justify-center w-full rounded-md hover:bg-plum-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400">
+              <GitBranch className="h-6 w-6 text-brand-400" />
+            </Link>
           )}
           {!collapsed && (
             <button
               type="button"
               onClick={toggleCollapsed}
-              className="text-slate-400 hover:text-white transition-colors flex-shrink-0"
+              className="text-plum-400 hover:text-white transition-colors flex-shrink-0"
               title="Collapse sidebar"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -497,15 +414,12 @@ export function AppSidebar() {
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={() => setNotifOpen((v) => !v)}
+                  onClick={() => navigate('/notifications')}
+                  aria-label={unreadLabel}
                   className={`relative w-full flex items-center justify-center py-2 rounded-md transition-colors ${NAV_DEFAULT}`}
                 >
                   <Bell className="h-4 w-4" />
-                  {unreadCount > 0 && (
-                    <span className="absolute top-1 right-2 min-w-[14px] h-3.5 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center px-1">
-                      {unreadCount > 99 ? '99+' : unreadCount}
-                    </span>
-                  )}
+                  <UnreadBadge count={pendingCount} size="sm" className="absolute right-2 top-1" />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">Notifications</TooltipContent>
@@ -513,54 +427,35 @@ export function AppSidebar() {
           ) : (
             <button
               type="button"
-              onClick={() => setNotifOpen((v) => !v)}
-              className={`relative w-full ${NAV_BASE} ${NAV_DEFAULT}`}
+              onClick={() => navigate('/notifications')}
+              aria-label={unreadLabel}
+              className={`relative w-full ${NAV_BASE} ${
+                location.pathname === '/notifications' ? NAV_ACTIVE : NAV_DEFAULT
+              }`}
             >
               <Bell className="h-4 w-4 flex-shrink-0" />
               <span className="truncate">Notifications</span>
-              {unreadCount > 0 && (
-                <span className="ml-auto min-w-[18px] h-4 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center px-1">
-                  {unreadCount > 99 ? '99+' : unreadCount}
-                </span>
-              )}
+              <UnreadBadge count={pendingCount} className="ml-auto" />
             </button>
           )}
 
-          <AnimatePresence>
-            {notifOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setNotifOpen(false)}
-                />
-                <div className="relative z-50">
-                  <NotificationDropdown onClose={() => setNotifOpen(false)} />
-                </div>
-              </>
-            )}
-          </AnimatePresence>
         </div>
-
-        {/* ── Collapse toggle (when collapsed, show it below bell) ── */}
-        {collapsed && (
-          <div className="px-2 pt-1 flex-shrink-0">
-            <button
-              type="button"
-              onClick={toggleCollapsed}
-              className={`w-full flex items-center justify-center py-2 rounded-md transition-colors ${NAV_DEFAULT}`}
-              title="Expand sidebar"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        )}
 
         {/* ── Collection tree ── */}
         <div className="flex-1 overflow-y-auto px-2 py-2 min-h-0">
           {!collapsed && (
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 px-3 py-1 mt-2 mb-1">
+            <button
+              type="button"
+              onClick={() => navigate('/collections')}
+              title="View all collections"
+              className={`text-xs font-semibold uppercase tracking-wider px-3 py-1 mt-2 mb-1 rounded transition-colors ${
+                location.pathname === '/collections'
+                  ? 'text-brand-300'
+                  : 'text-plum-500 hover:text-plum-300'
+              }`}
+            >
               Collections
-            </p>
+            </button>
           )}
           <div className="flex flex-col gap-0.5">
             {collections.map((col) => (
@@ -577,7 +472,7 @@ export function AppSidebar() {
         </div>
 
         {/* ── Bottom nav ── */}
-        <div className="flex-shrink-0 border-t border-slate-700/50 px-2 py-2 flex flex-col gap-0.5">
+        <div className="flex-shrink-0 border-t border-plum-700/50 px-2 py-2 flex flex-col gap-0.5">
           <SidebarNavItem
             icon={Settings}
             label="Settings"
@@ -597,7 +492,14 @@ export function AppSidebar() {
           <SidebarNavItem
             icon={LogOut}
             label="Log out"
-            onClick={logout}
+            // Signing out leaves the route it happened on. Everywhere but the
+            // dashboard that route is protected and lands on the login form,
+            // so go there explicitly — otherwise logging out of the dashboard
+            // alone would hand the visitor the public landing page instead.
+            onClick={() => {
+              logout()
+              navigate('/login')
+            }}
             collapsed={collapsed}
             danger
           />

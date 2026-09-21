@@ -4,7 +4,7 @@ import logging
 import os
 import sys
 
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, Response, status
 
 # Uvicorn's default log config sets root to WARNING, so app.* loggers need
 # their own handler to emit INFO messages.
@@ -51,8 +51,17 @@ _init_tracing()
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from sqlalchemy import text
+
 from app.api.routes import api_router
-from app.db.database import Base, engine
+from app.db.database import engine
+from app.core.errors import AppError
+from app.services.contributor_service import ContributorOperationError
+from app.schemas.errors import ErrorResponse
+from app.schemas.llm_quota import TokenLimitExceeded
+from app.schemas.meta import HealthzResponse
+from app.services.llm.quota import QuotaExceeded
+from app.services.system_status_service import SchemaProbe, probe_schema
 
 app = FastAPI(
     title="RepoPulse API",
@@ -76,6 +85,53 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 
 
+@app.exception_handler(ContributorOperationError)
+async def contributor_operation_error_handler(request: Request, exc: ContributorOperationError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=ErrorResponse(detail=exc.detail, error_code=exc.error_code).model_dump(),
+    )
+
+
+@app.exception_handler(AppError)
+async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=ErrorResponse(detail=exc.detail, error_code=exc.error_code).model_dump(),
+    )
+
+
+@app.exception_handler(QuotaExceeded)
+async def quota_exceeded_handler(
+    request: Request, exc: QuotaExceeded
+) -> JSONResponse:
+    """429 for a user who has spent their monthly LLM tokens.
+
+    A handler rather than a try/except in each of the three LLM routes: the
+    routes then carry one `await require_quota(...)` line and cannot get the
+    envelope subtly wrong, and a fourth LLM feature inherits the behaviour by
+    calling the same function.
+
+    Wider than ErrorResponse on purpose — the numbers are the actionable part.
+    """
+    quota = exc.quota
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content=TokenLimitExceeded(
+            detail=(
+                f"Monthly AI token limit reached ({quota.used:,} of "
+                f"{quota.limit:,} for {quota.period}). Ask an administrator "
+                "to raise your limit."
+            ),
+            period=quota.period,
+            used=quota.used,
+            # Never None here: an unlimited quota cannot be exceeded, so
+            # QuotaExceeded is only ever raised with a real limit.
+            limit=quota.limit or 0,
+        ).model_dump(),
+    )
+
+
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(
@@ -96,18 +152,15 @@ async def internal_error_handler(request: Request, exc: Exception) -> JSONRespon
 
 
 # ---------------------------------------------------------------------------
-# Startup
+# Schema
 # ---------------------------------------------------------------------------
-
-
-@app.on_event("startup")
-async def on_startup() -> None:
-    """Create tables on startup (dev convenience; Alembic manages migrations)."""
-    # Import all models so Base.metadata is populated
-    import app.models  # noqa: F401
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+#
+# There is deliberately no startup hook here. This app used to call
+# Base.metadata.create_all on every boot, which built the schema from the
+# models and meant the Alembic chain was never exercised — it had been broken
+# for nineteen revisions before anyone noticed, because every local
+# environment kept working. Alembic is now the only thing that creates tables;
+# backend/entrypoint.sh runs `alembic upgrade head` before this process starts.
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +175,41 @@ app.include_router(api_router, prefix="/api/v1")
 # ---------------------------------------------------------------------------
 
 
-@app.get("/healthz", tags=["meta"])
-async def healthz() -> dict:
-    return {"status": "ok"}
+@app.get("/healthz", tags=["meta"], response_model=HealthzResponse)
+async def healthz(response: Response) -> HealthzResponse:
+    """Report whether this process can actually serve requests.
+
+    The database is probed rather than assumed. With `create_all` gone, a
+    container whose migrations never ran now looks perfectly healthy until the
+    first real request 500s — this endpoint is what makes that state visible,
+    and what lets a compose healthcheck catch it.
+    """
+    # The probe itself is shared with GET /api/v1/admin/system so the two
+    # cannot drift into disagreeing about whether the schema is migrated.
+    # The global engine is deliberate here: a container healthcheck should
+    # test the real DATABASE_URL, not an injected session.
+    try:
+        async with engine.connect() as conn:
+            probe = await probe_schema(conn)
+    except Exception as exc:  # noqa: BLE001 — any failure here means unhealthy
+        _app_logger.warning("healthz: could not open a connection: %s", exc)
+        probe = SchemaProbe(reachable=False)
+
+    if not probe.reachable:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return HealthzResponse(
+            status="error",
+            database="unreachable",
+            detail="Database is unreachable.",
+        )
+
+    revision = probe.revision
+    if revision is None:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return HealthzResponse(
+            status="error",
+            database="ok",
+            detail="Schema is not migrated — run `alembic upgrade head`.",
+        )
+
+    return HealthzResponse(status="ok", database="ok", schema_revision=revision)

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
@@ -48,12 +48,17 @@ const mockRepo: Repo = {
   local_path: '/repos/student-project',
   health_status: 'green',
   health_score: null,
+  last_commit_at: null,
   last_synced_at: '2025-10-15T10:00:00Z',
   created_at: '2025-09-01T00:00:00Z',
   updated_at: '2025-10-15T10:00:00Z',
   contributor_count: 2,
   active_reminder_count: 0,
   expected_contributor_count: null,
+  sync_status: 'idle',
+  sync_started_at: null,
+  sync_started_by_name: null,
+  sync_error: null,
 }
 
 const mockCommit: Commit = {
@@ -63,9 +68,12 @@ const mockCommit: Commit = {
   date: '2025-10-14T14:00:00Z',
   message: 'feat: implement auth',
   branches: ['main'],
+  origin_branch: 'main',
   insertions: 142,
   deletions: 23,
   files_changed: 6,
+  commit_type: null,
+  quality_score: null,
 }
 
 const mockContributor: Contributor = {
@@ -90,6 +98,7 @@ const mockNote: Note = {
   content: 'Repo-level note',
   is_reminder: false,
   reminder_context: null,
+  remind_at: null,
   is_checked: false,
   is_archived: false,
   created_at: '2025-10-10T10:00:00Z',
@@ -107,6 +116,7 @@ const commitNoteForHash: Note = {
   content: 'This commit looks suspicious',
   is_reminder: false,
   reminder_context: null,
+  remind_at: null,
   is_checked: false,
   is_archived: false,
   created_at: '2025-10-11T10:00:00Z',
@@ -151,6 +161,7 @@ function setupHandlers(overrides?: {
         content: body.content ?? '',
         is_reminder: body.is_reminder ?? false,
         reminder_context: body.reminder_context ?? null,
+        remind_at: null,
         is_checked: false,
         is_archived: false,
         created_at: new Date().toISOString(),
@@ -173,7 +184,7 @@ describe('RepoDetailPage - Contributors in right column', () => {
     // Alice appears in both commits table (author_name) and contributors panel — both expected
     const aliceElements = screen.getAllByText('Alice Johnson')
     expect(aliceElements.length).toBeGreaterThan(0)
-    expect(screen.getByText(/42 commits/)).toBeInTheDocument()
+    expect(await screen.findByText(/1 commits/)).toBeInTheDocument()
   })
 
   it('shows contributor aliases in right column panel', async () => {
@@ -187,7 +198,61 @@ describe('RepoDetailPage - Contributors in right column', () => {
 })
 
 // ──────────────────────────────────────────────
-// 2. Commit hash links to GitHub
+// 2. Author column (name + diffstat, leftmost)
+// ──────────────────────────────────────────────
+describe('RepoDetailPage - Author column with stacked diffstat', () => {
+  it('leads with Author and drops the separate +/- column', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('abc1234')).toBeInTheDocument())
+
+    // Author is leftmost so the vertical scrollbar cannot clip it.
+    const headers = screen.getAllByRole('columnheader').map(th => th.textContent)
+    expect(headers).toEqual(['Author', 'Commit', 'Branch', 'Score'])
+  })
+
+  it('puts the author cell first in each row', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('abc1234')).toBeInTheDocument())
+
+    const table = screen.getByRole('table')
+    const cell = within(table).getByText('Alice Johnson').closest('td')
+    expect(cell).toBe(cell?.closest('tr')?.querySelector('td'))
+  })
+
+  it('stacks the author name above the diffstat in one cell', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('abc1234')).toBeInTheDocument())
+
+    const table = screen.getByRole('table')
+    const cell = within(table).getByText('Alice Johnson').closest('td')
+    expect(cell).not.toBeNull()
+    // Name first, then the counts, in one cell under the Author heading.
+    expect(cell).toContainElement(within(table).getByText('+142'))
+    expect(cell).toContainElement(within(table).getByText('-23'))
+    expect(cell?.textContent?.indexOf('Alice Johnson')).toBeLessThan(
+      cell?.textContent?.indexOf('+142') ?? -1
+    )
+  })
+
+  it('keeps the expanded notes row spanning the full table', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('abc1234')).toBeInTheDocument())
+
+    // Button reads "Add note" until the commit has one.
+    fireEvent.click(screen.getAllByText('Add note')[0].closest('button') as HTMLElement)
+    // One column fewer now — a stale colSpan would leave the panel short.
+    await waitFor(() => {
+      expect(document.querySelector('td[colspan]')).toHaveAttribute('colspan', '4')
+    })
+  })
+})
+
+// ──────────────────────────────────────────────
+// 3. Commit hash links to GitHub
 // ──────────────────────────────────────────────
 describe('RepoDetailPage - Commit hash GitHub link', () => {
   it('renders commit hash as a link', async () => {
@@ -202,41 +267,32 @@ describe('RepoDetailPage - Commit hash GitHub link', () => {
 })
 
 // ──────────────────────────────────────────────
-// 3. Chart range selector
+// 4. Chart range selector
 // ──────────────────────────────────────────────
 describe('RepoDetailPage - Chart date range selector', () => {
-  it('renders range selector buttons', async () => {
+  it('renders range options and defaults to 30 days', async () => {
     setupHandlers()
     renderPage()
-    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
-    expect(screen.getByRole('button', { name: '7d' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '30d' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '90d' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument()
+    const range = await screen.findByRole('combobox', { name: 'Activity range' })
+    expect(range).toHaveValue('30')
+    for (const label of ['7 days', '30 days', '90 days', 'All history']) {
+      expect(screen.getByRole('option', { name: label })).toBeInTheDocument()
+    }
   })
 
-  it('defaults to "All" range button as active', async () => {
+  it('switches the selected activity range', async () => {
     setupHandlers()
     renderPage()
-    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
-    const btnAll = screen.getByRole('button', { name: 'All' })
-    expect(btnAll.className).toMatch(/bg-indigo-600/)
-  })
-
-  it('switches active range when a button is clicked', async () => {
-    setupHandlers()
-    renderPage()
-    await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: '7d' }))
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: '7d' }).className).toMatch(/bg-indigo-600/)
-    })
-    expect(screen.getByRole('button', { name: '30d' }).className).not.toMatch(/bg-indigo-600/)
+    const range = await screen.findByRole('combobox', { name: 'Activity range' })
+    fireEvent.change(range, { target: { value: '7' } })
+    expect(range).toHaveValue('7')
+    fireEvent.change(range, { target: { value: 'all' } })
+    expect(range).toHaveValue('all')
   })
 })
 
 // ──────────────────────────────────────────────
-// 4. Commit-level notes
+// 5. Commit-level notes
 // ──────────────────────────────────────────────
 describe('RepoDetailPage - Commit notes panel', () => {
   it('renders a Notes toggle button in each commit row', async () => {
@@ -261,30 +317,21 @@ describe('RepoDetailPage - Commit notes panel', () => {
   })
 
   it('hides CommitNotesPanel when Notes button is clicked again (toggle)', async () => {
-    setupHandlers()
+    setupHandlers({ commitNotes: [commitNoteForHash] })
     renderPage()
-    await waitFor(() => expect(screen.getByText('abc1234')).toBeInTheDocument())
+    await screen.findByText('abc1234')
     const notesBtn = screen.getAllByText('Add note')[0].closest('button') as HTMLElement
-
-    // Before opening: only 1 textarea (the repo Notes panel)
-    const countBefore = screen.getAllByPlaceholderText('Write a note...').length
-
     fireEvent.click(notesBtn)
-    // After opening: 2 textareas (repo Notes + commit Notes panel)
-    await waitFor(() => {
-      expect(screen.getAllByPlaceholderText('Write a note...').length).toBe(countBefore + 1)
-    })
-
+    expect(await screen.findByText('This commit looks suspicious')).toBeInTheDocument()
     fireEvent.click(notesBtn)
-    // After closing: back to original count
     await waitFor(() => {
-      expect(screen.getAllByPlaceholderText('Write a note...').length).toBe(countBefore)
+      expect(screen.queryByText('This commit looks suspicious')).not.toBeInTheDocument()
     })
   })
 })
 
 // ──────────────────────────────────────────────
-// 5. Commit row note count indicators
+// 6. Commit row note count indicators
 // ──────────────────────────────────────────────
 describe('RepoDetailPage - Commit row note count indicators', () => {
   it('shows "Add note" text when no notes exist for a commit', async () => {
@@ -302,12 +349,12 @@ describe('RepoDetailPage - Commit row note count indicators', () => {
     setupHandlers({ notes: [noteWithHash] })
     renderPage()
     await waitFor(() => expect(screen.getAllByText('abc1234').length).toBeGreaterThan(0))
-    // The indigo badge on the commit button shows the total count
-    const indigo = document.querySelector(
-      '.bg-indigo-100.text-indigo-700.rounded-full.px-1\\.5'
+    // The brand-purple badge on the commit button shows the total count
+    const badge = document.querySelector(
+      '.bg-brand-100.text-brand-700.rounded-full.px-2'
     ) as HTMLElement
-    expect(indigo).not.toBeNull()
-    expect(indigo.textContent).toBe('1')
+    expect(badge).not.toBeNull()
+    expect(badge.textContent).toBe('1')
   })
 
   it('shows reminder badge when a commit note is a reminder', async () => {
@@ -319,11 +366,11 @@ describe('RepoDetailPage - Commit row note count indicators', () => {
     setupHandlers({ notes: [reminderNote] })
     renderPage()
     await waitFor(() => expect(screen.getAllByText('abc1234').length).toBeGreaterThan(0))
-    const indigo = document.querySelector(
-      '.bg-indigo-100.text-indigo-700.rounded-full.px-1\\.5'
+    const badge = document.querySelector(
+      '.bg-brand-100.text-brand-700.rounded-full.px-2'
     ) as HTMLElement
-    expect(indigo).not.toBeNull()
-    expect(indigo.textContent).toBe('1')
+    expect(badge).not.toBeNull()
+    expect(badge.textContent).toBe('1')
     expect(screen.getByText('1 reminder')).toBeInTheDocument()
   })
 
@@ -333,11 +380,11 @@ describe('RepoDetailPage - Commit row note count indicators', () => {
     setupHandlers({ notes: [reminder1, reminder2] })
     renderPage()
     await waitFor(() => expect(screen.getAllByText('abc1234').length).toBeGreaterThan(0))
-    const indigo = document.querySelector(
-      '.bg-indigo-100.text-indigo-700.rounded-full.px-1\\.5'
+    const badge = document.querySelector(
+      '.bg-brand-100.text-brand-700.rounded-full.px-2'
     ) as HTMLElement
-    expect(indigo).not.toBeNull()
-    expect(indigo.textContent).toBe('2')
+    expect(badge).not.toBeNull()
+    expect(badge.textContent).toBe('2')
     expect(screen.getByText('2 reminders')).toBeInTheDocument()
   })
 

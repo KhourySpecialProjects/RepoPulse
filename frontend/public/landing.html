@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>RepoPulse — Know where every project stands</title>
+<meta name="description" content="A local-first dashboard over a semester of student project repositories: health signals, contributor analytics and AI overviews, read from local git clones.">
+<!-- The wordmark, inline, so the page stays a single file. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234f46e5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='6' x2='6' y1='3' y2='15'/%3E%3Ccircle cx='18' cy='6' r='3'/%3E%3Ccircle cx='6' cy='18' r='3'/%3E%3Cpath d='M18 9a9 9 0 0 1-9 9'/%3E%3C/svg%3E">
+<!-- No og:image: that needs a real bitmap, which a standalone file cannot carry. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="RepoPulse">
+<meta property="og:title" content="RepoPulse — Know where every project stands">
+<meta property="og:description" content="Health signals, contributor analytics and AI overviews for a semester of student project repositories, read from local git clones.">
+<meta name="twitter:card" content="summary">
+<style>
+/* ──────────────────────────────────────────────────────────────────────────
+   Tokens. Same values the app renders with (frontend/src/index.css), written
+   as hex here so this file stays standalone.
+   ────────────────────────────────────────────────────────────────────────── */
+:root{
+  --bg:#f8fafc;--panel:#ffffff;--line:#e2e8f0;
+  --ink:#0f172a;--body:#334155;--muted:#64748b;
+  --primary:#4f46e5;--primary-5:#6366f1;--primary-3:#a5b4fc;
+  --primary-50:#eef2ff;--primary-700:#4338ca;
+  --shell:1240px;--gutter:clamp(22px,4.3vw,68px);
+  /* Header height. The anchor offset is derived from it, so a section lands
+     with its top edge exactly where the header's bottom border ends. */
+  --head:72px;
+  --ease:cubic-bezier(0,0,.2,1);
+  font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  color:var(--ink);background:var(--bg);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:calc(var(--head) + 1px)}
+body{margin:0;min-width:300px;-webkit-font-smoothing:antialiased}
+button,input,a{-webkit-tap-highlight-color:transparent}
+button{font:inherit;color:inherit;cursor:pointer}
+a{color:inherit;text-decoration:none}
+svg{display:block;max-width:100%}
+h1,h2,h3,p,ul{margin:0}
+ul{padding:0;list-style:none}
+[hidden]{display:none!important}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--primary);outline-offset:4px;border-radius:6px}
+.shell{width:min(var(--shell),100%);margin:0 auto;padding:0 var(--gutter)}
+/* Over the hero the header uses the tour's own measure, so its brand lands
+   exactly where the tour's content begins. Past the hero it is floating over
+   the page's narrower measure instead, and follows it — otherwise the brand
+   sits 100px left of every heading it scrolls past. */
+.shell--wide{width:min(1440px,100%);transition:width .25s var(--ease)}
+.masthead[data-scrolled="true"] .shell--wide{width:min(var(--shell),100%)}
+.ambient{position:fixed;inset:0;z-index:-1;background:radial-gradient(ellipse 120% 55% at 50% 0%,#6366f11f,transparent 62%),var(--bg)}
+.skip{position:absolute;left:-9999px;top:10px;z-index:200;background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px 14px;font-size:13px}
+.skip:focus{left:16px}
+
+/* ── Buttons: the app's shadcn variants (h-10, rounded-md, text-sm) ── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:40px;padding:0 16px;
+  border:1px solid transparent;border-radius:6px;font-size:14px;font-weight:500;white-space:nowrap;
+  transition:background-color .2s,border-color .2s,color .2s,transform .2s,box-shadow .2s}
+.btn svg{height:16px;width:16px;flex-shrink:0}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{background:#4f46e5e6}
+.btn-ghost{background:none;color:var(--body)}
+.btn-ghost:hover{background:var(--primary-50);color:var(--primary-700)}
+.btn-lg{height:46px;padding:0 22px;font-size:15px}
+.btn-primary.btn-lg{box-shadow:0 10px 24px -12px #4f46e5cc}
+.btn-primary.btn-lg:hover{transform:translateY(-1px);box-shadow:0 14px 28px -12px #4f46e5cc}
+
+/* ── Masthead ── */
+.masthead{position:fixed;top:0;left:0;right:0;z-index:100;background:transparent;
+  border-bottom:1px solid transparent;transition:border-color .2s,background-color .2s,backdrop-filter .2s}
+.masthead[data-scrolled="true"]{border-bottom-color:var(--line);background:#f8fafcf2;
+  backdrop-filter:blur(12px)}
+.masthead-inner{height:var(--head);display:flex;align-items:center;justify-content:space-between;gap:20px}
+.brand{display:flex;align-items:center;gap:10px;font-size:19px;font-weight:700;letter-spacing:-.6px;flex-shrink:0}
+.brand svg{width:25px;height:25px;color:var(--primary)}
+.masthead-nav{display:flex;align-items:center;gap:8px;min-width:0}
+.nav-link{font-size:14px;color:var(--muted);padding:8px 10px;border-radius:6px;transition:color .2s,background-color .2s}
+.nav-link:hover{color:var(--ink);background:#0f172a08}
+.nav-divider{width:1px;height:22px;background:var(--line);margin:0 6px;flex-shrink:0}
+/* The hero is the whole first screen and the nav links are the only sign there
+   is a page under it. They go at 900px, so this takes over there: the one
+   control that says "keep going", icon-only to survive a 320px header. */
+.nav-jump{display:none;width:40px;padding:0}
+.nav-jump svg{height:18px;width:18px}
+
+/* ── Hero ── */
+.hero{position:relative;height:100svh;min-height:620px}
+.tour-frame{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
+.eyebrow{display:inline-flex;align-items:center;gap:12px;color:var(--primary);font-size:11px;
+  letter-spacing:2px;text-transform:uppercase;margin-bottom:22px}
+.eyebrow:before{content:"";width:30px;height:1px;background:var(--primary)}
+/* The gradient runs through the glyphs themselves, so it has nothing of its
+   own to animate: it moves by sliding an image wider than the box across the
+   text. background-size and background-position must follow the shorthand,
+   which resets both. The tile's first half is the gradient the headline shows
+   at rest; the second half is the return path, ending on the colour it began
+   with so the seam between tiles never crosses the letters as a hard edge.
+   Indigo 500-700, because the sweep puts every stop on every word in turn:
+   indigo-300 reads at 1.91:1 on this background and indigo-400 at 2.85:1,
+   under the 3:1 this size of text needs. The lightest here is 4.27:1. */
+h2 em{font-style:normal;color:var(--primary);
+  background:linear-gradient(100deg,#6366f1 0%,#4338ca 30%,#4f46e5 50%,#4338ca 72%,#6366f1 100%);
+  background-size:200% 100%;background-position:0% 50%;background-clip:text;
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  animation:text-sheen 9s ease-in-out infinite}
+/* Exactly one tile per cycle, so the last frame paints what the first does and
+   the restart is invisible, then a rest on the frame it holds when paused. */
+@keyframes text-sheen{0%{background-position:200% 50%}62%,100%{background-position:0% 50%}}
+/* Forced colours throws away every background-image that is not a url(), and
+   transparent text over nothing is nothing. Hand the glyphs back their ink. */
+@media (forced-colors: active){
+  h2 em{background:none;-webkit-text-fill-color:currentColor;animation:none}
+}
+.lede{font-size:17px;line-height:1.7;color:var(--muted);max-width:620px;margin:0 auto}
+
+/* ── Sections ── */
+.section{padding:clamp(56px,8vh,96px) 0}
+.band{background:linear-gradient(180deg,#ffffff00,#ffffffcc 12%,#ffffffcc 88%,#ffffff00);
+  border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.section-head{max-width:660px;margin-bottom:clamp(34px,4.5vh,50px)}
+.section-head h2{font-size:clamp(28px,3.4vw,42px);line-height:1.12;letter-spacing:-1.7px;font-weight:650}
+.section-head .lede{margin:16px 0 0;max-width:600px}
+.section-head--center{margin-left:auto;margin-right:auto;text-align:center}
+.section-head--center .lede{margin-left:auto;margin-right:auto}
+.section-head--center .eyebrow{justify-content:center}
+
+/* ── Feature cards ── */
+.feature-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(296px,1fr));gap:18px}
+.card{display:flex;flex-direction:column;border:1px solid #8ca9d324;border-radius:17px;background:var(--panel);
+  padding:24px;box-shadow:0 1px 2px 0 #0f172a0d,0 1px 3px 0 #0f172a1a;
+  transition:transform .2s,box-shadow .2s,border-color .2s}
+.card:hover{transform:translateY(-4px);box-shadow:0 4px 6px -1px #0f172a14,0 10px 30px -14px #4f46e540;
+  border-color:var(--primary-3)}
+.card-icon{display:grid;place-items:center;width:40px;height:40px;border-radius:11px;
+  background:var(--primary-50);color:var(--primary);border:1px solid #6366f11f;margin-bottom:16px}
+.card-icon svg{width:20px;height:20px}
+.card h3{font-size:15px;font-weight:600;letter-spacing:-.2px;margin-bottom:9px}
+.card p{font-size:13.5px;line-height:1.72;color:var(--muted)}
+.card-extra{margin-top:16px;padding-top:15px;border-top:1px solid #f1f5f9;
+  display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+/* The app's own small parts, so a card looks like the product it describes. */
+.tag{display:inline-flex;align-items:center;gap:6px;border:1px solid #6366f127;border-radius:6px;
+  padding:5px 8px;font-size:11px;line-height:1;color:var(--primary-700);background:#6366f10b}
+.tag.neutral{border-color:var(--line);color:var(--muted);background:var(--bg)}
+.status{display:inline-flex;align-items:center;gap:5px;font-size:11px;line-height:1;white-space:nowrap;
+  border-radius:9999px;padding:5px 9px;background:#d1fae5;border:1px solid #a7f3d0;color:#047857}
+.status:before{content:"";width:4px;height:4px;border-radius:50%;background:currentColor}
+.status.amber{color:#b45309;background:#fef3c7;border-color:#fde68a}
+.status.red{color:#b91c1c;background:#fee2e2;border-color:#fecaca}
+.commit-line{display:flex;align-items:center;gap:9px;font-size:11.5px;width:100%;min-width:0}
+.commit-line .hash{color:var(--primary)}
+.commit-line .msg{color:var(--body);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.commit-line .add{color:#047857}
+.commit-line .del{color:#b91c1c}
+.avatars{display:flex}
+.avatars span{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;font-size:9px;
+  background:#6366f113;border:1.5px solid #fff;box-shadow:0 0 0 1px #6366f120;color:var(--primary-700);
+  margin-left:-6px}
+.avatars span:first-child{margin-left:0}
+.mini-note{display:inline-flex;align-items:center;gap:7px;font-size:11.5px;color:#b45309;
+  background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:6px 9px}
+.mini-note svg{width:13px;height:13px}
+.mini-generate{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:8px;
+  border:1px solid var(--line);background:#fff;font-size:11.5px;font-weight:500;color:var(--ink)}
+.mini-generate svg{width:13px;height:13px;color:#7c3aed}
+/* ── Also included ── */
+.also{margin-top:22px;display:flex;flex-wrap:wrap;gap:9px}
+.chip{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--body);background:#fff;
+  border:1px solid var(--line);border-radius:9999px;padding:8px 14px}
+.chip svg{width:14px;height:14px;color:#047857}
+
+/* ── So what? ── */
+.outcomes{display:grid;gap:2px;border:1px solid #8ca9d324;border-radius:17px;overflow:hidden;
+  background:var(--line);box-shadow:0 1px 2px 0 #0f172a0d,0 1px 3px 0 #0f172a1a}
+.outcome{display:grid;grid-template-columns:64px minmax(0,1fr);gap:clamp(14px,2.4vw,30px);
+  align-items:start;background:var(--panel);padding:26px clamp(20px,3vw,32px)}
+.outcome-index{font-size:12px;letter-spacing:1.5px;color:var(--primary);padding-top:4px}
+.outcome h3{font-size:clamp(17px,1.8vw,22px);line-height:1.35;letter-spacing:-.6px;font-weight:600}
+.outcome p{margin-top:10px;font-size:14px;line-height:1.75;color:var(--muted);max-width:720px}
+.outcome p code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;
+  background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--body)}
+
+/* ── Before / after ── */
+.contrast{margin-top:22px;display:grid;grid-template-columns:1fr 1fr;border:1px solid #8ca9d324;
+  border-radius:17px;overflow:hidden;background:var(--panel);
+  box-shadow:0 1px 2px 0 #0f172a0d,0 1px 3px 0 #0f172a1a}
+.contrast-col{padding:26px clamp(20px,3vw,30px)}
+.contrast-col+.contrast-col{border-left:1px solid var(--line);background:#fbfcfe}
+.contrast-col h3{font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:var(--muted);
+  margin-bottom:18px}
+.contrast-col+.contrast-col h3{color:var(--primary)}
+.contrast-col li{display:flex;align-items:flex-start;gap:11px;font-size:13.5px;line-height:1.65;
+  color:var(--body);padding:9px 0}
+/* slate-500, not slate-400: these marks carry meaning next to 13.5px text. */
+.contrast-col li svg{width:15px;height:15px;margin-top:3px;flex-shrink:0;color:var(--muted)}
+.contrast-col+.contrast-col li svg{color:#047857}
+
+/* ── Closing call to action ── */
+.cta{padding:clamp(60px,9vh,104px) 0;text-align:center}
+.cta-lockup{display:flex;align-items:center;justify-content:center;gap:clamp(10px,1.2vw,16px)}
+.cta-mark{width:clamp(32px,3.4vw,46px);height:clamp(32px,3.4vw,46px);color:var(--primary);flex-shrink:0}
+.cta-word{font-size:clamp(30px,4.2vw,54px);font-weight:600;letter-spacing:-2px;line-height:1}
+.cta-rule{width:clamp(90px,10vw,150px);height:1px;background:var(--line);margin:26px auto 0}
+.cta p{margin:22px auto 0;font-size:16px;line-height:1.7;color:var(--muted);max-width:520px}
+.cta-actions{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-top:28px}
+
+/* ── Footer ── */
+.site-foot{border-top:1px solid var(--line);padding:30px 0 40px;background:#ffffff80}
+.foot-inner{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px}
+.foot-links{display:flex;flex-wrap:wrap;gap:18px;font-size:13px;color:var(--muted)}
+.foot-links a:hover,.foot-links button:hover{color:var(--ink)}
+.foot-links button{background:none;border:0;padding:0;font-size:13px;color:inherit}
+.credit{margin-top:22px;font-size:13px;line-height:1.7;color:var(--body)}
+.credit b{font-weight:500;color:var(--ink)}
+.fine-print{margin-top:10px;font-size:11.5px;line-height:1.8;color:var(--muted);max-width:760px}
+
+/* ── Help dialog ── */
+dialog{border:0;padding:0;max-width:min(560px,calc(100vw - 32px));width:100%;border-radius:19px;
+  background:var(--panel);color:var(--ink);box-shadow:0 25px 50px -12px #0f172a40}
+dialog::backdrop{background:#0f172a5c;backdrop-filter:blur(2px)}
+.dialog-head{display:flex;align-items:center;justify-content:space-between;gap:14px;height:56px;
+  padding:0 20px;border-bottom:1px solid var(--line);background:var(--bg)}
+.dialog-head h2{font-size:14px;font-weight:600;display:flex;align-items:center;gap:9px}
+.dialog-head h2 svg{width:17px;height:17px;color:var(--primary-5)}
+.dialog-close{display:grid;place-items:center;width:32px;height:32px;border:1px solid var(--line);
+  border-radius:8px;background:#fff}
+.dialog-close:hover{border-color:var(--primary-3);background:var(--primary-50)}
+.dialog-close svg{width:15px;height:15px}
+.dialog-body{padding:8px 20px 20px;max-height:min(62vh,520px);overflow:auto}
+.help-item{padding:16px 0;border-bottom:1px solid #f1f5f9}
+.help-item:last-child{border-bottom:0;padding-bottom:4px}
+.help-item h3{font-size:13.5px;font-weight:600;margin-bottom:7px}
+.help-item p,.help-item li{font-size:13px;line-height:1.75;color:var(--muted)}
+.help-item ol{margin:0;padding-left:20px;color:var(--muted);font-size:13px;line-height:1.75}
+.help-item code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;
+  background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--body)}
+
+/* ── Motion: the app's entrance (translateY + fade on the same easing) ── */
+[data-reveal]{opacity:0;transform:translateY(18px);
+  transition:opacity .5s var(--ease),transform .5s var(--ease);
+  transition-delay:calc(var(--i,0) * 70ms)}
+[data-reveal][data-visible="true"]{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  /* Stops on 0% 50%, which is the gradient as it was before it moved. */
+  h2 em{animation:none}
+  /* The header's measure still narrows past the hero; it just does not slide. */
+  .shell--wide{transition:none}
+  [data-reveal]{opacity:1;transform:none;transition:none}
+  .card:hover,.btn-primary.btn-lg:hover{transform:none}
+}
+
+/* ── Responsive ── */
+@media (max-width:900px){
+  .nav-link{display:none}
+  .nav-divider{display:none}
+  .nav-jump{display:inline-flex}
+  .contrast{grid-template-columns:1fr}
+  .contrast-col+.contrast-col{border-left:0;border-top:1px solid var(--line)}
+}
+@media (max-width:700px){
+  :root{--head:64px}
+  .brand{font-size:17px}
+  .lede{font-size:15px}
+  .outcome{grid-template-columns:1fr;gap:0;padding:22px 20px}
+  .outcome-index{padding:0 0 10px}
+  .btn,.btn-lg{height:42px;font-size:14px}
+  .cta-actions .btn{flex:1 1 180px}
+}
+</style>
+<noscript>
+  <style>
+    /* Never leave a scroll-revealed section stuck at zero opacity. */
+    [data-reveal]{opacity:1;transform:none}
+  </style>
+</noscript>
+</head>
+<body>
+<a class="skip" href="#features">Skip to the features</a>
+<div class="ambient" aria-hidden="true"></div>
+
+<header class="masthead" id="masthead">
+  <div class="shell shell--wide masthead-inner">
+    <a class="brand" href="#top" data-top aria-label="RepoPulse — back to the top">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+      RepoPulse
+    </a>
+    <nav class="masthead-nav" aria-label="Primary">
+      <a class="nav-link" href="#features">Features</a>
+      <a class="nav-link" href="#so-what">So what?</a>
+      <a class="btn btn-ghost nav-jump" href="#features" aria-label="Go to the features">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </a>
+      <span class="nav-divider" aria-hidden="true"></span>
+      <button class="btn btn-ghost" type="button" id="help-button" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+        Help
+      </button>
+      <a class="btn btn-primary" href="/login">Log in</a>
+    </nav>
+  </div>
+</header>
+
+<!-- Served out of frontend/public/, so every link into the app is a plain
+     path on the same origin: /login re-enters the SPA at its login route. -->
+<main id="top">
+
+  <!-- ── Hero: the tour is the whole first screen ── -->
+  <section class="hero" aria-label="RepoPulse product tour">
+    <!-- The visible headline belongs to the tour, which rotates through five of
+         them. This keeps the page's own outline intact for assistive tech. -->
+    <h1 class="sr-only">RepoPulse — know where every project stands</h1>
+    <iframe
+      class="tour-frame"
+      src="tour.html?embed=1"
+      title="RepoPulse product tour: collections, commits, health signals, AI overview and workspace pulse"
+      loading="eager"></iframe>
+  </section>
+
+  <!-- ── Features ── -->
+  <section class="section band" id="features" aria-labelledby="features-title">
+    <div class="shell">
+      <div class="section-head section-head--center" data-reveal>
+        <p class="eyebrow">For instructors and TAs</p>
+        <h2 id="features-title">Six things you would otherwise do by hand</h2>
+        <p class="lede">
+          Everything runs against local clones, so there is no API budget to ration and no waiting
+          on a third party to tell you what your own repositories are doing.
+        </p>
+      </div>
+
+      <div class="feature-grid">
+        <article class="card" data-reveal style="--i:0">
+          <span class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 17a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3.9a2 2 0 0 1-1.69-.9l-.81-1.2a2 2 0 0 0-1.67-.9H8a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2Z"/><path d="M2 8v11a2 2 0 0 0 2 2h14"/></svg>
+          </span>
+          <h3>Collections</h3>
+          <p>
+            Group a course or a cohort into one collection, then add repositories by pasting their
+            GitHub URLs. RepoPulse clones each one into a managed folder and keeps it in sync.
+          </p>
+          <div class="card-extra">
+            <span class="tag">capstone-fall · 12 repos</span>
+            <span class="tag neutral">ds-2100 · 8 repos</span>
+          </div>
+        </article>
+
+        <article class="card" data-reveal style="--i:1">
+          <span class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/></svg>
+          </span>
+          <h3>Health signals</h3>
+          <p>
+            Commit frequency, recency, distribution, branch activity, message quality and
+            participation — six signals, each scored out of 100, combined into one status badge
+            per repository.
+          </p>
+          <div class="card-extra">
+            <span class="status">Healthy</span>
+            <span class="status amber">At Risk</span>
+            <span class="status red">Critical</span>
+          </div>
+        </article>
+
+        <article class="card" data-reveal style="--i:2">
+          <span class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </span>
+          <h3>Contributors &amp; aliases</h3>
+          <p>
+            Commits, lines changed and share of the work for every person on the team. When one
+            student commits under three git identities, merge the aliases and they count once.
+          </p>
+          <div class="card-extra">
+            <span class="avatars" aria-hidden="true"><span>AM</span><span>JC</span><span>RK</span></span>
+            <span class="tag neutral">3 aliases merged</span>
+          </div>
+        </article>
+
+        <article class="card" data-reveal style="--i:3">
+          <span class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><line x1="3" x2="9" y1="12" y2="12"/><line x1="15" x2="21" y1="12" y2="12"/></svg>
+          </span>
+          <h3>Commit history</h3>
+          <p>
+            Every commit on every branch, with author, date, branch and diff stats. Filter by
+            contributor, branch or date range, and read the per-commit quality score behind the
+            message signal.
+          </p>
+          <div class="card-extra">
+            <span class="commit-line mono">
+              <span class="hash">a1b4c2f</span>
+              <span class="msg">feat: add auth guard to repo routes</span>
+              <span class="add">+212</span><span class="del">−18</span>
+            </span>
+          </div>
+        </article>
+
+        <article class="card" data-reveal style="--i:4">
+          <span class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg>
+          </span>
+          <h3>AI Overview</h3>
+          <p>
+            An on-demand read of a repository or a person, written from the git history and the
+            health signals. Every overview is stored with the model and the time that produced it,
+            and you control the prompt criteria in Settings.
+          </p>
+          <div class="card-extra">
+            <span class="mini-generate">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg>
+              Generate Summary
+            </span>
+          </div>
+        </article>
+
+        <article class="card" data-reveal style="--i:5">
+          <span class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/></svg>
+          </span>
+          <h3>Notes &amp; reminders</h3>
+          <p>
+            Keep notes on a repository, a contributor or a single commit. Mention a TA, set a
+            reminder for the follow-up, and pick it all up again in the notifications inbox.
+          </p>
+          <div class="card-extra">
+            <span class="mini-note">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+              Check in with team 4 — due Friday
+            </span>
+          </div>
+        </article>
+      </div>
+
+      <ul class="also" data-reveal aria-label="Also included">
+        <li class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Workspace pulse and commit activity charts</li>
+        <li class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Search across repositories and people, typos included</li>
+        <li class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Open any repository in GitHub or VS&nbsp;Code</li>
+        <li class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Instructor, TA and admin roles</li>
+        <li class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Self-hosted on your own infrastructure</li>
+        <li class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Seeded demo data, so the dashboard works on day one</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ── So what? ── -->
+  <section class="section" id="so-what" aria-labelledby="so-what-title">
+    <div class="shell">
+      <div class="section-head" data-reveal>
+        <p class="eyebrow">So what?</p>
+        <h2 id="so-what-title">Four things change <em>the week you start using it</em>.</h2>
+        <p class="lede">
+          Dashboards are easy to build and easy to ignore. These are the questions RepoPulse is
+          meant to answer, and the reason it exists at all.
+        </p>
+      </div>
+
+      <div class="outcomes">
+        <article class="outcome" data-reveal style="--i:0">
+          <span class="outcome-index mono" aria-hidden="true">01</span>
+          <div>
+            <h3>You find the struggling team in week 3, not at the demo.</h3>
+            <p>
+              Recency and commit frequency move long before a deadline does. A repository that
+              turns amber on Tuesday is a five-minute conversation on Wednesday, instead of a
+              post-mortem at the end of term.
+            </p>
+          </div>
+        </article>
+
+        <article class="outcome" data-reveal style="--i:1">
+          <span class="outcome-index mono" aria-hidden="true">02</span>
+          <div>
+            <h3>You can say who actually contributed.</h3>
+            <p>
+              Distribution scores how evenly the work is spread across a team, and alias merging
+              means a student who commits from a laptop, a lab machine and the GitHub web editor
+              still counts as one person. The dashboard tells you how many repositories are running on a
+              single contributor.
+            </p>
+          </div>
+        </article>
+
+        <article class="outcome" data-reveal style="--i:2">
+          <span class="outcome-index mono" aria-hidden="true">03</span>
+          <div>
+            <h3>One dashboard instead of thirty tabs.</h3>
+            <p>
+              A collection holds the whole cohort. Every repository is one click from its commits,
+              its people and your notes — and one more click from GitHub or a local VS&nbsp;Code
+              window when you want to read the code itself.
+            </p>
+          </div>
+        </article>
+
+        <article class="outcome" data-reveal style="--i:3">
+          <span class="outcome-index mono" aria-hidden="true">04</span>
+          <div>
+            <h3>Evidence, not impressions.</h3>
+            <p>
+              Every score traces back to commits in a clone RepoPulse keeps, scored the
+              same way each week. Every AI overview is stored with the model and timestamp behind
+              it, so a summary is always something you can check rather than something you have to
+              trust.
+            </p>
+          </div>
+        </article>
+      </div>
+
+      <div class="contrast" data-reveal>
+        <div class="contrast-col">
+          <h3>A normal check-in</h3>
+          <ul>
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              Open thirty repositories one at a time
+            </li>
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              Skim the commit list and guess at momentum
+            </li>
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              Ask the room "how's it going?" and hear "fine"
+            </li>
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              Discover the one-person team at the final demo
+            </li>
+          </ul>
+        </div>
+        <div class="contrast-col">
+          <h3>The same check-in with RepoPulse</h3>
+          <ul>
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+              Thirty health badges on one screen
+            </li>
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+              Six signals, scored the same way every week
+            </li>
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+              Ask about the two quiet weeks on <span class="mono">capstone-api</span>
+            </li>
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+              Grade with the whole history in front of you
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Closing ── -->
+  <section class="cta" aria-labelledby="cta-title">
+    <div class="shell" data-reveal>
+      <div class="cta-lockup">
+        <svg class="cta-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+        <h2 class="cta-word" id="cta-title">RepoPulse</h2>
+      </div>
+      <div class="cta-rule" aria-hidden="true"></div>
+      <p>Point it at your own collection and see where every project stands.</p>
+      <div class="cta-actions">
+        <a class="btn btn-primary btn-lg" href="/login">
+          Log in
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-foot">
+  <div class="shell">
+    <div class="foot-inner">
+      <a class="brand" href="#top" data-top aria-label="RepoPulse — back to the top">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+        RepoPulse
+      </a>
+      <nav class="foot-links" aria-label="Footer">
+        <a href="#features">Features</a>
+        <a href="#so-what">So what?</a>
+        <button type="button" data-open-help aria-haspopup="dialog">Help</button>
+        <a href="/login">Log in</a>
+      </nav>
+    </div>
+    <p class="credit">
+      Built by <b>Awad Buisir</b>, <b>Jaylen Zeng</b>, <b>Brady Cai</b> and <b>Spiros Halkias</b>.
+    </p>
+    <p class="fine-print">
+      Git history is read from clones on the machine running RepoPulse. Only the context you send
+      for an AI
+      Overview leaves it, and it goes to the model provider configured in Settings.
+    </p>
+  </div>
+</footer>
+
+<dialog id="help-dialog" aria-labelledby="help-title">
+  <form method="dialog" class="dialog-head">
+    <h2 id="help-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+      Help
+    </h2>
+    <button class="dialog-close" value="close" aria-label="Close help">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+    </button>
+  </form>
+  <div class="dialog-body">
+    <div class="help-item">
+      <h3>What is RepoPulse?</h3>
+      <p>
+        A local-first dashboard for monitoring student project repositories. It clones each
+        repository, reads the full git history, scores six health signals, and puts the results —
+        along with contributor analytics, AI overviews and your notes — in one place.
+      </p>
+    </div>
+    <div class="help-item">
+      <h3>Getting started</h3>
+      <ol>
+        <li>Sign in, then create a collection for your course or your cohort.</li>
+        <li>Paste the GitHub URLs of your teams' repositories into it and sync. Each one is
+          cloned and its full history read.</li>
+        <li>Health scores and the workspace pulse appear once the first sync finishes. Open any
+          repository from there for its commits, its contributors and your notes.</li>
+      </ol>
+    </div>
+    <div class="help-item">
+      <h3>Do I need a GitHub token?</h3>
+      <p>
+        No. Cloning and analysis use git directly, so there is no API rate limit to work around
+        and nothing to authorize. AI Overviews are the one part that calls out to a model
+        provider, and Settings is where you choose which model and what it is asked to look for.
+      </p>
+    </div>
+    <div class="help-item">
+      <h3>Controlling the tour</h3>
+      <p>
+        The chapter names along the bottom jump straight to a section. Click into the tour first
+        and <code>Space</code> pauses or resumes it, while the arrow keys step through. It starts
+        over on its own half a minute after the sign-off, stops while it is scrolled out of view,
+        and stays still if your system is set to reduce motion.
+      </p>
+    </div>
+  </div>
+</dialog>
+
+<script>
+(() => {
+  'use strict';
+
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const masthead = document.getElementById('masthead');
+
+  /* ── In-page navigation ──
+     Landing on a section's padding box puts a screenful of its own top padding
+     under the header before the heading appears. Land on the heading block
+     instead, with one gap's worth of breathing room, measured at click time so
+     the header's real height (and its breakpoint) is always what is used.
+     The CSS scroll-padding-top above is the no-JS fallback. */
+  const ANCHOR_GAP = 28;
+
+  function anchorTop(section) {
+    const anchor = section.querySelector('.section-head') || section;
+    const head = masthead ? masthead.offsetHeight : 0;
+    return Math.max(0, anchor.getBoundingClientRect().top + window.scrollY - head - ANCHOR_GAP);
+  }
+
+  function goToSection(section, smooth) {
+    window.scrollTo({
+      top: anchorTop(section),
+      behavior: smooth && !reduced.matches ? 'smooth' : 'auto',
+    });
+    // Scrolling is not a focus move. preventDefault below also throws away the
+    // sequential focus starting point the browser would have set, so without
+    // this the skip link scrolls and then hands the next Tab back to the
+    // header — the one thing a skip link exists to avoid. The heading, not the
+    // section: a screen reader then announces what was landed on, and the ring
+    // lands on a line of text rather than around a whole screenful.
+    const heading = section.querySelector('.section-head h2') || section;
+    if (!heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1');
+    heading.focus({ preventScroll: true });
+  }
+
+  document.querySelectorAll('a[href^="#"]:not([data-top])').forEach(link => {
+    link.addEventListener('click', event => {
+      const section = document.getElementById(link.getAttribute('href').slice(1));
+      if (!section) return;
+      event.preventDefault();
+      goToSection(section, true);
+      try {
+        history.replaceState(null, '', `#${section.id}`);
+      } catch { /* the address bar is cosmetic here */ }
+    });
+  });
+
+  // Opened straight at #features: the browser's own jump uses scroll-padding
+  // and would land somewhere a click never does.
+  if (location.hash.length > 1) {
+    const landed = document.getElementById(location.hash.slice(1));
+    if (landed) window.addEventListener('load', () => goToSection(landed, false));
+  }
+
+  /* ── The brand goes to the very top of the page ──
+     #top is only the top of <main>, and any anchor lands at the scroll
+     offset, so a fragment jump can leave the hero a sliver off and the stale
+     #features in the address bar. Go to 0 and clear the fragment. */
+  document.querySelectorAll('[data-top]').forEach(link => {
+    link.addEventListener('click', event => {
+      event.preventDefault();
+      window.scrollTo({ top: 0, behavior: reduced.matches ? 'auto' : 'smooth' });
+      // file:// tolerates this in Chrome; never let it break the scroll.
+      try {
+        history.replaceState(null, '', location.pathname + location.search);
+      } catch { /* leaving the fragment in place is harmless */ }
+    });
+  });
+
+  /* ── Masthead gets its border once the page has moved ── */
+  if (masthead) {
+    const onScroll = () => {
+      masthead.dataset.scrolled = String(window.scrollY > 8);
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+  }
+
+  /* ── Sections arrive on scroll, matching the app's entrance animation ── */
+  const reveals = Array.from(document.querySelectorAll('[data-reveal]'));
+
+  if (reduced.matches || typeof IntersectionObserver !== 'function') {
+    reveals.forEach(el => { el.dataset.visible = 'true'; });
+  } else {
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        entry.target.dataset.visible = 'true';
+        observer.unobserve(entry.target);
+      });
+    }, { rootMargin: '0px 0px -12% 0px', threshold: 0.12 });
+    reveals.forEach(el => observer.observe(el));
+  }
+
+  /* ── The tour runs only while it is on screen ──
+     It pauses itself in a background tab, but nothing inside an iframe can see
+     that the page around it has scrolled past — from in there the viewport is
+     unchanged. So the hero is watched out here and the verdict is sent in.
+     Otherwise a 60s orbit, two pulses and the playback clock keep going behind
+     the reader, and the whole tour restarts every seventy seconds unseen. */
+  const heroPanel = document.querySelector('.hero');
+  const tourFrame = document.querySelector('.tour-frame');
+
+  if (heroPanel && tourFrame && typeof IntersectionObserver === 'function') {
+    let onScreen = true;
+    // '*' because a file:// page's origin is opaque and cannot be named. The
+    // message is one of two words, the tour ignores any other sender, and
+    // nothing is read back out of the frame.
+    const tell = () => {
+      try {
+        tourFrame.contentWindow.postMessage({ repopulse: onScreen ? 'onscreen' : 'offscreen' }, '*');
+      } catch { /* not loaded yet; the load handler below repeats it */ }
+    };
+    new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        onScreen = entry.isIntersecting;
+        tell();
+      });
+    }, { threshold: 0 }).observe(heroPanel);
+    // Opened straight at #features the hero can already be gone before the
+    // tour has a listener, so say it again once there is one.
+    tourFrame.addEventListener('load', tell);
+  }
+
+  /* ── Help ── */
+  const dialog = document.getElementById('help-dialog');
+  const openers = document.querySelectorAll('#help-button, [data-open-help]');
+
+  openers.forEach(opener => {
+    opener.addEventListener('click', () => {
+      if (!dialog) return;
+      if (typeof dialog.showModal === 'function') dialog.showModal();
+      else dialog.setAttribute('open', '');
+    });
+  });
+
+  // Clicking the backdrop closes it; clicking the panel must not.
+  if (dialog) {
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+  }
+})();
+</script>
+</body>
+</html>

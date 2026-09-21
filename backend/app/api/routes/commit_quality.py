@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import json
 import logging
-import re
 import uuid
-from typing import Any
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
@@ -12,14 +10,18 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user, get_db_session
-from app.models.app_settings import AppSettings
+from app.core.deps import get_current_user_obj, get_db_session
 from app.models.collection import Collection
-from app.models.commit_quality_score import CommitQualityScore
+from app.models.commit_classification import CommitClassification
+from app.models.llm_token_usage import FEATURE_COMMIT_QUALITY
 from app.models.repo import Repo
+from app.models.user import User
 from app.schemas.errors import ErrorResponse
+from app.schemas.llm_quota import TokenLimitExceeded
+from app.services.commit_classifier_service import CommitInput, build_classifier
 from app.services.git_service import GitService
-from app.services.llm import get_llm_service
+from app.services.llm.quota import record_usage, require_quota
+from app.services.llm.user_settings import resolve_llm_settings
 from app.services.permission_service import can_access_collection
 
 logger = logging.getLogger(__name__)
@@ -36,7 +38,9 @@ class ScoredCommit(BaseModel):
     message: str
     author: str
     date: str
-    score: str         # "good" | "ok" | "bad"
+    # None when the LLM could not be reached or its answer could not be read.
+    # An honest gap beats a fabricated "ok" that would be cached forever.
+    score: str | None  # "good" | "ok" | "bad" | None
     from_cache: bool
 
 
@@ -58,63 +62,27 @@ class CommitQualityResponse(BaseModel):
     total_newly_scored: int
 
 
-# ── LLM scoring ─────────────────────────────────────────────────────────────
-
-_SYSTEM = (
-    "You evaluate git commit messages for clarity and informativeness. "
-    "You return only valid JSON — no prose, no markdown fences."
-)
-
-_SCORE_CRITERIA = """Score each commit message as exactly one of: "good", "ok", or "bad".
-
-Criteria:
-\u2022 "good"  \u2013 clearly describes what changed and/or why (e.g. "Fix null pointer in UserService when email is missing", "Add JWT refresh token support")
-\u2022 "ok"    \u2013 somewhat descriptive but vague (e.g. "Fix auth bug", "Update styles", "Refactor login page")
-\u2022 "bad"   \u2013 uninformative or placeholder (e.g. "fix", "update", "wip", "done", ".", "asdf", "commit", "changes", "temp")
-
-Return a JSON array of objects. Each object must have exactly two keys: "i" (the integer index) and "s" (the score string).
-Example: [{"i":0,"s":"bad"},{"i":1,"s":"good"}]
-
-Commit messages to score:
-"""
-
-
-async def _score_messages(
-    messages: list[str],
-    llm_provider: str,
-    llm_model: str,
-    api_key: str | None,
-    ollama_url: str | None,
-) -> list[str]:
-    """Return a score string for each message, in the same order. Falls back to 'ok' on any error."""
-    if not messages:
-        return []
-
-    numbered = "\n".join(f'{i}. "{msg}"' for i, msg in enumerate(messages))
-    prompt = _SCORE_CRITERIA + numbered
-
-    try:
-        llm = get_llm_service(llm_provider, llm_model, api_key, ollama_url)
-        raw = await llm.generate(prompt, system=_SYSTEM, max_tokens=len(messages) * 25 + 64)
-    except Exception as exc:
-        logger.warning("commit quality LLM call failed: %s", exc)
-        return ["ok"] * len(messages)
-
-    cleaned = re.sub(r"```[a-z]*\n?", "", raw).strip()
-    try:
-        data: list[dict[str, Any]] = json.loads(cleaned)
-        index_to_score = {int(item["i"]): str(item["s"]) for item in data}
-        valid = {"good", "ok", "bad"}
-        return [
-            index_to_score.get(i, "ok") if index_to_score.get(i, "ok") in valid else "ok"
-            for i in range(len(messages))
-        ]
-    except Exception as exc:
-        logger.warning("commit quality JSON parse failed (%s) \u2014 raw: %.200s", exc, raw)
-        return ["ok"] * len(messages)
-
-
 # ── Endpoint ─────────────────────────────────────────────────────────────────
+
+
+def _commit_input(commit: dict) -> CommitInput:
+    """Adapt a GitService commit dict for the classifier.
+
+    needs_type is False: this endpoint shows message quality only, so asking
+    for a type would spend tokens on an answer nothing here displays. The
+    repo-level classify endpoint is what fills that column in.
+    """
+    return CommitInput(
+        hash=commit["full_hash"],
+        message=commit["message"],
+        insertions=commit.get("insertions", 0),
+        deletions=commit.get("deletions", 0),
+        files_changed=commit.get("files_changed", 0),
+        file_paths=commit.get("file_paths", ()),
+        file_paths_truncated=commit.get("file_paths_truncated", False),
+        diffstat_available=commit.get("diffstat_available", False),
+        needs_type=False,
+    )
 
 @router.get(
     "/collections/{collection_id}/commit-quality",
@@ -122,20 +90,21 @@ async def _score_messages(
     responses={
         403: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
+        429: {"model": TokenLimitExceeded},
     },
 )
 async def get_commit_quality(
     collection_id: uuid.UUID,
     per_repo: int = Query(15, ge=5, le=25),
     db: AsyncSession = Depends(get_db_session),
-    current_user_id: str = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_obj),
 ) -> CommitQualityResponse:
     """Score the most recent commit messages for every repo in a collection.
 
     Scores are cached in the DB by (repo_id, commit_hash). Only new commits
     (ones not seen before) require an LLM call.
     """
-    user_uuid = uuid.UUID(current_user_id)
+    user_uuid = current_user.id
 
     collection = await db.get(Collection, collection_id)
     if collection is None:
@@ -143,23 +112,14 @@ async def get_commit_quality(
     if not await can_access_collection(db, user_uuid, collection_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
-    # Load LLM settings for this user
-    settings_result = await db.execute(
-        select(AppSettings).where(AppSettings.user_id == user_uuid)
-    )
-    user_settings = settings_result.scalar_one_or_none()
-    if user_settings:
-        provider = user_settings.llm_provider or "anthropic"
-        model = user_settings.llm_model or "claude-sonnet-4-20250514"
-        api_key = user_settings.anthropic_api_key or None
-        ollama_url = user_settings.ollama_base_url or None
-    else:
-        provider = "anthropic"
-        model = "claude-sonnet-4-20250514"
-        api_key = None
-        ollama_url = None
+    # Checked up front even though a fully-cached request spends nothing: the
+    # alternative is discovering the limit after reading every clone on disk,
+    # and the cache state is not knowable until then anyway.
+    await require_quota(db, current_user)
 
-    model_label = f"ollama/{model}" if provider == "ollama" else model
+    llm_cfg = await resolve_llm_settings(db, user_uuid)
+    model_label = llm_cfg.label
+    current_criteria_hash = llm_cfg.criteria_hash
 
     # Fetch repos
     repos_result = await db.execute(
@@ -196,52 +156,106 @@ async def get_commit_quality(
     all_repo_ids = [repo.id for repo, _ in repo_commits]
     all_hashes = [c["full_hash"] for _, commits in repo_commits for c in commits]
     cached_result = await db.execute(
-        select(CommitQualityScore).where(
-            CommitQualityScore.repo_id.in_(all_repo_ids),
-            CommitQualityScore.commit_hash.in_(all_hashes),
+        select(CommitClassification).where(
+            CommitClassification.repo_id.in_(all_repo_ids),
+            CommitClassification.commit_hash.in_(all_hashes),
         )
     )
     cached_rows = cached_result.scalars().all()
-    cache: dict[tuple[uuid.UUID, str], str] = {
-        (row.repo_id, row.commit_hash): row.score for row in cached_rows
+    # A score graded under a different rubric is not a cache hit. Mapping it to
+    # None rather than dropping the key keeps a single notion of "usable cached
+    # score" for both the loop below and the response assembly further down,
+    # which reads this same dict to decide from_cache.
+    #
+    # Plain equality, NULL included: a NULL hash means "graded with no
+    # instructor rubric", which is literally true both of rows written before
+    # this column existed and of a user who has not set one. So legacy rows
+    # stay valid for an instructor with no rubric and go stale the moment one
+    # is saved — no special case for either.
+    cache: dict[tuple[uuid.UUID, str], str | None] = {
+        (row.repo_id, row.commit_hash): (
+            row.score if row.criteria_hash == current_criteria_hash else None
+        )
+        for row in cached_rows
     }
 
-    # Identify uncached messages that need LLM scoring
-    uncached: list[tuple[int, int, str]] = []  # (repo_idx, commit_idx, message)
+    # Identify commits still needing a score. A row can exist carrying only a
+    # commit_type — the classifier writes those — so "a row exists" is not the
+    # same as "already scored", and testing membership would strand those
+    # commits with a permanent null.
+    uncached: list[tuple[int, int]] = []  # (repo_idx, commit_idx)
     for repo_idx, (repo, commits) in enumerate(repo_commits):
         for commit_idx, commit in enumerate(commits):
-            key = (repo.id, commit["full_hash"])
-            if key not in cache:
-                uncached.append((repo_idx, commit_idx, commit["message"]))
+            if cache.get((repo.id, commit["full_hash"])) is None:
+                uncached.append((repo_idx, commit_idx))
 
-    # Score uncached messages with LLM (single batch call)
+    # Score uncached messages with the LLM
     new_scores: dict[tuple[int, int], str] = {}
     if uncached:
-        messages = [msg for _, _, msg in uncached]
         logger.info(
             "commit-quality: %d cache hits, scoring %d new messages via LLM for collection %s",
             len(all_hashes) - len(uncached), len(uncached), collection_id,
         )
-        llm_scores = await _score_messages(messages, provider, model, api_key, ollama_url)
-        for (repo_idx, commit_idx, _), score in zip(uncached, llm_scores):
-            new_scores[(repo_idx, commit_idx)] = score
+        classifier = build_classifier(
+            llm_cfg.provider,
+            llm_cfg.model,
+            llm_cfg.api_key,
+            llm_cfg.ollama_url,
+            instructor_criteria=llm_cfg.commit_evaluation_criteria,
+        )
+        results = await classifier.classify([
+            _commit_input(repo_commits[repo_idx][1][commit_idx])
+            for repo_idx, commit_idx in uncached
+        ])
 
-        # Persist new scores to DB (ignore conflicts — another request may have scored the same commit)
         rows_to_insert = []
-        for (repo_idx, commit_idx, _), score in zip(uncached, llm_scores):
+        for (repo_idx, commit_idx), result in zip(uncached, results):
+            # A None score means the call failed or the answer was unreadable.
+            # Persisting it would cache a fabrication under this commit's hash
+            # forever; leaving the gap lets the next request retry.
+            if result.score is None:
+                continue
+            new_scores[(repo_idx, commit_idx)] = result.score
             repo, commits = repo_commits[repo_idx]
             rows_to_insert.append({
                 "id": uuid.uuid4(),
                 "repo_id": repo.id,
                 "commit_hash": commits[commit_idx]["full_hash"],
-                "score": score,
+                "score": result.score,
                 "model_used": model_label,
+                "criteria_hash": current_criteria_hash,
             })
+
         if rows_to_insert:
-            stmt = pg_insert(CommitQualityScore).values(rows_to_insert)
-            stmt = stmt.on_conflict_do_nothing(constraint="uq_commit_quality_repo_hash")
+            stmt = pg_insert(CommitClassification).values(rows_to_insert)
+            # Not do_nothing: the conflicting row may be one the classifier
+            # wrote with a type and no score, and that gap is exactly what this
+            # insert is filling. Only the score columns are touched, so a
+            # commit_type already on the row survives.
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_commit_classification_repo_hash",
+                set_={
+                    "score": stmt.excluded.score,
+                    "model_used": stmt.excluded.model_used,
+                    "scored_at": datetime.utcnow(),
+                    # Moves with the score it describes — leaving the old hash
+                    # behind would mark a freshly re-graded row as stale again.
+                    "criteria_hash": stmt.excluded.criteria_hash,
+                },
+            )
             await db.execute(stmt)
-            await db.commit()
+
+        # Outside the rows_to_insert guard: an answer the parser could not
+        # read persists no score and still cost tokens. Charging only for
+        # usable output would make a malformed-response loop free.
+        await record_usage(
+            db,
+            user_id=user_uuid,
+            feature=FEATURE_COMMIT_QUALITY,
+            model_used=model_label,
+            usage=classifier.usage,
+        )
+        await db.commit()
     else:
         logger.info(
             "commit-quality: all %d commits served from cache for collection %s",
@@ -258,15 +272,18 @@ async def get_commit_quality(
         repo_hits = 0
         repo_new = 0
         for commit_idx, commit in enumerate(commits):
-            key = (repo.id, commit["full_hash"])
-            if key in cache:
-                score = cache[key]
+            cached_score = cache.get((repo.id, commit["full_hash"]))
+            if cached_score is not None:
+                score = cached_score
                 from_cache = True
                 repo_hits += 1
             else:
-                score = new_scores.get((repo_idx, commit_idx), "ok")
+                # None here means this run tried and failed — the commit is
+                # neither a cache hit nor newly scored.
+                score = new_scores.get((repo_idx, commit_idx))
                 from_cache = False
-                repo_new += 1
+                if score is not None:
+                    repo_new += 1
             scored_commits.append(ScoredCommit(
                 hash=commit["hash"],
                 full_hash=commit["full_hash"],

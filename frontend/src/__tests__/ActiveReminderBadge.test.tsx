@@ -23,11 +23,16 @@ const baseRepo: Repo = {
   local_path: '/repos/student-project',
   health_status: 'green',
   health_score: null,
+  last_commit_at: null,
   last_synced_at: '2025-10-14T14:00:00Z',
   created_at: '2025-09-01T00:00:00Z',
   updated_at: '2025-10-14T14:00:00Z',
   contributor_count: 3,
   expected_contributor_count: null,
+  sync_status: 'idle',
+  sync_started_at: null,
+  sync_started_by_name: null,
+  sync_error: null,
   active_reminder_count: 0,
 }
 

@@ -4,6 +4,8 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from app.services.health_thresholds import resolve_thresholds
+
 
 class HealthService:
     """Computes health signals and composite score for a repository."""
@@ -14,6 +16,7 @@ class HealthService:
         branches: list[str],
         expected_contributor_count: int | None = None,
         actual_contributor_count: int | None = None,
+        thresholds: Any = None,
     ) -> dict[str, Any]:
         """Compute all health signals plus composite.
 
@@ -22,33 +25,52 @@ class HealthService:
         composite is score sum / (6 * 2). Otherwise 5 signals are used and
         composite is score sum / (5 * 2). Both ranges are 0.0 to 1.0.
 
+        `thresholds` is the owning collection's stored override, or None to
+        score against the shipped defaults. It is passed through
+        `resolve_thresholds`, so a partial or malformed override costs only the
+        cutoffs it got wrong.
+
         Returns a dict matching the HealthBreakdown schema.
         """
         now = datetime.now(timezone.utc)
+        t = resolve_thresholds(thresholds)
 
-        cf_score = self._commit_frequency_score(commits, now)
-        rec_score = self._recency_score(commits, now)
-        dist_score = self._distribution_score(commits)
-        branch_score = self._branch_activity_score(branches, commits, now)
-        msg_score = self._commit_message_quality_score(commits)
+        cf_score = self._commit_frequency_score(commits, now, t["commit_frequency"])
+        rec_score = self._recency_score(commits, now, t["recency"])
+        dist_score = self._distribution_score(commits, t["distribution"])
+        branch_score = self._branch_activity_score(
+            branches, commits, now, t["branch_activity"]
+        )
+        msg_score = self._commit_message_quality_score(
+            commits, t["commit_message_quality"]
+        )
 
         actual = (
             actual_contributor_count
             if actual_contributor_count is not None
             else len(set(c["author_email"].lower() for c in commits))
         )
-        # When no expected count is set, use actual as expected → always green
-        expected = expected_contributor_count if expected_contributor_count else max(actual, 1)
-        participation_score = self._participation_score(actual, expected)
+        # Participation is only measurable against an expected contributor
+        # count. Without one it is omitted rather than defaulted
+        participation_score: int | None = (
+            self._participation_score(
+                actual, expected_contributor_count, t["participation"]
+            )
+            if expected_contributor_count
+            else None
+        )
 
-        raw_sum = cf_score + rec_score + dist_score + branch_score + msg_score + participation_score
-        max_sum = 6 * 2
+        raw_sum = cf_score + rec_score + dist_score + branch_score + msg_score
+        max_sum = 5 * 2
+        if participation_score is not None:
+            raw_sum += participation_score
+            max_sum += 2
 
         composite = raw_sum / max_sum
 
-        if composite >= 0.75:
+        if composite >= t["composite"]["green"]:
             status = "green"
-        elif composite >= 0.375:
+        elif composite >= t["composite"]["yellow"]:
             status = "yellow"
         else:
             status = "red"
@@ -69,52 +91,47 @@ class HealthService:
     # ------------------------------------------------------------------
 
     def _commit_frequency_score(
-        self, commits: list[dict[str, Any]], now: datetime
+        self,
+        commits: list[dict[str, Any]],
+        now: datetime,
+        bounds: dict[str, float],
     ) -> int:
-        """Commits per week over the last 4 weeks.
-
-        Green (2): >= 10/week
-        Yellow (1): 4-9/week
-        Red (0): <= 3/week
-        """
+        """Commits per week over the last 4 weeks. Higher is better."""
         four_weeks_ago = now - timedelta(weeks=4)
         recent = [c for c in commits if self._ensure_tz(c["date"]) >= four_weeks_ago]
         weekly_avg = len(recent) / 4.0
 
-        if weekly_avg >= 10:
+        if weekly_avg >= bounds["green"]:
             return 2
-        elif weekly_avg >= 4:
+        elif weekly_avg >= bounds["yellow"]:
             return 1
         else:
             return 0
 
-    def _recency_score(self, commits: list[dict[str, Any]], now: datetime) -> int:
-        """Days since most recent commit.
-
-        Green (2): < 3 days
-        Yellow (1): 3-7 days
-        Red (0): > 7 days (or no commits)
-        """
+    def _recency_score(
+        self,
+        commits: list[dict[str, Any]],
+        now: datetime,
+        bounds: dict[str, float],
+    ) -> int:
+        """Days since the most recent commit. Lower is better."""
         if not commits:
             return 0
 
         latest = max(self._ensure_tz(c["date"]) for c in commits)
         days_ago = (now - latest).total_seconds() / 86400
 
-        if days_ago < 3:
+        if days_ago < bounds["green"]:
             return 2
-        elif days_ago <= 7:
+        elif days_ago <= bounds["yellow"]:
             return 1
         else:
             return 0
 
-    def _distribution_score(self, commits: list[dict[str, Any]]) -> int:
-        """Gini coefficient of commits per contributor.
-
-        Green (2): Gini < 0.35
-        Yellow (1): 0.35-0.60
-        Red (0): > 0.60 (or single contributor)
-        """
+    def _distribution_score(
+        self, commits: list[dict[str, Any]], bounds: dict[str, float]
+    ) -> int:
+        """Gini coefficient of commits per contributor. Lower is more even."""
         if not commits:
             return 0
 
@@ -123,14 +140,14 @@ class HealthService:
         n = len(values)
 
         if n == 1:
-            # Only one contributor — maximum inequality
+            # Only one contributor — maximum inequality, regardless of cutoffs.
             return 0
 
         gini = self._gini(values)
 
-        if gini < 0.35:
+        if gini < bounds["green"]:
             return 2
-        elif gini <= 0.60:
+        elif gini <= bounds["yellow"]:
             return 1
         else:
             return 0
@@ -140,18 +157,17 @@ class HealthService:
         branches: list[str],
         commits: list[dict[str, Any]],
         now: datetime,
+        bounds: dict[str, float],
     ) -> int:
-        """Number/activity of branches.
+        """Active branch count. Higher is better.
 
-        Green (2): >= 2 branches
-        Yellow (1): exactly 1 branch with recent activity (commit in last 7 days)
-        Red (0): 1 branch with no recent activity, or no branches
+        At the yellow bound the branches must also have seen a commit in the
+        last week — a lone stale branch scores red, not yellow.
         """
         n = len(branches)
-        if n >= 2:
+        if n >= bounds["green"]:
             return 2
-        elif n == 1:
-            # Check for recent commit
+        elif n >= bounds["yellow"]:
             week_ago = now - timedelta(days=7)
             has_recent = any(
                 self._ensure_tz(c["date"]) >= week_ago for c in commits
@@ -160,14 +176,12 @@ class HealthService:
         else:
             return 0
 
-    def _commit_message_quality_score(self, commits: list[dict[str, Any]]) -> int:
-        """Percentage of commits with low-quality messages.
+    def _commit_message_quality_score(
+        self, commits: list[dict[str, Any]], bounds: dict[str, float]
+    ) -> int:
+        """Fraction of commits with low-quality messages. Lower is better.
 
-        Low quality = message < 10 chars or single word.
-
-        Green (2): < 10% low quality
-        Yellow (1): 10-30% low quality
-        Red (0): > 30% low quality (or no commits)
+        Low quality = under 10 characters, or a single word.
         """
         if not commits:
             return 0
@@ -179,24 +193,21 @@ class HealthService:
                 low_quality += 1
 
         pct = low_quality / len(commits)
-        if pct < 0.10:
+        if pct < bounds["green"]:
             return 2
-        elif pct <= 0.30:
+        elif pct <= bounds["yellow"]:
             return 1
         else:
             return 0
 
-    def _participation_score(self, actual: int, expected: int) -> int:
-        """Actual vs expected unique contributors.
-
-        Green (2): actual >= expected
-        Yellow (1): actual >= 60% of expected
-        Red (0): actual < 60% of expected
-        """
+    def _participation_score(
+        self, actual: int, expected: int, bounds: dict[str, float]
+    ) -> int:
+        """Actual over expected unique contributors. Higher is better."""
         ratio = actual / expected
-        if ratio >= 1.0:
+        if ratio >= bounds["green"]:
             return 2
-        elif ratio >= 0.6:
+        elif ratio >= bounds["yellow"]:
             return 1
         else:
             return 0

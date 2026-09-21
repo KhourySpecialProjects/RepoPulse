@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -12,16 +12,18 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 logger = logging.getLogger(__name__)
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.core.config import settings
 from app.core.deps import get_current_user, get_db_session
 from app.models.collection import Collection
+from app.models.commit_classification import CommitClassification
 from app.models.contributor import Contributor
 from app.models.user import User
 from app.models.contributor_alias import ContributorAlias
 from app.models.note import Note
+from app.models.notification import NotificationType
 from app.models.repo import Repo
-from app.schemas.commits import CommitRead, PaginatedCommits
+from app.schemas.commits import CommitRead, CommitTypeFilter, PaginatedCommits
 from app.schemas.contributors import ContributorRead, AliasRead
 from app.schemas.errors import ErrorResponse
 from app.schemas.health import HealthBreakdown
@@ -32,6 +34,14 @@ from app.services.permission_service import (
     can_access_collection,
     can_write_collection,
 )
+
+from app.schemas.repos import RepoDeleteResponse
+from app.services import commit_snapshot_service
+from app.services.notification_service import (
+    notify_health_change,
+    notify_repo_event,
+)
+from app.services.repo_removal_service import remove_repo_records
 
 router = APIRouter()
 
@@ -47,10 +57,66 @@ def _derive_repo_name(github_url: str) -> str:
     return name or "unknown"
 
 
+#: A sync that has been "running" this long is treated as dead. Nothing clears
+#: the flag if the worker is killed mid-clone, and a spinner that outlives the
+#: process is worse than an under-reported one — the repo reads as idle again
+#: and can be re-synced.
+SYNC_STALE_AFTER_SECONDS = 15 * 60
+
+
+def _reported_sync_status(repo: Repo) -> str:
+    if repo.sync_status != "syncing" or repo.sync_started_at is None:
+        return repo.sync_status
+    started = repo.sync_started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    if (datetime.now(timezone.utc) - started).total_seconds() > SYNC_STALE_AFTER_SECONDS:
+        return "idle"
+    return "syncing"
+
+
+async def _finish_sync(db: AsyncSession, repo: Repo, *, error: str | None) -> None:
+    """Close out a sync, successfully or not.
+
+    Always runs, including on the failure path, so a repo cannot be left
+    pinned to 'syncing' by an exception.
+    """
+    repo.sync_status = "failed" if error else "idle"
+    repo.sync_error = error[:500] if error else None
+
+
+async def _load_repo_for_read(db: AsyncSession, repo_id: uuid.UUID) -> Repo | None:
+    """Fetch a repo with everything `_repo_to_read` touches already loaded.
+
+    `db.get` hands back an identity-mapped instance untouched, so the mapper's
+    `lazy="selectin"` never fires and reading `repo.contributors` attempts IO
+    from sync serialisation code — a MissingGreenlet. It only ever worked here
+    because the access check happened to pull the rows in first on some paths.
+    """
+    result = await db.execute(
+        select(Repo)
+        .options(
+            selectinload(Repo.contributors),
+            selectinload(Repo.sync_started_by),
+        )
+        .where(Repo.id == repo_id)
+    )
+    return result.scalar_one_or_none()
+
+
 def _repo_to_read(repo: Repo, contributor_count: int | None = None, active_reminder_count: int = 0) -> RepoRead:
     if contributor_count is None:
         contributor_count = len(repo.contributors)
+    reported = _reported_sync_status(repo)
     return RepoRead(
+        sync_status=reported,
+        sync_started_at=repo.sync_started_at if reported == "syncing" else None,
+        sync_started_by_name=(
+            repo.sync_started_by.display_name
+            if reported == "syncing" and repo.sync_started_by is not None
+            else None
+        ),
+        sync_error=repo.sync_error if reported == "failed" else None,
         id=repo.id,
         collection_id=repo.collection_id,
         github_url=repo.github_url,
@@ -142,6 +208,53 @@ async def _upsert_contributors(
     await db.flush()
 
 
+async def _measure_clone_size(repo: Repo) -> None:
+    """Record the clone's on-disk size on `repo`. Best-effort; never raises.
+
+    Called at the end of a successful index run, while the tree has just been
+    cloned or fetched and is still in page cache, so the walk costs far less
+    here than it would standalone. This is what keeps the admin dashboard's
+    storage figures current: `AdminStatsService.recalculate_repo_sizes` is the
+    only other writer of these columns and it runs only when an administrator
+    asks.
+
+    Mutates the repo without committing — the caller already commits, so the
+    size lands in the same transaction as the health and sync-state updates
+    rather than needing a session of its own.
+
+    Errors are contained rather than propagated. `_index_repo`'s except branch
+    marks the whole sync failed, and by this point health, contributors and
+    sync state are all computed; discarding them because one directory would
+    not stat is a bad trade. A size that stays stale is visible in the UI as
+    its own `size_computed_at`, which is the milder failure.
+    """
+    if not repo.local_path:
+        return
+
+    try:
+        size = await _git_service.get_repo_size(repo.local_path)
+    except Exception:
+        logger.warning(
+            "Could not measure clone size for %s (%s)",
+            repo.name,
+            repo.local_path,
+            exc_info=True,
+        )
+        return
+
+    if size is None:
+        # None is "the path is not there", never "zero bytes". Leaving the
+        # previous numbers in place matches the recalculate path: an unmounted
+        # volume must not wipe the fleet's measurement history.
+        return
+
+    repo.size_bytes = size["total"]
+    repo.git_size_bytes = size["git"]
+    # Aware, because the column is DateTime(timezone=True) — unlike
+    # last_synced_at below, which is naive by existing convention.
+    repo.size_computed_at = datetime.now(timezone.utc)
+
+
 async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: str | None = None) -> None:
     """Clone (or fetch) a repo, parse commits, upsert contributors, update health."""
     from app.db.database import async_session_maker
@@ -168,6 +281,9 @@ async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: s
             branches = await _git_service.get_active_branches(local_path)
 
             await _upsert_contributors(db, repo_id, commits)
+            # Kept so the Commits table and activity chart still have something
+            # to show if this clone is not readable next time.
+            await commit_snapshot_service.store(db, repo_id, commits)
             await db.refresh(repo)
             actual_count = len(repo.contributors)
 
@@ -178,15 +294,38 @@ async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: s
                 actual_contributor_count=actual_count,
             )
 
+            # Captured before the overwrite: the previous status is the only
+            # record of it anywhere, and it is what decides whether this sync
+            # represents a decline worth notifying about.
+            previous_status = repo.health_status
+
             repo.health_status = health["status"]
             repo.health_score = health
             repo.last_synced_at = datetime.utcnow()
             if commits:
                 repo.last_commit_at = max(c["date"] for c in commits)
+
+            await _measure_clone_size(repo)
+
+            raised = await notify_health_change(
+                db,
+                repo=repo,
+                previous_status=previous_status,
+                new_status=health["status"],
+            )
+            await _finish_sync(db, repo, error=None)
             await db.commit()
             logger.info("Indexed %s: %d commits, status=%s", repo.name, len(commits), health["status"])
         except Exception as exc:
             logger.exception("Failed to index repo %s (%s): %s", repo.name, repo.github_url, exc)
+            # The session may be poisoned by whatever went wrong, so roll back
+            # before recording the failure — otherwise the repo stays pinned to
+            # 'syncing' and the dashboard spins for everyone until it goes stale.
+            await db.rollback()
+            failed = await db.get(Repo, repo_id)
+            if failed is not None:
+                await _finish_sync(db, failed, error=str(exc))
+                await db.commit()
 
 
 async def _clone_and_index(repo_id: uuid.UUID, token: str | None = None) -> None:
@@ -247,6 +386,7 @@ async def list_repos(
                 Note.is_reminder == True,   # noqa: E712
                 Note.is_archived == False,  # noqa: E712
                 Note.is_checked == False,   # noqa: E712
+                Note.deleted_at.is_(None),
             )
             .group_by(Note.repo_id)
         )
@@ -298,9 +438,7 @@ async def add_repos(
     created_repos: list[RepoRead] = []
     for url in body.urls:
         name = _derive_repo_name(url)
-        local_path = (
-            f"{settings.REPO_ROOT_DIR}/{collection.local_folder_name}/{name}"
-        )
+        local_path = _git_service.clone_path(collection.local_folder_name, name)
         repo = Repo(
             collection_id=collection_id,
             github_url=url,
@@ -312,6 +450,18 @@ async def add_repos(
         await db.flush()
         background_tasks.add_task(_clone_and_index, repo.id, user_record.github_token)
         created_repos.append(_repo_to_read(repo, contributor_count=0))
+
+        await notify_repo_event(
+            db,
+            repo=repo,
+            type=NotificationType.repo_added,
+            subject=f"{repo.name} was added to {collection.name}",
+            body=(
+                f"{user_record.display_name} added {repo.name} "
+                f"({repo.github_url}) to {collection.name}."
+            ),
+            exclude_user_id=user_uuid,
+        )
 
     await db.commit()
     return created_repos
@@ -328,7 +478,7 @@ async def get_repo(
     current_user_id: str = Depends(get_current_user),
 ) -> RepoRead:
     user_uuid = uuid.UUID(current_user_id)
-    repo = await db.get(Repo, repo_id)
+    repo = await _load_repo_for_read(db, repo_id)
     if repo is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -344,13 +494,14 @@ async def get_repo(
 
 @router.delete(
     "/repos/{repo_id}",
+    response_model=RepoDeleteResponse,
     responses={404: {"model": ErrorResponse}},
 )
 async def delete_repo(
     repo_id: uuid.UUID,
     db: AsyncSession = Depends(get_db_session),
     current_user_id: str = Depends(get_current_user),
-) -> dict:
+) -> RepoDeleteResponse:
     user_uuid = uuid.UUID(current_user_id)
     repo = await db.get(Repo, repo_id)
     if repo is None:
@@ -363,9 +514,27 @@ async def delete_repo(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Repo not found",
         )
-    await db.delete(repo)
-    await db.commit()
-    return {"detail": "Repo deleted"}
+    actor = await db.get(User, user_uuid)
+    collection = await db.get(Collection, repo.collection_id)
+    # Raised before the delete, while the repo and its collection are still
+    # readable. link_repo=False keeps the rows out of the FK cascade.
+    await notify_repo_event(
+        db,
+        repo=repo,
+        type=NotificationType.repo_removed,
+        subject=f"{repo.name} was removed from {collection.name if collection else 'a collection'}",
+        body=(
+            f"{actor.display_name if actor else 'Someone'} removed {repo.name} "
+            f"({repo.github_url}). Its notes, summaries and contributor data "
+            f"were deleted with it."
+        ),
+        exclude_user_id=user_uuid,
+        link_repo=False,
+    )
+    await db.flush()
+
+    await remove_repo_records(db, repo.id)
+    return RepoDeleteResponse(detail="Repo deleted")
 
 
 @router.patch(
@@ -467,6 +636,17 @@ async def sync_repo(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="GitHub token not configured. Add a token in your profile to enable syncing.",
         )
+    # Marked before the task is queued, so the state is already visible to
+    # every other viewer by the time this 202 comes back.
+    repo.sync_status = "syncing"
+    repo.sync_started_at = datetime.now(timezone.utc)
+    # The relationship, not the bare FK: assigning the id alone leaves a
+    # already-loaded `sync_started_by` pointing at the old value, so the very
+    # next read reports nobody started it.
+    repo.sync_started_by = user_record
+    repo.sync_error = None
+    await db.commit()
+
     background_tasks.add_task(_fetch_and_recompute, repo_id, user_record.github_token)
     return {"detail": "Sync started", "repo_id": str(repo_id)}
 
@@ -548,6 +728,13 @@ async def get_repo_commits(
     branch: Optional[str] = Query(None),
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
+    commit_type: Optional[CommitTypeFilter] = Query(
+        None,
+        description=(
+            "Filter by classification. 'unclassified' means no commit_type "
+            "yet, which includes commits that already carry a quality score."
+        ),
+    ),
     db: AsyncSession = Depends(get_db_session),
     current_user_id: str = Depends(get_current_user),
 ) -> PaginatedCommits:
@@ -563,25 +750,61 @@ async def get_repo_commits(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Repo not found",
         )
-    if not repo.local_path:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Repo has no local path. Add and sync the repo first.",
-        )
+    # The clone is the source of truth and is tried first. When it will not
+    # open — never cloned on this machine, recreated bind mount, corrupt
+    # checkout — the last sync's snapshot is served instead, flagged as stale.
+    # Only when there is no snapshot either does this stay an error: an empty
+    # table that looks normal hides the problem.
+    stale = False
+    all_commits: list[dict] = []
 
-    try:
-        t0 = time.perf_counter()
-        all_commits = await _git_service.parse_commits(repo.local_path)
-        logger.debug(
-            "get_repo_commits: parse_commits returned %d commits in %.2fs (limit=%d offset=%d branch=%s) — %s",
-            len(all_commits), time.perf_counter() - t0, limit, offset, branch, repo.name,
+    if repo.local_path:
+        try:
+            t0 = time.perf_counter()
+            all_commits = await _git_service.parse_commits(repo.local_path)
+            logger.debug(
+                "get_repo_commits: parse_commits returned %d commits in %.2fs (limit=%d offset=%d branch=%s) — %s",
+                len(all_commits), time.perf_counter() - t0, limit, offset, branch, repo.name,
+            )
+        except Exception as exc:
+            logger.warning(
+                "parse_commits failed for repo %s (%s); falling back to the "
+                "last synced snapshot: %s",
+                repo.name, repo.local_path, exc,
+            )
+            all_commits = await commit_snapshot_service.load(db, repo_id)
+            stale = True
+            if not all_commits:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Could not read commits: {exc}",
+                )
+    else:
+        all_commits = await commit_snapshot_service.load(db, repo_id)
+        stale = True
+        if not all_commits:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Repo has no local path. Add and sync the repo first.",
+            )
+
+    # Cached classifications for this repo, keyed by full SHA — which is
+    # exactly what parse_commits puts in c["hash"], so no conversion is needed.
+    # Queried on the indexed repo_id rather than `commit_hash.in_(hashes)`: the
+    # hash list runs to thousands on a real repo, and bind parameters are
+    # finite. Loaded after parse_commits so the 400/404 paths don't pay for it.
+    classification_rows = (
+        await db.execute(
+            select(
+                CommitClassification.commit_hash,
+                CommitClassification.commit_type,
+                CommitClassification.score,
+            ).where(CommitClassification.repo_id == repo_id)
         )
-    except Exception as exc:
-        logger.exception("parse_commits failed for repo %s: %s", repo.local_path, exc)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Could not read commits: {exc}",
-        )
+    ).all()
+    classifications: dict[str, tuple[Optional[str], Optional[str]]] = {
+        row.commit_hash: (row.commit_type, row.score) for row in classification_rows
+    }
 
     contributor_emails: set[str] = set()
     if contributor_id is not None:
@@ -593,12 +816,24 @@ async def get_repo_commits(
     for c in all_commits:
         if contributor_emails and c["author_email"].lower() not in contributor_emails:
             continue
-        if branch and branch not in c["branches"]:
+        # Match the owning branch, not containment: `dev` contains all of
+        # trunk's history, so `branch in c["branches"]` matched nearly
+        # everything.
+        if branch and branch != c["origin_branch"]:
             continue
         if date_from and c["date"] < date_from:
             continue
         if date_to and c["date"] > date_to:
             continue
+        if commit_type is not None:
+            # A row may exist carrying only a score, so "unclassified" has to
+            # test the commit_type value rather than row presence.
+            row_type = classifications.get(c["hash"], (None, None))[0]
+            if commit_type == "unclassified":
+                if row_type is not None:
+                    continue
+            elif row_type != commit_type:
+                continue
         filtered.append(c)
 
     total = len(filtered)
@@ -612,14 +847,19 @@ async def get_repo_commits(
             date=c["date"],
             message=c["message"],
             branches=c["branches"],
+            origin_branch=c["origin_branch"],
             insertions=c["insertions"],
             deletions=c["deletions"],
             files_changed=c["files_changed"],
+            commit_type=classifications.get(c["hash"], (None, None))[0],
+            quality_score=classifications.get(c["hash"], (None, None))[1],
         )
         for c in page
     ]
 
-    return PaginatedCommits(items=items, total=total, limit=limit, offset=offset)
+    return PaginatedCommits(
+        items=items, total=total, limit=limit, offset=offset, stale=stale
+    )
 
 
 @router.get(
@@ -651,6 +891,7 @@ async def get_repo_contributors(
             display_name=c.display_name,
             repo_id=c.repo_id,
             created_at=c.created_at,
+            can_unmerge=c.can_unmerge,
             commit_count=c.commit_count,
             total_insertions=c.total_insertions,
             total_deletions=c.total_deletions,

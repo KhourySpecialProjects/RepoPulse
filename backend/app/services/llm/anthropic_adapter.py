@@ -9,7 +9,7 @@ from app.services.llm.base import LLMService
 class AnthropicAdapter(LLMService):
     def __init__(
         self,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = settings.DEFAULT_LLM_MODEL,
         api_key: str | None = None,
     ) -> None:
         self._model = model
@@ -31,4 +31,27 @@ class AnthropicAdapter(LLMService):
             kwargs["system"] = system
 
         message = await self._client.messages.create(**kwargs)
-        return message.content[0].text
+
+        # Recorded before the content is unwrapped: a thinking-only answer
+        # returns "" to the caller and is billed all the same, and the quota
+        # has to charge for what the API charged for. getattr because a
+        # response object is not contractually required to carry usage —
+        # an unreported call is charged zero rather than an invented average.
+        #
+        # Unconditional, unlike the token amounts: the request happened
+        # whether or not the response described it, and the admin call-volume
+        # graph counts requests.
+        reported = getattr(message, "usage", None)
+        self.usage.record_call(
+            int(getattr(reported, "input_tokens", 0) or 0) if reported else 0,
+            int(getattr(reported, "output_tokens", 0) or 0) if reported else 0,
+        )
+
+        # Not content[0].text: newer models can return a ThinkingBlock first,
+        # which has no .text at all. Collect the text blocks and leave the rest
+        # alone. An answer with no text block yields "", which every caller
+        # already treats as an unusable response.
+        return "".join(
+            block.text for block in message.content
+            if getattr(block, "type", None) == "text"
+        )

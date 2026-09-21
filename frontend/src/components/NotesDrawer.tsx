@@ -1,24 +1,27 @@
-import { useState, useEffect } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
-import { FileText, Archive, Trash2, CheckSquare, Square, GitCommit, X, Pin } from 'lucide-react'
-import { NoteForm } from '@/components/NoteForm'
+import { useEffect, useState } from 'react'
+import { FileText, Archive, Trash2, CheckSquare, Square, GitCommit, ChevronRight } from 'lucide-react'
+import { NoteForm, type NoteFormValues } from '@/components/NoteForm'
 import { NoteComments } from '@/components/NoteComments'
 import { cn } from '@/lib/utils'
-import type { Note, CreateNoteData, UserDetail } from '@/types'
+import type { Note, UserDetail } from '@/types'
 
+/** Collapsible notes panel anchored to the right edge. */
 interface NotesDrawerProps {
-  repoId: string
   notes: Note[] | undefined
   noteCount: number
   showArchivedNotes: boolean
   onToggleArchivedNotes: () => void
-  createNoteMutation: { isPending: boolean; mutate: (data: CreateNoteData) => void }
+  createNoteMutation: { isPending: boolean; mutate: (data: NoteFormValues) => void }
   updateNoteMutation: { mutate: (args: { id: string; data: Partial<Note> }) => void }
   deleteNoteMutation: { mutate: (id: string) => void }
   users: UserDetail[] | undefined
   currentUser: { id: string; role: string } | null | undefined
   onScrollToCommit: (hash: string) => void
-  onPinnedChange?: (pinned: boolean) => void
+  /**
+   * A note arrived at from a notification. Marked and scrolled to, so it can
+   * be picked out of a long list.
+   */
+  highlightNoteId?: string | null
 }
 
 function formatDateTime(dateStr: string): string {
@@ -34,7 +37,7 @@ function renderNoteContent(content: string) {
     if (part.startsWith('@') && part.length > 1) {
       const name = part.slice(1).replace(/_/g, ' ')
       return (
-        <span key={i} className="inline-flex items-center bg-violet-100 text-violet-700 rounded px-1 py-0.5 text-xs font-medium">
+        <span key={i} className="inline-flex items-center bg-orchid-100 text-orchid-700 rounded px-1 py-0.5 text-xs font-medium">
           @{name}
         </span>
       )
@@ -44,7 +47,6 @@ function renderNoteContent(content: string) {
 }
 
 export function NotesDrawer({
-  repoId,
   notes,
   noteCount,
   showArchivedNotes,
@@ -55,40 +57,22 @@ export function NotesDrawer({
   users,
   currentUser,
   onScrollToCommit,
-  onPinnedChange,
+  highlightNoteId,
 }: NotesDrawerProps) {
-  const [isOpen, setIsOpen] = useState(false)
-  const [isPinned, setIsPinned] = useState(() => {
-    try { return localStorage.getItem(`notes-drawer-pinned-${repoId}`) === 'true' } catch { return false }
-  })
-
-  function toggleOpen() { setIsOpen(v => !v) }
-
-  function togglePin() {
-    const next = !isPinned
-    setIsPinned(next)
-    try { localStorage.setItem(`notes-drawer-pinned-${repoId}`, String(next)) } catch {}
-    if (next) setIsOpen(true) // pinning always opens
-    onPinnedChange?.(next && isOpen)
-  }
-
+  const [open, setOpen] = useState(Boolean(highlightNoteId))
   useEffect(() => {
-    onPinnedChange?.(isPinned && isOpen)
-  }, [isPinned, isOpen])
-
+    if (highlightNoteId) setOpen(true)
+  }, [highlightNoteId])
   useEffect(() => {
-    if (!isOpen || isPinned) return
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setIsOpen(false)
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [isOpen, isPinned])
+    if (!highlightNoteId) return
+    document
+      .getElementById(`note-${highlightNoteId}`)
+      ?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+  }, [highlightNoteId, notes, open])
 
   const visibleNotes = notes?.filter(n => showArchivedNotes ? true : !n.is_archived) ?? []
   const hasArchivedNotes = notes?.some(n => n.is_archived) ?? false
 
-  // Shared notes body content (used in both overlay and inline panel)
   const notesBody = (
     <div className="flex-1 overflow-y-auto px-4 py-3">
       {/* New note form */}
@@ -122,10 +106,16 @@ export function NotesDrawer({
             {visibleNotes.map((note, index) => (
               <div
                 key={note.id}
+                id={`note-${note.id}`}
+                data-highlighted={note.id === highlightNoteId ? 'true' : undefined}
                 className={cn(
                   'py-3',
                   index < visibleNotes.length - 1 && 'border-b border-border',
-                  note.is_archived && 'opacity-50'
+                  note.is_archived && 'opacity-50',
+                  // Ring rather than a background tint: notes already use
+                  // background to mean archived, and the two would blend.
+                  note.id === highlightNoteId &&
+                    '-mx-2 rounded-md px-2 ring-2 ring-brand-400'
                 )}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -167,7 +157,7 @@ export function NotesDrawer({
                 <div className="flex items-center justify-between gap-2 mt-1.5">
                   <div className="flex items-center gap-1.5">
                     <div
-                      className="h-5 w-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-semibold flex-shrink-0 cursor-default"
+                      className="h-5 w-5 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-[10px] font-semibold flex-shrink-0 cursor-default"
                       title={note.author_display_name}
                     >
                       {note.author_display_name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
@@ -177,7 +167,7 @@ export function NotesDrawer({
                   {note.commit_hash && (
                     <button
                       onClick={() => onScrollToCommit(note.commit_hash!)}
-                      className="flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700 font-mono transition-colors"
+                      className="flex items-center gap-1 text-xs text-brand-500 hover:text-brand-700 font-mono transition-colors"
                       title="Jump to commit"
                     >
                       <GitCommit className="h-3 w-3" />
@@ -190,6 +180,7 @@ export function NotesDrawer({
                     note={note}
                     currentUserId={currentUser.id}
                     currentUserRole={currentUser.role as 'instructor' | 'ta' | 'admin'}
+                    users={users ?? []}
                   />
                 )}
               </div>
@@ -200,92 +191,49 @@ export function NotesDrawer({
     </div>
   )
 
-  // Shared panel header content
-  const panelHeader = (
-    <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
-      <div className="flex items-center gap-2">
+  return (
+    <div className={cn(
+      'sticky top-6 self-start shrink-0 transition-[width] duration-200 motion-reduce:transition-none',
+      open ? 'w-80 max-w-[calc(100vw-4rem)]' : 'w-0'
+    )}>
+      {!open && <button
+        type="button"
+        aria-label="Open notes"
+        aria-expanded={open}
+        aria-controls="repo-notes-panel"
+        onClick={() => setOpen(value => !value)}
+        className="fixed right-0 top-40 z-40 flex h-24 w-9 items-center justify-center rounded-l-2xl border border-r-0 border-border bg-white text-sm font-semibold text-muted-foreground shadow-md transition-colors hover:bg-brand-50 hover:text-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+      >
+        <span className="-rotate-90 whitespace-nowrap">Notes</span>
+      </button>}
+      <div
+        id="repo-notes-panel"
+        data-testid="notes-panel"
+        hidden={!open}
+        className={cn('max-h-[calc(100vh-9rem)] flex-col bg-white rounded-xl border border-border overflow-hidden shadow-sm', open && 'flex')}
+      >
+      <div className="px-4 py-3 border-b border-border flex items-center gap-2 flex-shrink-0">
         <FileText className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-sm font-semibold">Notes</h2>
+        <button
+          type="button"
+          aria-label="Close notes"
+          aria-expanded={open}
+          aria-controls="repo-notes-panel"
+          onClick={() => setOpen(false)}
+          className="order-last ml-auto rounded p-1 text-muted-foreground hover:bg-brand-50 hover:text-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+          title="Collapse notes"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
         {noteCount > 0 && (
-          <span className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full px-2 py-0.5 font-medium">
+          <span className="text-xs bg-brand-100 text-brand-700 border border-brand-200 rounded-full px-2 py-0.5 font-medium">
             {noteCount}
           </span>
         )}
       </div>
-      <div className="flex items-center gap-1">
-        <button
-          onClick={togglePin}
-          title={isPinned ? 'Unpin' : 'Pin open'}
-          className={cn(
-            'p-1.5 rounded transition-colors',
-            isPinned
-              ? 'text-indigo-600 hover:text-indigo-700'
-              : 'text-gray-400 hover:text-gray-600'
-          )}
-        >
-          <Pin className={cn('h-4 w-4', isPinned && 'fill-indigo-600')} />
-        </button>
-        <button
-          onClick={() => setIsOpen(false)}
-          title="Close"
-          className="p-1.5 rounded text-gray-400 hover:text-gray-600 transition-colors"
-        >
-          <X className="h-4 w-4" />
-        </button>
+      {notesBody}
       </div>
     </div>
-  )
-
-  // State 3: Open + pinned — render inline panel only (parent lays it out in flex row)
-  if (isPinned && isOpen) {
-    return (
-      <div className="w-80 flex-shrink-0 sticky top-6 self-start max-h-[calc(100vh-3rem)] flex flex-col bg-white rounded-xl border border-gray-200 overflow-hidden">
-        {panelHeader}
-        {notesBody}
-      </div>
-    )
-  }
-
-  // State 1 & 2: book tab always present; overlay panel shown when open
-  return (
-    <>
-      {/* Small book tab — hidden when panel is open in overlay mode to avoid redundancy */}
-      <div
-        className={cn(
-          'fixed right-0 top-48 z-40 w-8 py-5 rounded-l-xl bg-white border border-r-0 border-gray-200 shadow-md hover:bg-gray-50 cursor-pointer transition-colors flex flex-col items-center gap-2',
-          isOpen && 'invisible'
-        )}
-        onClick={toggleOpen}
-        title="Open notes"
-      >
-        {noteCount > 0 && (
-          <span className="bg-indigo-100 text-indigo-700 text-[10px] font-semibold rounded-full w-5 h-5 flex items-center justify-center leading-none flex-shrink-0">
-            {noteCount}
-          </span>
-        )}
-        <span
-          className="text-xs font-medium text-gray-500 select-none"
-          style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
-        >
-          Notes
-        </span>
-      </div>
-
-      {/* Sliding overlay panel */}
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            className="fixed right-0 top-0 h-screen w-80 z-40 flex flex-col bg-white border-l border-gray-200 shadow-xl"
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-          >
-            {panelHeader}
-            {notesBody}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </>
   )
 }

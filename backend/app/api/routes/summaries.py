@@ -6,16 +6,21 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user, get_db_session
+from app.core.deps import get_current_user, get_current_user_obj, get_db_session
 from app.models.contributor import Contributor
+from app.models.llm_token_usage import FEATURE_SUMMARY
 from app.models.repo import Repo
 from app.models.summary import Summary
+from app.models.user import User
 from app.schemas.errors import ErrorResponse
+from app.schemas.llm_quota import TokenLimitExceeded
 from app.schemas.summaries import GenerateSummaryRequest, SummaryRead
 from app.services.git_service import GitService
 from app.services.health_service import HealthService
-from app.models.app_settings import AppSettings
 from app.services.llm import get_llm_service
+from app.services.llm.base import usage_of
+from app.services.llm.quota import record_usage, require_quota
+from app.services.llm.user_settings import resolve_llm_settings
 from app.services.summary_service import SummaryService
 
 router = APIRouter()
@@ -43,33 +48,26 @@ def _summary_to_read(summary: Summary) -> SummaryRead:
     responses={
         400: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
+        429: {"model": TokenLimitExceeded},
     },
 )
 async def generate_summary(
     body: GenerateSummaryRequest,
     db: AsyncSession = Depends(get_db_session),
-    current_user_id: str = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_obj),
 ) -> SummaryRead:
-    user_uuid = uuid.UUID(current_user_id)
-    settings_result = await db.execute(
-        select(AppSettings).where(AppSettings.user_id == user_uuid)
+    user_uuid = current_user.id
+    # Before the LLM is built, not after: a refusal issued after the call has
+    # already been paid for is a warning, not a limit.
+    await require_quota(db, current_user)
+
+    llm_cfg = await resolve_llm_settings(db, user_uuid)
+
+    llm = get_llm_service(
+        llm_cfg.provider, llm_cfg.model, llm_cfg.api_key, llm_cfg.ollama_url
     )
-    user_settings = settings_result.scalar_one_or_none()
-
-    if user_settings:
-        provider = user_settings.llm_provider or "anthropic"
-        model = user_settings.llm_model or "claude-sonnet-4-20250514"
-        api_key = user_settings.anthropic_api_key or None
-        ollama_url = user_settings.ollama_base_url or None
-    else:
-        provider = "anthropic"
-        model = "claude-sonnet-4-20250514"
-        api_key = None
-        ollama_url = None
-
-    llm = get_llm_service(provider, model, api_key, ollama_url)
     summary_svc = SummaryService(llm=llm)
-    model_used = f"ollama/{model}" if provider == "ollama" else model
+    model_used = llm_cfg.label
 
     if body.summary_type == "repo_overview":
         if body.repo_id is None:
@@ -101,7 +99,10 @@ async def generate_summary(
                 {"display_name": c.display_name} for c in repo.contributors
             ],
         }
-        content = await summary_svc.generate_repo_overview(repo_data)
+        content = await summary_svc.generate_repo_overview(
+            repo_data,
+            instructor_instructions=llm_cfg.commit_evaluation_criteria or None,
+        )
 
         summary = Summary(
             repo_id=body.repo_id,
@@ -191,6 +192,16 @@ async def generate_summary(
         )
 
     db.add(summary)
+    # Charged in the same transaction as the summary it paid for: a request
+    # that fails before this commit costs the user nothing, and a stored
+    # summary always has its usage row beside it.
+    await record_usage(
+        db,
+        user_id=user_uuid,
+        feature=FEATURE_SUMMARY,
+        model_used=model_used,
+        usage=usage_of(llm),
+    )
     await db.commit()
     await db.refresh(summary)
     return _summary_to_read(summary)

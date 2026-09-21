@@ -26,7 +26,7 @@ const ACCESS_ROLE_LABELS: Record<CollectionAccessEntry['access_role'], string> =
 
 const ACCESS_ROLE_COLORS: Record<CollectionAccessEntry['access_role'], string> = {
   co_instructor: 'bg-blue-100 text-blue-700',
-  ta: 'bg-violet-100 text-violet-700',
+  ta: 'bg-orchid-100 text-orchid-700',
 }
 
 interface AddAccessDialogProps {
@@ -65,7 +65,7 @@ function AddAccessDialog({ collectionId, accessRole, existingUserIds, onClose }:
             <p className="text-sm text-muted-foreground">No eligible users available.</p>
           ) : (
             <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-              <SelectTrigger style={{ backgroundColor: 'white' }}>
+              <SelectTrigger>
                 <SelectValue placeholder="Select a user" />
               </SelectTrigger>
               <SelectContent>
@@ -84,7 +84,7 @@ function AddAccessDialog({ collectionId, accessRole, existingUserIds, onClose }:
           </Button>
           <Button
             onClick={handleAdd}
-            disabled={!selectedUserId || addAccess.isPending}
+            loading={addAccess.isPending} disabled={!selectedUserId || addAccess.isPending}
           >
             {addAccess.isPending ? 'Adding...' : 'Add'}
           </Button>
@@ -136,7 +136,7 @@ export function CollectionAccessPanel({ collectionId, canManage = false }: Colle
             <button
               type="button"
               onClick={() => setAddingRole(role)}
-              className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 transition-colors"
+              className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 transition-colors"
             >
               <UserPlus className="h-3 w-3" />
               Add
@@ -153,7 +153,7 @@ export function CollectionAccessPanel({ collectionId, canManage = false }: Colle
                 className="flex items-center justify-between rounded-md bg-muted/40 px-2.5 py-1.5"
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-semibold flex items-center justify-center">
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-[10px] font-semibold flex items-center justify-center">
                     {entry.user_display_name.charAt(0).toUpperCase()}
                   </div>
                   <div className="min-w-0">
@@ -166,15 +166,15 @@ export function CollectionAccessPanel({ collectionId, canManage = false }: Colle
                     {ACCESS_ROLE_LABELS[entry.access_role]}
                   </span>
                   {canManage && (
-                    <button
+                    <Button variant="ghost"
                       type="button"
                       onClick={() => handleRemove(entry.user_id)}
-                      disabled={removeAccess.isPending}
+                      loading={removeAccess.isPending} disabled={removeAccess.isPending}
                       className="text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-40"
                       title="Remove access"
                     >
                       <X className="h-3.5 w-3.5" />
-                    </button>
+                    </Button>
                   )}
                 </div>
               </div>

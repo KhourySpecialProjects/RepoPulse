@@ -1,10 +1,22 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
+  dismissNotification,
   getNotifications,
+  getNotificationPreferences,
+  updateNotificationPreferences,
+  getRecentlyDeleted,
+  getReminders,
   getUnreadCount,
+  purgeNote,
+  purgeNotification,
+  restoreNote,
+  restoreNotification,
   markNotificationRead,
+  markNotificationUnread,
   markAllNotificationsRead,
+  markAllNotificationsUnread,
 } from '@/services/api'
+import type { UpdateNotificationPreferencesData } from '@/types'
 
 export function useNotifications(params?: {
   unread_only?: boolean
@@ -27,6 +39,15 @@ export function useUnreadCount() {
   })
 }
 
+/** The current user's outstanding reminders, for the notifications panel. */
+export function useReminders() {
+  return useQuery({
+    queryKey: ['notifications', 'reminders'],
+    queryFn: getReminders,
+    staleTime: 15_000,
+  })
+}
+
 export function useMarkNotificationRead() {
   const qc = useQueryClient()
   return useMutation({
@@ -43,6 +64,101 @@ export function useMarkAllNotificationsRead() {
     mutationFn: markAllNotificationsRead,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['notifications'] })
+    },
+  })
+}
+
+// ── Recently deleted (soft delete) ──────────────────────────────────────────
+
+/** Notifications and reminders awaiting restore or permanent deletion. */
+export function useRecentlyDeleted() {
+  return useQuery({
+    queryKey: ['notifications', 'recently-deleted'],
+    queryFn: getRecentlyDeleted,
+    staleTime: 15_000,
+  })
+}
+
+/**
+ * Every soft-delete action touches the feed, the reminders list, the recently
+ * deleted list and the unread count, so they all invalidate together.
+ */
+function useSoftDeleteMutation(mutationFn: (id: string) => Promise<void>) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notifications'] })
+      qc.invalidateQueries({ queryKey: ['notes'] })
+      qc.invalidateQueries({ queryKey: ['repos'] })
+    },
+  })
+}
+
+export function useDismissNotification() {
+  return useSoftDeleteMutation(dismissNotification)
+}
+
+export function useRestoreNotification() {
+  return useSoftDeleteMutation(restoreNotification)
+}
+
+export function usePurgeNotification() {
+  return useSoftDeleteMutation(purgeNotification)
+}
+
+export function useRestoreNote() {
+  return useSoftDeleteMutation(restoreNote)
+}
+
+export function usePurgeNote() {
+  return useSoftDeleteMutation(purgeNote)
+}
+
+export function useMarkNotificationUnread() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => markNotificationUnread(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notifications'] })
+    },
+  })
+}
+
+export function useMarkAllNotificationsUnread() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: markAllNotificationsUnread,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notifications'] })
+    },
+  })
+}
+
+// ── Subscriptions ───────────────────────────────────────────────────────────
+
+/** Which events this account wants. Scoped to the signed-in user. */
+export function useNotificationPreferences() {
+  return useQuery({
+    queryKey: ['notifications', 'preferences'],
+    queryFn: getNotificationPreferences,
+    staleTime: 60_000,
+  })
+}
+
+export function useUpdateNotificationPreferences() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: UpdateNotificationPreferencesData) =>
+      updateNotificationPreferences(data),
+    onSuccess: (preferences) => {
+      // The response is the full new map, so seed the cache with it rather
+      // than invalidating and refetching what we were just handed.
+      qc.setQueryData(['notifications', 'preferences'], preferences)
+      // Muting an event stops new rows being created, so what is already in
+      // the feed is unaffected — but a newly unmuted event can start arriving
+      // immediately, and the feed should pick that up.
+      qc.invalidateQueries({ queryKey: ['notifications'], exact: true })
     },
   })
 }

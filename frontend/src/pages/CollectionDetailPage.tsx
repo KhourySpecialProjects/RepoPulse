@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowLeft, Plus, RefreshCw, GitBranch, LayoutGrid, Pencil, Archive, ArchiveRestore, Users } from 'lucide-react'
 import { useCollection, useSyncCollection, useUpdateCollection } from '@/hooks/useCollections'
 import { useRepos, useAddRepos } from '@/hooks/useRepos'
 import { useAuth } from '@/hooks/useAuth'
+import { useBackTarget } from '@/hooks/useBackTarget'
 import { useCurrentUser } from '@/hooks/useUsers'
 import { RepoCard } from '@/components/RepoCard'
 import { CollectionAccessPanel } from '@/components/CollectionAccessPanel'
@@ -22,6 +23,7 @@ import {
 } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
 import type { HealthStatus } from '@/types'
 
 type SortBy = 'name' | 'health' | 'last_synced'
@@ -31,7 +33,9 @@ const healthOrder: Record<HealthStatus, number> = { red: 0, yellow: 1, unknown: 
 
 export function CollectionDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
+  // The collection list is only the fallback; arriving from the dashboard or
+  // the sidebar returns there instead.
+  const backTarget = useBackTarget('/collections')
   const { data: collection, isLoading: collectionLoading } = useCollection(id ?? '')
   const { data: reposData, isLoading: reposLoading } = useRepos(id ?? '')
   const syncMutation = useSyncCollection()
@@ -50,6 +54,17 @@ export function CollectionDetailPage() {
   const [editOpen, setEditOpen] = useState(false)
   const [editForm, setEditForm] = useState({ name: '', course_tag: '', semester_tag: '' })
   const [accessPanelOpen, setAccessPanelOpen] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+
+  async function handleSync() {
+    setSyncing(true)
+    try {
+      await syncMutation.mutateAsync(id ?? '')
+      window.setTimeout(() => setSyncing(false), 5000)
+    } catch {
+      setSyncing(false)
+    }
+  }
 
   function handleEditOpen() {
     if (!collection) return
@@ -140,24 +155,27 @@ export function CollectionDetailPage() {
 
   return (
     <div>
-      <div className="border-b border-border bg-white px-6 py-4">
-        <div className="flex items-center justify-between gap-3">
+      <div data-testid="page-header" className={PAGE_HEADER_CLASS}>
+        <div className="flex w-full flex-col gap-1">
+        <div className="flex w-full items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <button
-              onClick={() => navigate('/collections')}
-              className="text-muted-foreground hover:text-indigo-600 transition-colors flex-shrink-0"
+              onClick={backTarget.goBack}
+              aria-label={backTarget.label}
+              title={backTarget.label}
+              className="text-muted-foreground hover:text-brand-600 transition-colors flex-shrink-0"
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
             <h1 className="text-xl font-semibold text-foreground truncate">{collection.name}</h1>
             <div className="flex gap-1.5 flex-shrink-0">
               {collection.course_tag && (
-                <span className="text-xs bg-indigo-100 text-indigo-700 rounded-full px-2 py-0.5 font-medium">
+                <span className="text-xs bg-brand-100 text-brand-700 rounded-full px-2 py-0.5 font-medium">
                   {collection.course_tag}
                 </span>
               )}
               {collection.semester_tag && (
-                <span className="text-xs bg-violet-100 text-violet-700 rounded-full px-2 py-0.5 font-medium">
+                <span className="text-xs bg-orchid-100 text-orchid-700 rounded-full px-2 py-0.5 font-medium">
                   {collection.semester_tag}
                 </span>
               )}
@@ -173,7 +191,7 @@ export function CollectionDetailPage() {
             <button
               onClick={handleEditOpen}
               title="Edit collection"
-              className="p-1.5 rounded text-muted-foreground hover:text-indigo-600 hover:bg-indigo-100 transition-colors"
+              className="p-1.5 rounded text-muted-foreground hover:text-brand-600 hover:bg-brand-100 transition-colors"
             >
               <Pencil className="h-4 w-4" />
             </button>
@@ -187,41 +205,46 @@ export function CollectionDetailPage() {
             <button
               onClick={() => setAccessPanelOpen((v) => !v)}
               title="Manage access"
-              className={`p-1.5 rounded transition-colors ${accessPanelOpen ? 'text-indigo-600 bg-indigo-100' : 'text-muted-foreground hover:text-indigo-600 hover:bg-indigo-100'}`}
+              aria-expanded={accessPanelOpen}
+              aria-controls="collection-access-panel"
+              className={`p-1.5 rounded transition-colors ${accessPanelOpen ? 'text-brand-600 bg-brand-100' : 'text-muted-foreground hover:text-brand-600 hover:bg-brand-100'}`}
             >
               <Users className="h-4 w-4" />
             </button>
           </div>
         </div>
-        <p className="text-muted-foreground text-sm mt-1 ml-7">
+        <p className="text-muted-foreground text-sm ml-7">
           {collection.repo_count} repositor{collection.repo_count !== 1 ? 'ies' : 'y'}
         </p>
-
-        {/* Access Panel */}
-        <AnimatePresence>
-          {accessPanelOpen && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.2 }}
-              className="overflow-hidden"
-            >
-              <div className="mt-4 rounded-lg border border-border bg-gray-50 p-4">
-                <CollectionAccessPanel
-                  collectionId={collection.id}
-                  canManage={
-                    user?.role === 'admin' ||
-                    collection.owner_id === user?.id
-                  }
-                />
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        </div>
       </div>
 
-    <div className="px-6 py-6">
+      {/* Access panel — a full-width drawer under the whole title box */}
+      <AnimatePresence>
+        {accessPanelOpen && (
+          <motion.div
+            id="collection-access-panel"
+            data-testid="access-panel"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden border-b border-border bg-brand-50"
+          >
+            <div className="px-6 py-5">
+              <CollectionAccessPanel
+                collectionId={collection.id}
+                canManage={
+                  user?.role === 'admin' ||
+                  collection.owner_id === user?.id
+                }
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+    <div className={PAGE_BODY_CLASS}>
       <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
         <div className="flex items-center gap-2">
           <Select value={filterHealth} onValueChange={(v) => setFilterHealth(v as FilterHealth)}>
@@ -251,11 +274,11 @@ export function CollectionDetailPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => syncMutation.mutate(id ?? '')}
-            disabled={syncMutation.isPending || !hasToken}
+            onClick={handleSync}
+            loading={syncing || syncMutation.isPending} disabled={syncing || syncMutation.isPending || !hasToken}
             title={!hasToken ? 'Add a GitHub token in your profile to enable syncing' : undefined}
           >
-            <RefreshCw className={cn('h-4 w-4 mr-2', syncMutation.isPending && 'animate-spin')} />
+            <RefreshCw className={cn('h-4 w-4 mr-2', (syncing || syncMutation.isPending) && 'animate-spin motion-reduce:animate-none')} />
             Sync All
           </Button>
           <Button
@@ -346,7 +369,7 @@ export function CollectionDetailPage() {
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={addReposMutation.isPending}>
+              <Button type="submit" loading={addReposMutation.isPending} disabled={addReposMutation.isPending}>
                 {addReposMutation.isPending ? (
                   <>
                     <GitBranch className="h-4 w-4 mr-2 animate-pulse" />
@@ -387,7 +410,7 @@ export function CollectionDetailPage() {
                 type="text"
                 value={editForm.name}
                 onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
-                className="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-400"
+                className="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-brand-400"
                 placeholder="Collection name"
               />
             </div>
@@ -397,7 +420,7 @@ export function CollectionDetailPage() {
                 type="text"
                 value={editForm.course_tag}
                 onChange={e => setEditForm(f => ({ ...f, course_tag: e.target.value }))}
-                className="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-400"
+                className="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-brand-400"
                 placeholder="e.g. CS 101"
               />
             </div>
@@ -407,7 +430,7 @@ export function CollectionDetailPage() {
                 type="text"
                 value={editForm.semester_tag}
                 onChange={e => setEditForm(f => ({ ...f, semester_tag: e.target.value }))}
-                className="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-400"
+                className="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-brand-400"
                 placeholder="e.g. Fall 2025"
               />
             </div>
@@ -416,7 +439,7 @@ export function CollectionDetailPage() {
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
             <Button
               onClick={handleEditSave}
-              disabled={!editForm.name.trim() || updateCollectionMutation.isPending}
+              loading={updateCollectionMutation.isPending} disabled={!editForm.name.trim() || updateCollectionMutation.isPending}
             >
               {updateCollectionMutation.isPending ? 'Saving…' : 'Save'}
             </Button>

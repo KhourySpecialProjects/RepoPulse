@@ -15,6 +15,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
+import { useBackState } from '@/hooks/useBackTarget'
 import type { Collection, CreateCollectionData } from '@/types'
 
 const containerVariants = {
@@ -29,6 +31,7 @@ const itemVariants = {
 
 export function CollectionsPage() {
   const navigate = useNavigate()
+  const backState = useBackState()
   const [showArchived, setShowArchived] = useState(false)
   const [editingCollection, setEditingCollection] = useState<Collection | null>(null)
   const [editForm, setEditForm] = useState({ name: '', course_tag: '', semester_tag: '' })
@@ -101,7 +104,7 @@ export function CollectionsPage() {
 
   return (
     <div>
-      <div className="border-b border-border bg-white px-6 py-4 flex items-center justify-between">
+      <div data-testid="page-header" className={cn(PAGE_HEADER_CLASS, 'justify-between')}>
         <h1 className="text-xl font-semibold text-foreground">Collections</h1>
         <div className="flex items-center gap-2">
           <Button
@@ -113,13 +116,13 @@ export function CollectionsPage() {
             <Archive className="h-4 w-4 mr-1.5" />
             {showArchived ? 'Hide archived' : 'Show archived'}
           </Button>
-          <Button size="sm" onClick={() => setDialogOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm">
+          <Button size="sm" onClick={() => setDialogOpen(true)} className="bg-brand-600 hover:bg-brand-700 text-white shadow-sm">
             <Plus className="h-4 w-4 mr-2" />
             New Collection
           </Button>
         </div>
       </div>
-    <div className="px-6 py-6">
+    <div className={PAGE_BODY_CLASS}>
 
       {isLoading && (
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
@@ -158,13 +161,13 @@ export function CollectionsPage() {
             {collections.map((collection) => (
               <motion.div key={collection.id} variants={itemVariants} className={cn(collection.is_archived && 'opacity-70')}>
                 <Card
-                  className="cursor-pointer bg-white shadow-sm hover:shadow-md border border-border hover:border-indigo-200 transition-all duration-200 h-full"
-                  onClick={() => navigate(`/collections/${collection.id}`)}
+                  className="cursor-pointer bg-white shadow-sm hover:shadow-md border border-border hover:border-brand-200 transition-all duration-200 h-full"
+                  onClick={() => navigate(`/collections/${collection.id}`, { state: backState })}
                 >
                   <CardHeader className="pb-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-start gap-2 min-w-0">
-                        <BookOpen className="h-5 w-5 text-indigo-500 mt-0.5 flex-shrink-0" />
+                        <BookOpen className="h-5 w-5 text-brand-500 mt-0.5 flex-shrink-0" />
                         <div className="min-w-0">
                           <CardTitle className="text-base truncate">{collection.name}</CardTitle>
                           <div className="flex flex-wrap gap-1 mt-1">
@@ -175,12 +178,12 @@ export function CollectionsPage() {
                               </span>
                             )}
                             {collection.course_tag && (
-                              <span className="text-xs bg-indigo-100 text-indigo-700 rounded-full px-2 py-0.5 font-medium">
+                              <span className="text-xs bg-brand-100 text-brand-700 rounded-full px-2 py-0.5 font-medium">
                                 {collection.course_tag}
                               </span>
                             )}
                             {collection.semester_tag && (
-                              <span className="text-xs bg-violet-100 text-violet-700 rounded-full px-2 py-0.5 font-medium">
+                              <span className="text-xs bg-orchid-100 text-orchid-700 rounded-full px-2 py-0.5 font-medium">
                                 {collection.semester_tag}
                               </span>
                             )}
@@ -191,7 +194,7 @@ export function CollectionsPage() {
                         <button
                           onClick={(e) => handleEditOpen(collection, e)}
                           title="Edit collection"
-                          className="p-1.5 rounded text-muted-foreground hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                          className="p-1.5 rounded text-muted-foreground hover:text-brand-600 hover:bg-brand-50 transition-colors"
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
@@ -230,7 +233,7 @@ export function CollectionsPage() {
                           </span>
                         )}
                         {collection.health_unknown > 0 && (
-                          <span className="inline-flex items-center gap-1 text-xs bg-gray-50 text-gray-500 border border-gray-200 rounded-full px-2 py-0.5 font-medium">
+                          <span className="inline-flex items-center gap-1 text-xs bg-brand-50 text-muted-foreground border border-border rounded-full px-2 py-0.5 font-medium">
                             <span className="h-1.5 w-1.5 rounded-full bg-gray-400 inline-block" />
                             {collection.health_unknown}
                           </span>
@@ -313,7 +316,7 @@ export function CollectionsPage() {
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={createMutation.isPending}>
+              <Button type="submit" loading={createMutation.isPending} disabled={createMutation.isPending}>
                 {createMutation.isPending ? (
                   <>
                     <RefreshCw className={cn('h-4 w-4 mr-2 animate-spin')} />
@@ -379,7 +382,7 @@ export function CollectionsPage() {
             </Button>
             <Button
               onClick={handleEditSave}
-              disabled={!editForm.name.trim() || updateCollectionMutation.isPending}
+              loading={updateCollectionMutation.isPending} disabled={!editForm.name.trim() || updateCollectionMutation.isPending}
             >
               {updateCollectionMutation.isPending ? (
                 <>

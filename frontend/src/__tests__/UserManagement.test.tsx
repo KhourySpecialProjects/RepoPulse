@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { http, HttpResponse } from 'msw'
@@ -55,6 +56,9 @@ const mockNotification: Notification = {
   created_at: '2025-01-01T00:00:00Z',
   note_content_preview: 'Good progress...',
   repo_id: 'repo-1',
+  commit_hash: null,
+  subject: null,
+  body: null,
 }
 
 // Tests for API functions
@@ -75,10 +79,11 @@ describe('API: user management endpoints', () => {
       http.get('/api/v1/users', ({ request }) => {
         const url = new URL(request.url)
         const collectionId = url.searchParams.get('collection_id')
-        if (collectionId === 'col-1') {
-          return HttpResponse.json([mockUserDetail])
-        }
-        return HttpResponse.json([mockUserDetail, mockAdminUser])
+        // getUsers unwraps the paginated envelope, so the mock must send one.
+        const items = collectionId === 'col-1'
+          ? [mockUserDetail]
+          : [mockUserDetail, mockAdminUser]
+        return HttpResponse.json({ items, total: items.length, limit: 50, offset: 0 })
       })
     )
     const { getUsers } = await import('@/services/api')
@@ -88,11 +93,22 @@ describe('API: user management endpoints', () => {
     expect(filteredUsers).toHaveLength(1)
   })
 
-  it('createUser posts to /users', async () => {
+  it('createUser posts to /users and returns the setup link', async () => {
+    let sent: Record<string, unknown> = {}
     server.use(
       http.post('/api/v1/users', async ({ request }) => {
-        const body = await request.json() as Record<string, unknown>
-        return HttpResponse.json({ ...mockUserDetail, email: body.email as string }, { status: 201 })
+        sent = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json(
+          {
+            user: { ...mockUserDetail, email: sent.email as string },
+            setup: {
+              token: 'setup-token-abc',
+              setup_path: '/account-setup?token=setup-token-abc',
+              expires_at: '2026-01-03T00:00:00Z',
+            },
+          },
+          { status: 201 }
+        )
       })
     )
     const { createUser } = await import('@/services/api')
@@ -100,9 +116,26 @@ describe('API: user management endpoints', () => {
       email: 'new@example.com',
       display_name: 'New User',
       role: 'ta',
-      password: 'password123',
     })
-    expect(result.email).toBe('new@example.com')
+    expect(result.user.email).toBe('new@example.com')
+    expect(result.setup.setup_path).toBe('/account-setup?token=setup-token-abc')
+    // No password is chosen on the admin's behalf.
+    expect(sent).not.toHaveProperty('password')
+  })
+
+  it('generateSetupLink posts to /users/:id/setup-link', async () => {
+    server.use(
+      http.post('/api/v1/users/:id/setup-link', () =>
+        HttpResponse.json({
+          token: 'reset-token-xyz',
+          setup_path: '/account-setup?token=reset-token-xyz',
+          expires_at: '2026-01-03T00:00:00Z',
+        })
+      )
+    )
+    const { generateSetupLink } = await import('@/services/api')
+    const result = await generateSetupLink('user-1')
+    expect(result.token).toBe('reset-token-xyz')
   })
 
   it('deleteUser sends DELETE to /users/:id', async () => {
@@ -155,9 +188,13 @@ describe('API: user management endpoints', () => {
     expect(result.items).toHaveLength(1)
   })
 
-  it('markAllNotificationsRead posts to /notifications/read-all', async () => {
+  // The backend route is POST /notifications/mark-all-read; the client used to
+  // call /read-all, which 404s, so nothing was ever marked read.
+  it('markAllNotificationsRead posts to /notifications/mark-all-read', async () => {
     server.use(
-      http.post('/api/v1/notifications/read-all', () => HttpResponse.json({ marked_read: 3 }))
+      http.post('/api/v1/notifications/mark-all-read', () =>
+        HttpResponse.json({ marked_read: 3 })
+      )
     )
     const { markAllNotificationsRead } = await import('@/services/api')
     const result = await markAllNotificationsRead()
@@ -166,7 +203,10 @@ describe('API: user management endpoints', () => {
 
   it('getCollectionAccess returns access entries', async () => {
     server.use(
-      http.get('/api/v1/collections/:id/access', () => HttpResponse.json([]))
+      // getCollectionAccess unwraps .items — a bare array yields undefined.
+      http.get('/api/v1/collections/:id/access', () =>
+        HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 })
+      )
     )
     const { getCollectionAccess } = await import('@/services/api')
     const result = await getCollectionAccess('col-1')
@@ -240,7 +280,7 @@ describe('NoteComments component', () => {
     )
     const { NoteComments } = await import('@/components/NoteComments')
     renderWithProviders(
-      <NoteComments note={{ id: 'note-1', author_id: 'user-1', author_display_name: 'Mark', repo_id: 'repo-1', contributor_id: null, commit_hash: null, content: 'Test note', is_reminder: false, reminder_context: null, is_checked: false, is_archived: false, created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', comments: [] }} currentUserId="user-1" />
+      <NoteComments note={{ id: 'note-1', author_id: 'user-1', author_display_name: 'Mark', repo_id: 'repo-1', contributor_id: null, commit_hash: null, content: 'Test note', is_reminder: false, reminder_context: null, remind_at: null, is_checked: false, is_archived: false, created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', comments: [] }} currentUserId="user-1" />
     )
     await waitFor(() => {
       expect(screen.getByText(/comment/i)).toBeInTheDocument()
@@ -253,7 +293,7 @@ describe('NoteComments component', () => {
     )
     const { NoteComments } = await import('@/components/NoteComments')
     renderWithProviders(
-      <NoteComments note={{ id: 'note-1', author_id: 'user-1', author_display_name: 'Mark', repo_id: 'repo-1', contributor_id: null, commit_hash: null, content: 'Test note', is_reminder: false, reminder_context: null, is_checked: false, is_archived: false, created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', comments: [] }} currentUserId="user-1" />
+      <NoteComments note={{ id: 'note-1', author_id: 'user-1', author_display_name: 'Mark', repo_id: 'repo-1', contributor_id: null, commit_hash: null, content: 'Test note', is_reminder: false, reminder_context: null, remind_at: null, is_checked: false, is_archived: false, created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', comments: [] }} currentUserId="user-1" />
     )
     // Initially shows Reply button
     await waitFor(() => {
@@ -349,12 +389,52 @@ describe('AdminPage', () => {
       expect(screen.getByText(/users/i)).toBeInTheDocument()
     })
   })
+
+  // A PAT is the user's own credential: they supply it on the account setup
+  // page or in their own Settings, never through an admin.
+  it('offers no GitHub token field when creating a user', async () => {
+    server.use(
+      http.get('/api/v1/users/me', () => HttpResponse.json(mockAdminUser)),
+      http.get('/api/v1/users', () =>
+        HttpResponse.json({ items: [mockUserDetail], total: 1, limit: 50, offset: 0 })
+      )
+    )
+    const { AdminPage } = await import('@/pages/AdminPage')
+    renderWithProviders(<AdminPage />, { route: '/admin' })
+
+    await userEvent.click(await screen.findByRole('tab', { name: 'Users' }))
+    await userEvent.click(await screen.findByRole('button', { name: /new user/i }))
+    await screen.findByRole('dialog')
+    expect(screen.queryByLabelText(/github token/i)).toBeNull()
+    expect(screen.queryByPlaceholderText(/ghp_/i)).toBeNull()
+  })
+
+  it('offers no GitHub token field when editing a user', async () => {
+    server.use(
+      http.get('/api/v1/users/me', () => HttpResponse.json(mockAdminUser)),
+      http.get('/api/v1/users', () =>
+        HttpResponse.json({ items: [mockUserDetail], total: 1, limit: 50, offset: 0 })
+      )
+    )
+    const { AdminPage } = await import('@/pages/AdminPage')
+    renderWithProviders(<AdminPage />, { route: '/admin' })
+
+    await userEvent.click(await screen.findByRole('tab', { name: 'Users' }))
+    await userEvent.click(await screen.findByTitle('Edit user'))
+    await screen.findByRole('dialog')
+    expect(screen.queryByLabelText(/github token/i)).toBeNull()
+    expect(screen.queryByPlaceholderText(/ghp_/i)).toBeNull()
+    expect(screen.queryByPlaceholderText(/leave blank to keep existing/i)).toBeNull()
+  })
 })
 
 describe('CollectionAccessPanel', () => {
   it('renders access panel with co-instructors section', async () => {
     server.use(
-      http.get('/api/v1/collections/:id/access', () => HttpResponse.json([]))
+      // getCollectionAccess unwraps .items — a bare array yields undefined.
+      http.get('/api/v1/collections/:id/access', () =>
+        HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 })
+      )
     )
     const { CollectionAccessPanel } = await import('@/components/CollectionAccessPanel')
     renderWithProviders(<CollectionAccessPanel collectionId="col-1" />)

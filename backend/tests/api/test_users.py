@@ -76,7 +76,7 @@ class TestGetMe:
 
     async def test_get_me_unauthenticated(self, test_client):
         resp = await test_client.get("/api/v1/users/me")
-        assert resp.status_code == 403
+        assert resp.status_code == 401
 
 
 class TestListUsers:
@@ -97,10 +97,13 @@ class TestListUsers:
 
     async def test_unauthenticated_rejected(self, test_client):
         resp = await test_client.get("/api/v1/users")
-        assert resp.status_code == 403
+        assert resp.status_code == 401
 
 
 class TestCreateUser:
+    """Creation takes no password — it mints a setup link instead. The link
+    itself is covered in test_account_setup.py."""
+
     async def test_admin_can_create_user(self, test_client, admin):
         resp = await test_client.post(
             "/api/v1/users",
@@ -108,15 +111,33 @@ class TestCreateUser:
                 "email": "newuser@test.com",
                 "display_name": "New User",
                 "role": "instructor",
-                "password": "mypassword",
             },
             headers=_auth(admin),
         )
         assert resp.status_code == 201
         data = resp.json()
-        assert data["email"] == "newuser@test.com"
-        assert "password_hash" not in data
-        assert "github_token" not in data
+        assert data["user"]["email"] == "newuser@test.com"
+        assert "password_hash" not in data["user"]
+        assert "github_token" not in data["user"]
+
+    async def test_admin_cannot_seed_a_github_token(
+        self, test_client, db_session, admin
+    ):
+        """A token sent at creation is ignored, like a password would be."""
+        resp = await test_client.post(
+            "/api/v1/users",
+            json={
+                "email": "tokenless@test.com",
+                "display_name": "Tokenless",
+                "role": "instructor",
+                "github_token": "ghp_set_by_an_admin",
+            },
+            headers=_auth(admin),
+        )
+        assert resp.status_code == 201
+        assert resp.json()["user"]["github_token_configured"] is False
+        created = await db_session.get(User, uuid.UUID(resp.json()["user"]["id"]))
+        assert created.github_token is None
 
     async def test_non_admin_cannot_create_user(self, test_client, instructor):
         resp = await test_client.post(
@@ -125,7 +146,6 @@ class TestCreateUser:
                 "email": "another@test.com",
                 "display_name": "Another",
                 "role": "ta",
-                "password": "pw",
             },
             headers=_auth(instructor),
         )
@@ -138,7 +158,6 @@ class TestCreateUser:
                 "email": instructor.email,
                 "display_name": "Duplicate",
                 "role": "ta",
-                "password": "pw",
             },
             headers=_auth(admin),
         )
@@ -197,6 +216,30 @@ class TestUpdateUser:
         )
         assert resp.status_code == 403
 
+    async def test_admin_cannot_set_a_github_token(self, test_client, admin, ta):
+        """The PAT is the user's own — set at account setup or in Settings."""
+        resp = await test_client.patch(
+            f"/api/v1/users/{ta.id}",
+            json={"github_token": "ghp_set_by_an_admin"},
+            headers=_auth(admin),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["github_token_configured"] is False
+
+    async def test_admin_cannot_overwrite_an_existing_github_token(
+        self, test_client, db_session, admin, ta
+    ):
+        ta.github_token = "ghp_belongs_to_the_ta"
+        await db_session.flush()
+        resp = await test_client.patch(
+            f"/api/v1/users/{ta.id}",
+            json={"github_token": "ghp_set_by_an_admin"},
+            headers=_auth(admin),
+        )
+        assert resp.status_code == 200
+        await db_session.refresh(ta)
+        assert ta.github_token == "ghp_belongs_to_the_ta"
+
 
 class TestDeleteUser:
     async def test_admin_can_delete_other_user(self, test_client, admin, ta):
@@ -218,22 +261,9 @@ class TestDeleteUser:
         assert resp.status_code == 403
 
 
-class TestResetPassword:
-    async def test_admin_can_reset_password(self, test_client, admin, instructor):
-        resp = await test_client.post(
-            f"/api/v1/users/{instructor.id}/reset-password",
-            json={"new_password": "newpass123"},
-            headers=_auth(admin),
-        )
-        assert resp.status_code == 200
-
-    async def test_non_admin_cannot_reset_password(self, test_client, instructor, ta):
-        resp = await test_client.post(
-            f"/api/v1/users/{ta.id}/reset-password",
-            json={"new_password": "newpass123"},
-            headers=_auth(instructor),
-        )
-        assert resp.status_code == 403
+# Admin-set passwords are gone. `POST /users/{id}/setup-link` replaces the old
+# reset-password route; its access control and behaviour live in
+# tests/api/test_account_setup.py.
 
 
 class TestPatchMe:

@@ -30,6 +30,12 @@ class RepoRead(BaseModel):
     contributor_count: int = 0
     active_reminder_count: int = 0
 
+    # Shared sync state — every viewer of the collection sees the same values.
+    sync_status: str = "idle"
+    sync_started_at: Optional[datetime] = None
+    sync_started_by_name: Optional[str] = None
+    sync_error: Optional[str] = None
+
 
 class RepoUpdate(BaseModel):
     expected_contributor_count: Optional[int] = None
@@ -44,3 +50,7 @@ class PaginatedRepos(BaseModel):
 
 class AddReposRequest(BaseModel):
     urls: list[str]
+
+
+class RepoDeleteResponse(BaseModel):
+    detail: str

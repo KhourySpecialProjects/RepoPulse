@@ -1,16 +1,20 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Trash2, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react'
 import { useNoteComments, useCreateNoteComment, useDeleteNoteComment } from '@/hooks/useNoteComments'
+import { useMentions } from '@/hooks/useMentions'
+import { MentionSuggestions } from '@/components/MentionSuggestions'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
-import type { Note } from '@/types'
+import type { Note, UserDetail } from '@/types'
 
 interface NoteCommentsProps {
   note: Note
   currentUserId: string
   currentUserRole?: 'instructor' | 'ta' | 'admin'
+  /** Mentionable users. Without them the @ autocomplete simply never opens. */
+  users?: UserDetail[]
 }
 
 function formatTimeAgo(isoStr: string): string {
@@ -34,7 +38,12 @@ function getInitials(name: string): string {
     .toUpperCase()
 }
 
-export function NoteComments({ note, currentUserId, currentUserRole }: NoteCommentsProps) {
+export function NoteComments({
+  note,
+  currentUserId,
+  currentUserRole,
+  users = [],
+}: NoteCommentsProps) {
   const { data: comments = [], isLoading } = useNoteComments(note.id)
   const createComment = useCreateNoteComment()
   const deleteComment = useDeleteNoteComment()
@@ -42,6 +51,8 @@ export function NoteComments({ note, currentUserId, currentUserRole }: NoteComme
   const [expanded, setExpanded] = useState(false)
   const [replyText, setReplyText] = useState('')
   const [isReplying, setIsReplying] = useState(false)
+  const replyRef = useRef<HTMLTextAreaElement>(null)
+  const mentions = useMentions(users, replyRef)
 
   const visibleCount = comments.length
 
@@ -97,7 +108,7 @@ export function NoteComments({ note, currentUserId, currentUserRole }: NoteComme
               comment.author_id === currentUserId || currentUserRole === 'admin'
             return (
               <div key={comment.id} className="flex gap-2 items-start">
-                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-semibold flex items-center justify-center">
+                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-[10px] font-semibold flex items-center justify-center">
                   {getInitials(comment.author_display_name)}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -112,15 +123,15 @@ export function NoteComments({ note, currentUserId, currentUserRole }: NoteComme
                   <p className="text-xs text-foreground leading-snug">{comment.content}</p>
                 </div>
                 {canDelete && (
-                  <button
+                  <Button variant="ghost"
                     type="button"
                     onClick={() => handleDelete(comment.id)}
-                    disabled={deleteComment.isPending}
+                    loading={deleteComment.isPending} disabled={deleteComment.isPending}
                     className="flex-shrink-0 text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-40"
                     title="Delete comment"
                   >
                     <Trash2 className="h-3 w-3" />
-                  </button>
+                  </Button>
                 )}
               </div>
             )
@@ -133,26 +144,52 @@ export function NoteComments({ note, currentUserId, currentUserRole }: NoteComme
         <button
           type="button"
           onClick={() => setIsReplying(true)}
-          className="text-xs text-muted-foreground hover:text-indigo-600 transition-colors"
+          className="text-xs text-muted-foreground hover:text-brand-600 transition-colors"
         >
           Reply
         </button>
       )}
       {isReplying && (
         <form onSubmit={handleSubmit} className="flex flex-col gap-1.5 mt-1">
-          <Textarea
-            value={replyText}
-            onChange={(e) => setReplyText(e.target.value)}
-            placeholder="Add a comment..."
-            className="text-xs min-h-[56px] resize-none"
-            autoFocus
-          />
+          <div className="relative">
+            <Textarea
+              ref={replyRef}
+              value={replyText}
+              onChange={(e) => {
+                setReplyText(e.target.value)
+                mentions.handleChange(
+                  e.target.value,
+                  e.target.selectionStart ?? e.target.value.length
+                )
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') mentions.cancel()
+              }}
+              placeholder="Add a comment... use @ to mention a user"
+              className="text-xs min-h-[56px] resize-none"
+              autoFocus
+            />
+            {mentions.search !== null && (
+              <MentionSuggestions
+                users={mentions.matches}
+                onSelect={(user) =>
+                  setReplyText((current) =>
+                    mentions.insert(
+                      user,
+                      current,
+                      replyRef.current?.selectionStart ?? current.length
+                    )
+                  )
+                }
+              />
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <Button
               type="submit"
               size="sm"
-              disabled={createComment.isPending || !replyText.trim()}
-              className={cn('text-xs h-6 px-2 bg-indigo-600 hover:bg-indigo-700 text-white border-0')}
+              loading={createComment.isPending} disabled={createComment.isPending || !replyText.trim()}
+              className={cn('text-xs h-6 px-2 bg-brand-600 hover:bg-brand-700 text-white border-0')}
             >
               {createComment.isPending ? 'Posting...' : 'Reply'}
             </Button>

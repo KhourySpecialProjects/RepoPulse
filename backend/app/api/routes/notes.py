@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import re
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -11,63 +11,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import get_current_user, get_db_session
 from app.models.note import Note
 from app.models.note_comment import NoteComment
-from app.models.notification import Notification, NotificationType
+from app.models.reminder_share import ReminderShare
 from app.models.repo import Repo
 from app.models.user import User
 from app.schemas.errors import ErrorResponse
 from app.schemas.notes import NoteCommentRead, NoteCreate, NoteRead, NoteUpdate, PaginatedNotes
+from app.services.notification_service import create_mention_notifications
 from app.services.permission_service import can_access_collection
 
 router = APIRouter()
-
-
-async def _create_mention_notifications(
-    db: AsyncSession,
-    content: str,
-    note_id: uuid.UUID,
-    repo_id: Optional[uuid.UUID],
-    excluding_user_id: uuid.UUID,
-) -> None:
-    """Parse @Word_Name mentions in content and create Notification rows."""
-    mentioned_slugs = set(re.findall(r"@(\w+)", content))
-    if not mentioned_slugs:
-        return
-
-    # Fetch all users to match display names
-    result = await db.execute(select(User))
-    all_users = result.scalars().all()
-
-    for user in all_users:
-        if user.id == excluding_user_id:
-            continue
-        # Convert display_name to slug: spaces -> underscores
-        slug = user.display_name.replace(" ", "_")
-        if slug not in mentioned_slugs:
-            # also try case-insensitive match
-            match = any(
-                s.lower() == slug.lower() for s in mentioned_slugs
-            )
-            if not match:
-                continue
-
-        # Check for duplicate notification
-        existing = await db.execute(
-            select(Notification).where(
-                Notification.type == NotificationType.mention,
-                Notification.note_id == note_id,
-                Notification.recipient_id == user.id,
-            )
-        )
-        if existing.scalar_one_or_none() is not None:
-            continue
-
-        notif = Notification(
-            recipient_id=user.id,
-            type=NotificationType.mention,
-            note_id=note_id,
-            is_read=False,
-        )
-        db.add(notif)
 
 
 def _comment_to_read(comment: NoteComment, author_display_name: str) -> NoteCommentRead:
@@ -97,6 +49,7 @@ def _note_to_read(
         commit_hash=note.commit_hash,
         is_reminder=note.is_reminder,
         reminder_context=note.reminder_context,
+        remind_at=note.remind_at,
         is_checked=note.is_checked,
         is_archived=note.is_archived,
         created_at=note.created_at,
@@ -168,6 +121,9 @@ async def list_notes(
         if commit_hash is not None:
             query = query.where(Note.commit_hash == commit_hash)
 
+    # Soft-deleted notes live only in the Recently deleted list
+    query = query.where(Note.deleted_at.is_(None))
+
     result = await db.execute(query.order_by(Note.created_at.desc()))
     all_notes = result.scalars().all()
     total = len(all_notes)
@@ -204,15 +160,32 @@ async def create_note(
         commit_hash=body.commit_hash,
         is_reminder=body.is_reminder,
         reminder_context=body.reminder_context,
+        remind_at=body.remind_at,
     )
+    # Sharing is a reminder feature; refuse it on a plain note rather than
+    # silently dropping the recipients.
+    share_ids = {uid for uid in body.shared_with if uid != author_uuid}
+    if body.shared_with and not body.is_reminder:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only reminders can be shared",
+        )
+    for user_id in share_ids:
+        if await db.get(User, user_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User to share with not found",
+            )
+
     db.add(note)
     await db.commit()
     await db.refresh(note)
 
+    for user_id in share_ids:
+        db.add(ReminderShare(note_id=note.id, user_id=user_id))
+
     # Create mention notifications
-    await _create_mention_notifications(
-        db, body.content, note.id, body.repo_id, author_uuid
-    )
+    await create_mention_notifications(db, body.content, note.id)
     await db.commit()
 
     return _note_to_read(note, author_name)
@@ -288,15 +261,9 @@ async def update_note(
     new_content = update_data.get("content")
     if new_content and new_content != old_content:
         # Find mentions in old content to avoid re-notifying
-        old_slugs = set(re.findall(r"@(\w+)", old_content))
-        new_slugs = set(re.findall(r"@(\w+)", new_content))
-        added_slugs = new_slugs - old_slugs
-        if added_slugs:
-            # Build a sub-content with only the newly-added mentions
-            await _create_mention_notifications(
-                db, " ".join(f"@{s}" for s in added_slugs),
-                note.id, note.repo_id, user_uuid
-            )
+        await create_mention_notifications(
+            db, new_content, note.id, previous_content=old_content
+        )
         await db.commit()
 
     return await _build_note_read(note, db)
@@ -330,6 +297,68 @@ async def delete_note(
             detail="Only the note author or an admin can delete this note",
         )
 
-    await db.delete(note)
+    # Soft delete, so an accidental deletion can be undone from the
+    # Recently deleted list. Use /notes/{id}/permanent to destroy it.
+    note.deleted_at = datetime.now(timezone.utc)
     await db.commit()
     return {"detail": "Note deleted"}
+
+
+async def _own_note_or_admin(
+    db: AsyncSession, note_id: uuid.UUID, user_uuid: uuid.UUID
+) -> Note:
+    note = await db.get(Note, note_id)
+    if note is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Note not found",
+        )
+
+    current_user = await db.get(User, user_uuid)
+    is_author = note.author_id == user_uuid
+    is_admin = current_user is not None and current_user.role == "admin"
+    if not is_author and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the note author or an admin can change this note",
+        )
+    return note
+
+
+@router.post(
+    "/notes/{note_id}/restore",
+    response_model=NoteRead,
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def restore_note(
+    note_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> NoteRead:
+    user_uuid = uuid.UUID(current_user_id)
+    note = await _own_note_or_admin(db, note_id, user_uuid)
+
+    note.deleted_at = None
+    await db.commit()
+    await db.refresh(note)
+
+    return await _build_note_read(note, db)
+
+
+@router.delete(
+    "/notes/{note_id}/permanent",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def purge_note(
+    note_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> None:
+    """Destroy a note for good, along with its comments and notifications."""
+    user_uuid = uuid.UUID(current_user_id)
+    note = await _own_note_or_admin(db, note_id, user_uuid)
+
+    await db.delete(note)
+    await db.commit()

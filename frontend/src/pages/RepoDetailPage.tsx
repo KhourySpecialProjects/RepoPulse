@@ -1,28 +1,28 @@
-import { useState, useEffect, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { ContextualActivityChart } from '@/components/ContextualActivityChart'
+import { useState, useEffect, useMemo, Fragment, type ComponentType, type ReactNode } from 'react'
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowLeft, ExternalLink, Code2, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed } from 'lucide-react'
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceLine,
-} from 'recharts'
+import { TrickleProgress } from '@/components/ui/trickle-progress'
+import { ArrowLeft, ExternalLink, Code2, GitBranch, Tag, RefreshCw, Sparkles, Trash2, GitCommit, GitMerge, User, BarChart2, MessageSquare, Calendar, Pencil, Check, X, ClipboardCheck, CalendarPlus, ChevronDown, ChevronUp, History, GitPullRequest, GitPullRequestClosed, TriangleAlert } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests } from '@/hooks/useRepos'
-import { useRepoSummaries, useContributorSummaries, useGenerateSummary } from '@/hooks/useSummaries'
+import { useRepo, useRepoHealth, useSyncRepo, useDeleteRepo, useRepoCommits, useRepoContributors, useUpdateContributor, useMergeContributors, useUnmergeContributor, usePatchRepo, repoKeys, usePRStats, usePullRequests, useSyncPullRequests, useClassifyCommits, ALL_COMMITS_PARAMS } from '@/hooks/useRepos'
+import { useRepoSummaries, useContributorSummaries, useGenerateSummary, summaryKeys } from '@/hooks/useSummaries'
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '@/hooks/useNotes'
 import { useUsers, useCurrentUser } from '@/hooks/useUsers'
 import { useAuth } from '@/hooks/useAuth'
+import { useBackTarget } from '@/hooks/useBackTarget'
+import { useCommitFilterParams } from '@/hooks/useCommitFilterParams'
 import { HealthBadge } from '@/components/HealthBadge'
+import { HealthSignalPills } from '@/components/HealthSignalPills'
+import { CommitScorePill } from '@/components/CommitScorePill'
 import { CommitNotesPanel } from '@/components/CommitNotesPanel'
 import { MarkdownContent } from '@/components/MarkdownContent'
+import { TypedMarkdown } from '@/components/TypedMarkdown'
+import { ThinkingLabel } from '@/components/ThinkingLabel'
+import { SummaryLiquidBackground } from '@/components/SummaryLiquidBackground'
 import { NotesDrawer } from '@/components/NotesDrawer'
 import { Button } from '@/components/ui/button'
+import { LoadingContent } from '@/components/ui/loading-content'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
@@ -31,10 +31,26 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS, SECTION_GAP, PANEL_PADDING } from '@/lib/layout'
+import { vscodeDevUrl } from '@/lib/vscodeUrl'
+import {
+  COMMIT_TYPE_FILTERS,
+  commitRowClass,
+  commitRowTitle,
+  commitTypeStyle,
+} from '@/lib/commitTypeStyles'
 import { toast } from 'sonner'
-import type { CreateNoteData, Summary, Contributor, Note, PullRequest } from '@/types'
+import type {
+  ClassifyCommitsResponse,
+  Commit,
+  CreateNoteData,
+  Summary,
+  Contributor,
+  CommitTypeFilter,
+  Note,
+  PullRequest,
+} from '@/types'
 
-const PERIOD_COLORS = ['#94a3b8', '#a78bfa', '#60a5fa', '#34d399', '#f97316', '#6366f1']
 
 function formatRelativeDays(isoStr: string): string {
   const days = Math.floor((Date.now() - new Date(isoStr).getTime()) / 86400000)
@@ -50,6 +66,33 @@ function formatDate(dateStr: string | null | undefined): string {
   })
 }
 
+/** A commit's calendar day as `YYYY-MM-DD` in the viewer's timezone.
+ *
+ * Local, not UTC, so the filter agrees with the date the table already shows —
+ * a commit rendered as "Sep 14" must match a Sep 14 filter even when its UTC
+ * timestamp falls on the 13th or 15th. Sortable and comparable as a plain
+ * string, which is what the date filter's option values hold.
+ */
+function toLocalDateKey(dateStr: string): string {
+  const d = new Date(dateStr)
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${month}-${day}`
+}
+
+/** A `YYYY-MM-DD` key as "Sep 14" — month and day, no year.
+ *
+ * Built with the local Date constructor rather than `new Date(key)`, which
+ * parses a bare date string as UTC midnight and would render the day before
+ * in any negative-offset timezone.
+ */
+function formatMonthDay(dateKey: string): string {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric',
+  })
+}
+
 function formatDateTime(dateStr: string): string {
   return new Date(dateStr).toLocaleString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
@@ -57,6 +100,140 @@ function formatDateTime(dateStr: string): string {
   })
 }
 
+
+/** Reserve label space so the typing animation never shifts the controls. */
+function GenerateSummaryButton({
+  onClick,
+  isPending,
+}: {
+  onClick: () => void
+  isPending: boolean
+}) {
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={onClick}
+      loading={isPending}
+      disabled={isPending}
+      className="group relative"
+      aria-label={isPending ? 'Generating summary' : 'Generate Summary'}
+    >
+      <motion.span
+        aria-hidden
+        className="mr-1.5 inline-flex"
+        animate={
+          isPending
+            ? { rotate: [0, 180, 360], scale: [1, 1.18, 1] }
+            : { rotate: 0, scale: 1 }
+        }
+        transition={
+          isPending
+            ? { duration: 1.4, repeat: Infinity, ease: 'easeInOut' }
+            : { type: 'spring', stiffness: 300, damping: 18 }
+        }
+        whileHover={isPending ? undefined : { rotate: -12, scale: 1.15 }}
+      >
+        <Sparkles
+          className={cn(
+            'h-4 w-4 transition-colors',
+            isPending ? 'text-orchid-600' : 'group-hover:text-orchid-600'
+          )}
+        />
+      </motion.span>
+
+      <span className="inline-grid text-left">
+        <span aria-hidden="true" className="invisible col-start-1 row-start-1 pr-1">Generate Summary</span>
+        <span className="col-start-1 row-start-1 inline-flex items-center">
+          {isPending ? <ThinkingLabel /> : 'Generate Summary'}
+        </span>
+      </span>
+    </Button>
+  )
+}
+
+
+/** Loading state for the Commits card — same spinner, label, and trickling bar
+ *  the activity graph uses, so the two sections load alike. */
+/** A collapsible section in the left column.
+ *
+ * Mirrors the Pull Requests panel's chrome so the sidebar reads as one stack
+ * rather than a set of one-off boxes. That panel keeps its own markup because
+ * it also persists its open state per repo; everything else shares this. */
+/**
+ * Stands in for a filter's chips while the commit list loads.
+ *
+ * Chip-shaped and chip-sized, so the panel is the height it will settle at
+ * and swapping in the real controls moves nothing. Deliberately not an empty
+ * chip row: a row of live-looking buttons that cannot be clicked yet, then
+ * silently gains more, is worse than an obvious placeholder.
+ */
+function FilterPlaceholder() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading filters"
+      className="flex flex-wrap items-center gap-1.5"
+    >
+      {[10, 14, 8].map((w, i) => (
+        <span
+          key={i}
+          aria-hidden="true"
+          className="h-5 rounded border border-border bg-muted animate-pulse motion-reduce:animate-none"
+          style={{ width: `${w * 4}px` }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function SidebarPanel({
+  title, icon: Icon, id, expanded, onToggle, className, children,
+}: {
+  title: string
+  icon: ComponentType<{ className?: string }>
+  id: string
+  expanded: boolean
+  onToggle: () => void
+  className?: string
+  children: ReactNode
+}) {
+  // bg-card, not bg-gray-50: the Pull Requests and Contributors panels in the
+  // same column are white, and a grey filter panel beside them read as a
+  // different kind of object rather than a peer.
+  return (
+    <div className={cn('shrink-0 bg-card rounded-xl border border-border p-4', className)}>
+      <h2 className="text-sm font-semibold">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          aria-controls={id}
+          className="flex w-full items-center gap-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+        >
+          <Icon className="h-4 w-4 text-muted-foreground" />
+          {title}
+          {expanded
+            ? <ChevronUp className="ml-auto h-4 w-4" />
+            : <ChevronDown className="ml-auto h-4 w-4" />}
+        </button>
+      </h2>
+      <div id={id} hidden={!expanded} className="mt-2">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function CommitsLoading() {
+  return (
+    <div role="status" aria-label="Loading commits" className="flex flex-col items-center justify-center gap-2 py-8">
+      <div aria-hidden="true" className="h-8 w-8 rounded-full border-2 border-brand-500 border-t-transparent animate-spin motion-reduce:animate-none" />
+      <p className="text-sm text-muted-foreground">Loading commits…</p>
+      <TrickleProgress label="Commits loading progress" />
+    </div>
+  )
+}
 
 function ContributorGenerateButton({ contributorId, repoId }: { contributorId: string; repoId: string }) {
   const generateMutation = useGenerateSummary()
@@ -68,10 +245,11 @@ function ContributorGenerateButton({ contributorId, repoId }: { contributorId: s
         contributor_id: contributorId,
       })}
       disabled={generateMutation.isPending}
-      className="ml-auto flex items-center gap-0.5 text-muted-foreground hover:text-violet-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+      aria-busy={generateMutation.isPending}
+      className="ml-auto flex items-center gap-1.5 text-muted-foreground hover:text-orchid-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
       title="Generate activity summary"
     >
-      <Sparkles className={cn('h-3 w-3', generateMutation.isPending && 'animate-pulse')} />
+      <Sparkles className={cn('h-3 w-3', generateMutation.isPending && 'animate-pulse motion-reduce:animate-none')} />
     </button>
   )
 }
@@ -82,9 +260,9 @@ function ContributorSummaryDisplay({ contributorId }: { contributorId: string })
   const latest = summaries?.[0]
   if (!latest) return null
   return (
-    <div className="mt-1.5 rounded-md bg-violet-50 border border-violet-100 px-2.5 py-2">
+    <div className="mt-1.5 rounded-md bg-orchid-50 border border-orchid-100 px-2.5 py-2">
       <button
-        className="flex items-center gap-1 w-full text-left"
+        className="flex items-center gap-1.5 w-full text-left"
         onClick={() => setExpanded(v => !v)}
       >
         <p className="text-[10px] text-muted-foreground flex-1">
@@ -106,9 +284,9 @@ const SUMMARY_TYPE_LABELS: Record<string, string> = {
 }
 
 const SUMMARY_TYPE_COLORS: Record<string, string> = {
-  repo_overview: 'bg-indigo-100 text-indigo-700 border-indigo-200',
+  repo_overview: 'bg-brand-100 text-brand-700 border-brand-200',
   health_explanation: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  contributor_activity: 'bg-violet-100 text-violet-700 border-violet-200',
+  contributor_activity: 'bg-orchid-100 text-orchid-700 border-orchid-200',
 }
 
 function SummaryEntry({ summary }: { summary: Summary }) {
@@ -116,17 +294,17 @@ function SummaryEntry({ summary }: { summary: Summary }) {
   return (
     <div className="border border-border rounded-lg overflow-hidden">
       <button
-        className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+        className="w-full flex items-center gap-2 px-3 py-2 bg-brand-50 hover:bg-brand-100 transition-colors text-left"
         onClick={() => setExpanded(v => !v)}
       >
-        <span className={cn('text-xs font-medium border rounded-full px-2 py-0.5 flex-shrink-0', SUMMARY_TYPE_COLORS[summary.summary_type] ?? 'bg-gray-100 text-gray-700 border-gray-200')}>
+        <span className={cn('text-xs font-medium border rounded-full px-2 py-0.5 flex-shrink-0', SUMMARY_TYPE_COLORS[summary.summary_type] ?? 'bg-gray-100 text-gray-700 border-border')}>
           {SUMMARY_TYPE_LABELS[summary.summary_type] ?? summary.summary_type}
         </span>
         <span className="text-xs text-muted-foreground flex-1 truncate">{formatDateTime(summary.generated_at)} · {summary.model_used}</span>
         {expanded ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />}
       </button>
       {expanded && (
-        <div className="px-3 py-2.5">
+        <div className="px-3 py-2">
           <MarkdownContent content={summary.content} />
         </div>
       )}
@@ -165,14 +343,14 @@ function SummaryHistoryModal({
           <DialogTitle className="flex items-center gap-2">
             <History className="h-4 w-4 text-muted-foreground" />
             Summary History
-            <span className="text-sm font-normal text-muted-foreground ml-1">({summaries.length} total)</span>
+            <span className="text-sm font-normal text-muted-foreground ml-1.5">({summaries.length} total)</span>
           </DialogTitle>
         </DialogHeader>
 
         {summaries.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-8">No summaries generated yet.</p>
         ) : (
-          <div className="flex flex-col gap-6 mt-2">
+          <div className={cn('flex flex-col mt-2', SECTION_GAP)}>
 
             {/* Repo-level summaries */}
             {repoSummaries.length > 0 && (
@@ -220,17 +398,17 @@ function SummaryHistoryModal({
 
 function PRStatePill({ state }: { state: string }) {
   if (state === 'merged') return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 text-purple-700 border border-purple-200">
+    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-orchid-100 text-orchid-700 border border-orchid-200">
       <GitMerge className="h-2.5 w-2.5" /> Merged
     </span>
   )
   if (state === 'open') return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
+    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
       <GitPullRequest className="h-2.5 w-2.5" /> Open
     </span>
   )
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600 border border-gray-200">
+    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600 border border-border">
       <GitPullRequestClosed className="h-2.5 w-2.5" /> Closed
     </span>
   )
@@ -241,29 +419,90 @@ const sectionVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.22 } },
 }
 
+/** A sidebar panel's open state, remembered per repo across visits and reloads.
+ *
+ * Defaults to open, and only the literal string "false" closes it, so a cleared
+ * or unavailable localStorage degrades to every panel open rather than every
+ * panel mysteriously shut. State is keyed by repo because a collapse is a
+ * judgement about *this* project, not a global preference.
+ */
+function usePersistedPanel(repoId: string | undefined, panel: string) {
+  const storageKey = `repo-${panel}-${repoId}`
+
+  const [expanded, setExpanded] = useState(() => {
+    try {
+      return localStorage.getItem(storageKey) !== 'false'
+    } catch {
+      return true
+    }
+  })
+
+  // Re-read when the route moves to another repo; this component is reused.
+  useEffect(() => {
+    try {
+      setExpanded(localStorage.getItem(storageKey) !== 'false')
+    } catch {
+      setExpanded(true)
+    }
+  }, [storageKey])
+
+  function toggle() {
+    const next = !expanded
+    setExpanded(next)
+    try {
+      localStorage.setItem(storageKey, String(next))
+    } catch {
+      // Keep the toggle usable when browser storage is unavailable.
+    }
+  }
+
+  return [expanded, toggle] as const
+}
+
 export function RepoDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+  // Held separately from `searchParams` so the banner survives the param being
+  // cleared, and so it can be shown during the initial load when there are no
+  // commits to scroll to yet.
+  const [pendingCommitJump, setPendingCommitJump] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get('commit')
+  )
   const [commitPage, setCommitPage] = useState(0)
-  const [chartRange, setChartRange] = useState<'7d' | '30d' | '90d' | 'all'>('7d')
   const [activeCommitHash, setActiveCommitHash] = useState<string | null>(null)
   const [highlightedCommitHash, setHighlightedCommitHash] = useState<string | null>(null)
-  const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
-  const [selectedAuthors, setSelectedAuthors] = useState<Set<string>>(new Set())
+  // Set when arriving from a notification about a note; opens the drawer on it.
+  const [highlightedNoteId, setHighlightedNoteId] = useState<string | null>(null)
+  // Set when the backend answers `status: 'preview'` — holds the counts the
+  // confirmation dialog quotes back to the user.
+  const [classifyPreview, setClassifyPreview] = useState<ClassifyCommitsResponse | null>(null)
   const [showAllBranches, setShowAllBranches] = useState(false)
-  const [showAllAuthors, setShowAllAuthors] = useState(false)
-  const [selectedContributorIds, setSelectedContributorIds] = useState<Set<string>>(new Set())
+  // The commit filters and the contributor list each collapse independently and
+  // remember their state per repo, open by default.
+  const [activityExpanded, toggleActivity] = usePersistedPanel(id, 'activity-expanded')
+  const [branchFilterExpanded, toggleBranchFilter] = usePersistedPanel(id, 'branch-filter-expanded')
+  const [typeDateExpanded, toggleTypeDate] = usePersistedPanel(id, 'type-date-filter-expanded')
+  const [contributorsExpanded, toggleContributors] = usePersistedPanel(id, 'contributors-expanded')
   const [editingContributorId, setEditingContributorId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
+  const [showMerge, setShowMerge] = useState(false)
+  const [pullRequestsExpanded, togglePullRequests] = usePersistedPanel(id, 'pull-requests-expanded')
   const [mergeDisplayName, setMergeDisplayName] = useState('')
   const [expectedCount, setExpectedCount] = useState<string>('')
-  const COMMITS_PER_PAGE = 20
-  const MAX_FILTER_CHIPS = 8
+  const [COMMITS_PER_PAGE, setCommitsPerPage] = useState(10)
+  const [commitPageSizeOption, setCommitPageSizeOption] = useState('10')
+  const [customCommitPageSize, setCustomCommitPageSize] = useState('20')
+  // Branch chips collapse behind a "+N more" toggle past this many.
+  const MAX_BRANCH_CHIPS = 5
 
   const [summaryExpanded, setSummaryExpanded] = useState(true)
+  // Set to the id of a just-generated summary so only that one types itself in;
+  // summaries loaded from history render instantly.
+  const [typingSummaryId, setTypingSummaryId] = useState<string | null>(null)
   const [summaryHistoryOpen, setSummaryHistoryOpen] = useState(false)
   const [showArchivedNotes, setShowArchivedNotes] = useState(false)
-  const [notesPinned, setNotesPinned] = useState(false)
 
   const [checkIns, setCheckIns] = useState<string[]>(() => {
     if (!id) return []
@@ -293,26 +532,132 @@ export function RepoDetailPage() {
   const { data: repo, isLoading: repoLoading } = useRepo(id ?? '')
   const { data: healthScore, isLoading: healthLoading } = useRepoHealth(id ?? '')
   const syncMutation = useSyncRepo()
+  const [syncing, setSyncing] = useState(false)
   const deleteRepoMutation = useDeleteRepo()
   const { data: me } = useCurrentUser()
   const hasToken = Boolean(me?.github_token_configured)
-  const { data: summaries } = useRepoSummaries(id ?? '')
+  const { data: summaries, isLoading: summariesLoading } = useRepoSummaries(id ?? '')
   const generateSummaryMutation = useGenerateSummary()
-  const { data: commitsData, isLoading: commitsLoading } = useRepoCommits(id ?? '', {
+  const { isLoading: commitsLoading } = useRepoCommits(id ?? '', {
     limit: COMMITS_PER_PAGE,
     offset: commitPage * COMMITS_PER_PAGE,
   })
-  const { data: allCommitsData, isLoading: allCommitsLoading } = useRepoCommits(id ?? '', { limit: 500, offset: 0 })
+  // Same params object as usePrefetchRepo warms, so a hovered reminder's
+  // prefetch is a cache hit here rather than a second identical request.
+  const { data: allCommitsData, isLoading: allCommitsLoading } = useRepoCommits(id ?? '', ALL_COMMITS_PARAMS)
   const { data: contributors, isLoading: contributorsLoading } = useRepoContributors(id ?? '')
+
+  // Distinct days that actually have commits, newest first to match the commit
+  // list's own order. Options rather than a calendar, so empty days can't be
+  // picked and the year can stay off the label.
+  const commitDates = useMemo(() => {
+    const keys = new Set((allCommitsData?.items ?? []).map(c => toLocalDateKey(c.date)))
+    return Array.from(keys).sort().reverse()
+  }, [allCommitsData])
+
+  // Owning branches only. Building this from `branches` listed every branch
+  // that merely contains a commit, so branches with no work of their own still
+  // got a chip that then matched most of the repo.
+  const allBranches = useMemo(() => {
+    const names = new Set<string>()
+    allCommitsData?.items.forEach(c => { if (c.origin_branch) names.add(c.origin_branch) })
+    return Array.from(names).sort()
+  }, [allCommitsData])
+
+  // The values each filter param may legally take. A link can rot — a branch
+  // gets deleted, a merge destroys a contributor id — and an unrecognised
+  // value is ignored rather than left filtering the table to nothing with no
+  // chip lit to explain it. `null` means "not loaded yet, trust the URL".
+  const branchOptions = useMemo(
+    () => (allCommitsData ? new Set(allBranches) : null),
+    [allCommitsData, allBranches]
+  )
+  const dateOptions = useMemo(
+    () => (allCommitsData ? new Set(commitDates) : null),
+    [allCommitsData, commitDates]
+  )
+  const contributorOptions = useMemo(
+    () => (contributors ? new Set(contributors.map(c => c.id)) : null),
+    [contributors]
+  )
+  const commitFilterOptions = useMemo(
+    () => ({ branches: branchOptions, dates: dateOptions, contributorIds: contributorOptions }),
+    [branchOptions, dateOptions, contributorOptions]
+  )
+
+  // The commit filters live in the query string, so the address bar always
+  // describes what is on screen and the URL can just be pasted to someone
+  // else. Named like the `useState` pairs they replaced — the call sites below
+  // are unchanged, including the functional-updater form.
+  const {
+    filters: commitFilters,
+    setBranches: setSelectedBranches,
+    setTypes: setSelectedTypes,
+    setDate: setSelectedDate,
+    setContributorIds: setSelectedContributorIds,
+  } = useCommitFilterParams(commitFilterOptions, () => setCommitPage(0))
+  const {
+    branches: selectedBranches,
+    types: selectedTypes,
+    date: selectedDate,
+    contributorIds: selectedContributorIds,
+  } = commitFilters
   const updateContributorMutation = useUpdateContributor(id ?? '')
   const mergeContributorsMutation = useMergeContributors(id ?? '')
+  const unmergeContributorMutation = useUnmergeContributor(id ?? '')
+  const selectedMergedContributor = selectedContributorIds.size === 1
+    ? contributors?.find(c => selectedContributorIds.has(c.id) && c.can_unmerge)
+    : undefined
   const patchRepoMutation = usePatchRepo()
   const { data: prStats } = usePRStats(id ?? '')
   const PR_PAGE_SIZE = 10
-  const [prStateFilter, setPrStateFilter] = useState<string | undefined>(undefined)
   const [prPage, setPrPage] = useState(0)
-  const { data: prList } = usePullRequests(id ?? '', prStateFilter, PR_PAGE_SIZE, prPage * PR_PAGE_SIZE)
+  const { data: prList } = usePullRequests(id ?? '', undefined, PR_PAGE_SIZE, prPage * PR_PAGE_SIZE)
   const syncPRsMutation = useSyncPullRequests(id ?? '')
+  const classifyMutation = useClassifyCommits(id ?? '')
+
+  async function runClassify(confirm: boolean) {
+    try {
+      const result = await classifyMutation.mutateAsync(confirm)
+
+      if (result.status === 'preview') {
+        // Nothing was written; the backend is asking whether the wait is worth
+        // it. Hold the counts so the dialog can quote them.
+        setClassifyPreview(result)
+        return
+      }
+
+      setClassifyPreview(null)
+      if (result.pending === 0) {
+        toast.success('All commits are already classified.')
+        return
+      }
+
+      const parts = [`Classified ${result.classified} of ${result.pending} commits`]
+      if (result.classified_by_rules > 0) {
+        parts.push(`${result.classified_by_rules} by rules`)
+      }
+      if (result.skipped > 0) {
+        // Retryable, unlike `remaining` — say so rather than lumping them.
+        parts.push(`${result.skipped} could not be read and will retry`)
+      }
+      if (result.remaining > 0) {
+        parts.push(`${result.remaining} left — run again to continue`)
+      }
+      toast.success(parts.join(' · '))
+    } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 409) {
+        // A run is still going server-side; clicking again will not help, and
+        // the work is not lost.
+        toast.info('Classification is already running — results will appear shortly.')
+        return
+      }
+      const detail = (err as { response?: { data?: { detail?: string } } })
+        ?.response?.data?.detail
+      toast.error(detail ?? 'Could not classify commits.')
+    }
+  }
   const { data: notes } = useNotes({ repo_id: id })
   const createNoteMutation = useCreateNote()
   const updateNoteMutation = useUpdateNote()
@@ -342,7 +687,7 @@ export function RepoDetailPage() {
     const map: Record<string, string> = {}
     contributors?.forEach(contributor => {
       contributor.aliases.forEach(alias => {
-        map[alias.git_email] = contributor.id
+        map[alias.git_email.toLowerCase()] = contributor.id
       })
     })
     return map
@@ -377,18 +722,6 @@ export function RepoDetailPage() {
   const resolvedAuthor = (commit: { author_name: string; author_email: string }) =>
     emailToDisplayName[commit.author_email.toLowerCase()] ?? commit.author_name
 
-  const allBranches = useMemo(() => {
-    const names = new Set<string>()
-    allCommitsData?.items.forEach(c => c.branches.forEach(b => names.add(b)))
-    return Array.from(names).sort()
-  }, [allCommitsData])
-
-  const allAuthors = useMemo(() => {
-    const names = new Set<string>()
-    allCommitsData?.items.forEach(c => names.add(resolvedAuthor(c)))
-    return Array.from(names).sort()
-  }, [allCommitsData, emailToDisplayName])
-
   function toggleBranch(branch: string) {
     setSelectedBranches(prev => {
       const next = new Set(prev)
@@ -398,22 +731,83 @@ export function RepoDetailPage() {
     })
   }
 
-  function toggleAuthor(author: string) {
-    setSelectedAuthors(prev => {
+  function toggleType(type: CommitTypeFilter) {
+    setSelectedTypes(prev => {
       const next = new Set(prev)
-      if (next.has(author)) next.delete(author)
-      else next.add(author)
+      if (next.has(type)) next.delete(type)
+      else next.add(type)
       return next
     })
   }
 
-  const filteredCommits = useMemo(() => {
-    return (allCommitsData?.items ?? []).filter(c => {
-      const branchMatch = selectedBranches.size === 0 || c.branches.some(b => selectedBranches.has(b))
-      const authorMatch = selectedAuthors.size === 0 || selectedAuthors.has(resolvedAuthor(c))
-      return branchMatch && authorMatch
+  // Two lists from one set of predicates. `filteredCommits` is what the table
+  // shows; `graphCommits` is the same minus the date filter, because the graph
+  // marks the selected day in place rather than collapsing to it — a one-point
+  // area chart carries no trend. Sharing the predicates is what keeps the two
+  // from drifting apart.
+  const { filteredCommits, graphCommits } = useMemo(() => {
+    const allContributorsSelected = selectedContributorIds.size === 0 ||
+      (contributors != null && contributors.length > 0 && contributors.every(contributor => selectedContributorIds.has(contributor.id)))
+    const matchesExceptDate = (c: Commit) => {
+      // Match the owning branch exactly. `c.branches.some(...)` matched any
+      // branch *containing* the commit, so selecting `dev` returned all of
+      // trunk's history too.
+      const branchMatch = selectedBranches.size === 0 || selectedBranches.has(c.origin_branch)
+      // The contributor checkboxes (left menu) resolve aliases to a contributor.
+      const contributorId = emailToContributorId[c.author_email.toLowerCase()]
+      const contributorMatch = allContributorsSelected || selectedContributorIds.has(contributorId)
+      // A null commit_type is its own bucket rather than a missing value, so
+      // "show me what still needs classifying" is expressible.
+      const typeMatch =
+        selectedTypes.size === 0 || selectedTypes.has(c.commit_type ?? 'unclassified')
+      return branchMatch && contributorMatch && typeMatch
+    }
+    const forGraph = (allCommitsData?.items ?? []).filter(matchesExceptDate)
+    return {
+      // Exact calendar day, compared in the viewer's timezone so it agrees
+      // with the date shown in the row.
+      filteredCommits: selectedDate
+        ? forGraph.filter(c => toLocalDateKey(c.date) === selectedDate)
+        : forGraph,
+      graphCommits: forGraph,
+    }
+  }, [allCommitsData, selectedBranches, selectedContributorIds, contributors, emailToContributorId, selectedTypes, selectedDate])
+
+  /**
+   * The graph's series, or null to let it draw the repo's own history.
+   *
+   * Only overridden when Branch or Type is narrowing things. Contributor
+   * selection is left to the chart, which has per-student series from the
+   * activity endpoint covering the repo's full history — deriving it here
+   * instead would silently cap the graph at the 500 commits this page loads.
+   *
+   * Days are keyed in the viewer's timezone, matching the table and the date
+   * picker rather than the endpoint's UTC buckets. Under a filter the graph's
+   * job is to mirror the list below it, and disagreeing with it by a day at
+   * the midnight boundary would be the worse error.
+   */
+  const graphActivityOverride = useMemo(() => {
+    if (selectedBranches.size === 0 && selectedTypes.size === 0) return null
+    const counts = new Map<string, number>()
+    graphCommits.forEach(c => {
+      const key = toLocalDateKey(c.date)
+      counts.set(key, (counts.get(key) ?? 0) + 1)
     })
-  }, [allCommitsData, selectedBranches, selectedAuthors, emailToDisplayName])
+    return Array.from(counts, ([date, count]) => ({ date, count }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+  }, [graphCommits, selectedBranches, selectedTypes])
+
+  /** Names the active Branch/Type filters for the chart's series label. */
+  const graphFilterLabel = useMemo(() => {
+    const parts: string[] = []
+    if (selectedTypes.size > 0) {
+      parts.push(Array.from(selectedTypes).map(t => commitTypeStyle(t).label).join(' + '))
+    }
+    if (selectedBranches.size > 0) {
+      parts.push(`on ${Array.from(selectedBranches).join(', ')}`)
+    }
+    return parts.length > 0 ? parts.join(' ') : undefined
+  }, [selectedTypes, selectedBranches])
 
   const displayedCommits = filteredCommits.slice(
     commitPage * COMMITS_PER_PAGE,
@@ -421,6 +815,7 @@ export function RepoDetailPage() {
   )
 
   function toggleContributorSelect(contributorId: string) {
+    setShowMerge(false)
     setSelectedContributorIds(prev => {
       const next = new Set(prev)
       if (next.has(contributorId)) next.delete(contributorId)
@@ -452,6 +847,13 @@ export function RepoDetailPage() {
     await mergeContributorsMutation.mutateAsync({ ids, displayName: mergeDisplayName.trim() })
     setSelectedContributorIds(new Set())
     setMergeDisplayName('')
+    setShowMerge(false)
+  }
+
+  function handleUnmerge() {
+    if (!selectedMergedContributor) return
+    // Keep the primary selected so another earlier merge can be undone next.
+    unmergeContributorMutation.mutate(selectedMergedContributor.id)
   }
 
   function initMerge() {
@@ -459,21 +861,37 @@ export function RepoDetailPage() {
     setMergeDisplayName(selected[0]?.display_name ?? '')
   }
 
-  async function handleCreateNote(values: { content: string; is_reminder: boolean; reminder_context: string }) {
+  async function handleCreateNote(values: { content: string; is_reminder: boolean; reminder_context: string; remind_at: string | null }) {
     const noteData: CreateNoteData = {
       content: values.content,
       is_reminder: values.is_reminder,
       reminder_context: values.reminder_context || null,
+      remind_at: values.remind_at,
       repo_id: id ?? null,
     }
     await createNoteMutation.mutateAsync(noteData)
   }
 
   async function handleGenerateSummary() {
-    await generateSummaryMutation.mutateAsync({
-      repo_id: id ?? null,
-      summary_type: 'repo_overview',
-    })
+    setSummaryExpanded(true)
+    setTypingSummaryId(null)
+    try {
+      await generateSummaryMutation.mutateAsync({
+        repo_id: id ?? null,
+        summary_type: 'repo_overview',
+      }, {
+        onSuccess: created => {
+          // Publish the new summary before pending ends, so the previous text
+          // cannot flash back while the history request is still refreshing.
+          queryClient.setQueryData<Summary[]>(summaryKeys.repoSummaries(id ?? ''), current =>
+            [created, ...(current ?? []).filter(summary => summary.id !== created.id)]
+          )
+          setTypingSummaryId(created.id)
+        },
+      })
+    } catch {
+      toast.error('Could not generate the summary. Please try again.')
+    }
   }
 
   function handleRemove() {
@@ -496,8 +914,11 @@ export function RepoDetailPage() {
   }
 
   function handleScrollToCommit(hash: string) {
-    const allItems = allCommitsData?.items ?? []
-    const idx = allItems.findIndex(c => c.hash === hash)
+    // Index into the filtered list, not the full one: the table pages over
+    // `filteredCommits`, so with a filter active the full list's index names
+    // the wrong page. `-1` means the commit is hidden by the active filter, so
+    // leave the page where it is rather than jumping somewhere arbitrary.
+    const idx = filteredCommits.findIndex(c => c.hash === hash)
     if (idx !== -1) {
       const targetPage = Math.floor(idx / COMMITS_PER_PAGE)
       setCommitPage(targetPage)
@@ -515,10 +936,70 @@ export function RepoDetailPage() {
     }
   }, [highlightedCommitHash, displayedCommits])
 
-  // Reset to page 0 when filters change
+  // Deep link from a reminder: `/repos/:id?commit=<hash>`. The jump has to wait
+  // for the full commit list, since a commit's page number is only derivable
+  // from its index in that list — hovering the reminder prefetches it, so this
+  // usually fires on the first render after mount.
+  //
+  // The param is cleared once consumed so that a later manual jump, or a
+  // reload, does not silently drag the user back to this commit.
   useEffect(() => {
-    setCommitPage(0)
-  }, [selectedBranches, selectedAuthors])
+    const targetHash = searchParams.get('commit')
+    // Also waits on the contributors, since they are what validates a
+    // `?contributor=` filter — jumping before that lands would look for the
+    // commit in a list still filtered by an id about to be discarded.
+    if (!targetHash || allCommitsLoading || contributorsLoading) return
+
+    handleScrollToCommit(targetHash)
+    setPendingCommitJump(null)
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current)
+        next.delete('commit')
+        return next
+      },
+      // `state` carries the origin this page's back arrow is named after;
+      // navigate() drops it when it is not passed through.
+      { replace: true, state: location.state }
+    )
+  }, [searchParams, allCommitsLoading, contributorsLoading])
+
+  // Deep link from a notification about a note: `/repos/:id?note=<id>`. The
+  // drawer opens on that note. Unlike the commit jump this needs nothing
+  // loaded first — the drawer renders whatever notes it has and re-scrolls
+  // when they arrive — so the param is consumed immediately.
+  //
+  // Cleared like `?commit=`, so a reload does not drag the reader back here.
+  useEffect(() => {
+    const targetNote = searchParams.get('note')
+    if (!targetNote) return
+
+    setHighlightedNoteId(targetNote)
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current)
+        next.delete('note')
+        return next
+      },
+      { replace: true, state: location.state }
+    )
+  }, [searchParams])
+
+  // `?contributor=` is read by useCommitFilterParams like any other filter, so
+  // arriving from workspace search for a person opens the page filtered to
+  // them and the link keeps working when it is passed on. It used to be
+  // consumed and deleted on arrival, which meant a reload silently dropped the
+  // filter.
+
+  // Filter changes reset pagination at the write, in the hook's onChange.
+  // This covers only what no write can: a browser Back onto a filtered URL, or
+  // an options list landing late and narrowing the results out from under the
+  // current page.
+  useEffect(() => {
+    if (commitPage > 0 && commitPage * COMMITS_PER_PAGE >= filteredCommits.length) {
+      setCommitPage(0)
+    }
+  }, [commitPage, COMMITS_PER_PAGE, filteredCommits.length])
 
   useEffect(() => {
     if (repo?.expected_contributor_count != null) {
@@ -527,97 +1008,6 @@ export function RepoDetailPage() {
       setExpectedCount('')
     }
   }, [repo?.expected_contributor_count])
-
-  const commitChartData = useMemo(() => {
-    const allCommits = allCommitsData?.items ?? []
-    const now = new Date()
-    const todayTs = now.getTime()
-    const cutoff = chartRange === '7d' ? new Date(todayTs - 7 * 86400000)
-      : chartRange === '30d' ? new Date(todayTs - 30 * 86400000)
-      : chartRange === '90d' ? new Date(todayTs - 90 * 86400000)
-      : null
-
-    const rangeStart = cutoff ?? (allCommits.length > 0
-      ? new Date(Math.min(...allCommits.map(c => new Date(c.date).getTime())))
-      : new Date(todayTs - 7 * 86400000))
-    const rangeStartTs = rangeStart.getTime()
-
-    const filtered = cutoff ? allCommits.filter(c => new Date(c.date) >= cutoff) : allCommits
-    const groupByWeek = chartRange === '90d' || chartRange === 'all'
-
-    const byBucket: Record<string, { ts: number; commits: number; latestDate: string }> = {}
-    filtered.forEach((c) => {
-      const d = new Date(c.date)
-      let key: string
-      let ts: number
-      if (groupByWeek) {
-        const day = d.getDay()
-        const monday = new Date(d)
-        monday.setDate(d.getDate() - ((day + 6) % 7))
-        key = monday.toISOString().slice(0, 10)
-        ts = monday.getTime()
-      } else {
-        key = c.date.slice(0, 10)
-        ts = new Date(key + 'T12:00:00Z').getTime()
-      }
-      const prev = byBucket[key] ?? { ts, commits: 0, latestDate: '' }
-      byBucket[key] = {
-        ts,
-        commits: prev.commits + 1,
-        latestDate: c.date > prev.latestDate ? c.date : prev.latestDate,
-      }
-    })
-
-    const points: { ts: number; date: string; commits: number }[] = Object.values(byBucket)
-      .sort((a, b) => a.ts - b.ts)
-      .map(({ ts, commits, latestDate }) => ({
-        ts,
-        date: latestDate.slice(0, 10),
-        commits,
-      }))
-
-    // Anchor the left edge at rangeStart so gradient percentages align with the axis domain
-    if (points.length === 0 || points[0].ts > rangeStartTs + 86400000) {
-      points.unshift({ ts: rangeStartTs, date: rangeStart.toISOString().slice(0, 10), commits: 0 })
-    }
-
-    return { points, rangeStartTs, todayTs }
-  }, [allCommitsData, chartRange])
-
-  const gradientStops = useMemo(() => {
-    const { rangeStartTs, todayTs } = commitChartData
-    const duration = todayTs - rangeStartTs
-    const inRange = checkIns
-      .map(ci => new Date(ci).getTime())
-      .filter(ts => ts > rangeStartTs && ts < todayTs)
-      .sort((a, b) => a - b)
-
-    const boundaries = [rangeStartTs, ...inRange, todayTs]
-    const numPeriods = boundaries.length - 1
-
-    // Most recent period gets the last (indigo) color; older periods get earlier colors
-    const periodColors = Array.from({ length: numPeriods }, (_, i) => {
-      const colorIdx = PERIOD_COLORS.length - numPeriods + i
-      return PERIOD_COLORS[Math.max(0, colorIdx)]
-    })
-
-    if (numPeriods === 1 || duration <= 0) {
-      return [
-        { offset: '0%', color: periodColors[0] },
-        { offset: '100%', color: periodColors[0] },
-      ]
-    }
-
-    const stops: { offset: string; color: string }[] = []
-    stops.push({ offset: '0%', color: periodColors[0] })
-    for (let i = 1; i < boundaries.length - 1; i++) {
-      const pct = ((boundaries[i] - rangeStartTs) / duration * 100).toFixed(2) + '%'
-      stops.push({ offset: pct, color: periodColors[i - 1] })
-      stops.push({ offset: pct, color: periodColors[i] })
-    }
-    stops.push({ offset: '100%', color: periodColors[numPeriods - 1] })
-    return stops
-  }, [commitChartData, checkIns])
 
   const commitNoteStats = (notes ?? []).reduce<Record<string, { total: number; reminders: number }>>(
     (acc, note) => {
@@ -648,11 +1038,11 @@ export function RepoDetailPage() {
       }
     }
     return (
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1.5">
         <button
           disabled={commitPage === 0}
           onClick={() => setCommitPage(p => p - 1)}
-          className="text-xs px-2 h-7 rounded border transition-colors text-muted-foreground border-border hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="text-xs px-2 h-7 rounded border transition-colors text-muted-foreground border-border hover:border-brand-300 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Previous
         </button>
@@ -666,8 +1056,8 @@ export function RepoDetailPage() {
               className={cn(
                 'text-xs w-7 h-7 rounded border transition-colors',
                 p === commitPage
-                  ? 'bg-indigo-600 text-white border-indigo-600'
-                  : 'text-muted-foreground border-border hover:border-indigo-300'
+                  ? 'bg-brand-600 text-white border-brand-600'
+                  : 'text-muted-foreground border-border hover:border-brand-300'
               )}
             >
               {p + 1}
@@ -677,7 +1067,7 @@ export function RepoDetailPage() {
         <button
           disabled={commitPage >= totalCommitPages - 1}
           onClick={() => setCommitPage(p => p + 1)}
-          className="text-xs px-2 h-7 rounded border transition-colors text-muted-foreground border-border hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="text-xs px-2 h-7 rounded border transition-colors text-muted-foreground border-border hover:border-brand-300 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Next
         </button>
@@ -685,11 +1075,33 @@ export function RepoDetailPage() {
     )
   }
 
+  // The collection is only the fallback: whoever linked here records where
+  // they linked from, and that wins. See useBackTarget.
+  const backTarget = useBackTarget(
+    repo ? `/collections/${repo.collection_id}` : '/collections'
+  )
+
   if (repoLoading) {
     return (
-      <div className="px-6 py-8">
-        <div className="h-8 w-64 bg-muted rounded animate-pulse mb-4" />
-        <div className="h-4 w-40 bg-muted rounded animate-pulse mb-8" />
+      <div className={cn(PAGE_BODY_CLASS, 'pt-6')}>
+        {/* Arriving from a reminder, say where we are going. An unexplained
+            skeleton reads as a stall; naming the destination makes the same
+            wait legible. */}
+        {pendingCommitJump && (
+          <p
+            data-testid="commit-jump-pending"
+            className="mb-4 flex items-center gap-2 text-sm text-muted-foreground"
+          >
+            <GitCommit className="h-4 w-4 flex-shrink-0 text-brand-500" />
+            Opening commit{' '}
+            <span className="font-mono text-foreground">
+              {pendingCommitJump.slice(0, 7)}
+            </span>
+            …
+          </p>
+        )}
+        <div className="h-8 w-64 bg-muted rounded animate-pulse mb-2" />
+        <div className="h-4 w-40 bg-muted rounded animate-pulse mb-4" />
         <div className="h-64 bg-muted rounded-lg animate-pulse" />
       </div>
     )
@@ -697,11 +1109,13 @@ export function RepoDetailPage() {
 
   if (!repo) {
     return (
-      <div className="px-6 py-8">
+      <div className={cn(PAGE_BODY_CLASS, 'pt-6')}>
         <p className="text-muted-foreground">Repository not found.</p>
       </div>
     )
   }
+
+  const vscodeUrl = vscodeDevUrl(repo.github_url)
 
   return (
     <div>
@@ -709,123 +1123,68 @@ export function RepoDetailPage() {
       {isPageLoading && (
         <div className="fixed top-0 left-0 right-0 z-50 h-0.5 bg-transparent pointer-events-none">
           <div
-            className="h-full bg-indigo-500 transition-[width] duration-300 ease-out"
+            className="h-full bg-brand-500 transition-[width] duration-300 ease-out"
             style={{ width: `${loadProgress}%` }}
           />
         </div>
       )}
+      {/* The repo header has rendered but the commit list has not, so the jump
+          cannot happen yet. Keep the destination on screen until it does. */}
+      {pendingCommitJump && (
+        <div
+          data-testid="commit-jump-pending"
+          className="flex items-center gap-2 border-b border-brand-100 bg-brand-50 px-6 py-2 text-sm text-brand-800"
+        >
+          <GitCommit className="h-4 w-4 flex-shrink-0" />
+          Opening commit{' '}
+          <span className="font-mono">{pendingCommitJump.slice(0, 7)}</span>…
+        </div>
+      )}
       {/* Clean white page header */}
-      <div className="bg-white border-b border-border px-6 py-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-start gap-3 min-w-0">
+      <div data-testid="page-header" className={PAGE_HEADER_CLASS}>
+        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4">
+          <div className="flex items-center gap-2 min-w-0">
             <button
-              onClick={() => navigate(`/collections/${repo.collection_id}`)}
-              className="text-muted-foreground hover:text-indigo-600 transition-colors mt-0.5 flex-shrink-0"
+              onClick={backTarget.goBack}
+              aria-label={backTarget.label}
+              title={backTarget.label}
+              className="text-muted-foreground hover:text-brand-600 transition-colors flex-shrink-0"
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
-            <div className="min-w-0">
-              <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-xl font-semibold truncate text-foreground">{repo.name}</h1>
-                <HealthBadge status={healthScore?.status ?? repo.health_status} />
-                {healthScore && (
-                  <div className={cn(
-                    'flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold border',
-                    healthScore.composite >= 0.75
-                      ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
-                      : healthScore.composite >= 0.375
-                      ? 'bg-amber-100 text-amber-700 border-amber-200'
-                      : 'bg-red-100 text-red-700 border-red-200'
-                  )}>
-                    <span>Score: {Math.round(healthScore.composite * 100)}</span>
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-3 mt-0.5">
-                <p className="text-sm text-muted-foreground truncate">{repo.github_url}</p>
-                <span className="text-xs text-muted-foreground flex-shrink-0 flex items-center gap-1">
-                  <RefreshCw className="h-3 w-3" />
-                  {repo.last_synced_at ? `Synced ${formatDateTime(repo.last_synced_at)}` : 'Never synced'}
-                </span>
-              </div>
+            <div className="flex min-w-0 items-center gap-2">
+                <h1 className="min-w-0">
+                  <a href={repo.github_url} target="_blank" rel="noopener noreferrer" title="Open repository on GitHub" className="inline-flex max-w-full items-center gap-2 rounded-md border border-border px-3 py-1 text-2xl font-semibold text-foreground transition-colors hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <span className="truncate">{repo.name}</span>
+                    <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  </a>
+                </h1>
 
-              {healthScore && (() => {
-                const signals = [
-                  {
-                    label: 'Frequency',
-                    value: healthScore.commit_frequency,
-                    tip: 'Avg commits/week over the last 4 weeks. Green ≥10/wk, yellow 4–9/wk, red ≤3/wk.',
-                  },
-                  {
-                    label: 'Recency',
-                    value: healthScore.recency,
-                    tip: 'Days since the most recent commit. Green <3 days, yellow 3–7 days, red >7 days.',
-                  },
-                  {
-                    label: 'Distribution',
-                    value: healthScore.distribution,
-                    tip: 'How evenly commits are spread across contributors (Gini coefficient). Green = well distributed, red = one person dominates.',
-                  },
-                  {
-                    label: 'Branches',
-                    value: healthScore.branch_activity,
-                    tip: 'Active branch count. Green ≥2 branches, yellow = 1 branch with recent activity, red = stale or no branches.',
-                  },
-                  {
-                    label: 'Msg Quality',
-                    value: healthScore.commit_message_quality,
-                    tip: 'Percentage of commits with descriptive messages (≥10 chars, multi-word). Green <10% low-quality, red >30%.',
-                  },
-                  {
-                    label: 'Participation',
-                    value: healthScore.participation ?? 0,
-                    tip: 'Actual vs expected unique contributors. Green = at or above expected, yellow ≥60%, red <60%.',
-                  },
-                ]
-                return (
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {signals.map((signal) => {
-                      const norm = signal.value / 2
-                      const dotClass = norm >= 0.7
-                        ? 'bg-emerald-500'
-                        : norm >= 0.4
-                        ? 'bg-amber-500'
-                        : 'bg-red-500'
-                      return (
-                        <div
-                          key={signal.label}
-                          title={signal.tip}
-                          className={cn(
-                            'flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold border cursor-default',
-                            norm >= 0.7
-                              ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
-                              : norm >= 0.4
-                              ? 'bg-amber-100 text-amber-700 border-amber-200'
-                              : 'bg-red-100 text-red-700 border-red-200'
-                          )}
-                        >
-                          <span className={cn('h-2 w-2 rounded-full flex-shrink-0', dotClass)} />
-                          <span>{signal.label}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )
-              })()}
+              {/* The per-signal breakdown now lives on the Commit Activity
+                  card; the header keeps only the composite it rolls up to. */}
+              {healthScore && (
+                <div className="flex shrink-0 items-center gap-2">
+                  <HealthBadge status={healthScore.status ?? repo.health_status} />
+                  <span className="text-xs font-semibold text-muted-foreground">
+                    {Math.round(healthScore.composite * 100)}/100
+                  </span>
+                </div>
+              )}
             </div>
           </div>
-          <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-            {/* Row 1: navigation + history */}
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" asChild>
-                <a href={repo.github_url} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="h-4 w-4 mr-1.5" />
-                  GitHub
-                </a>
-              </Button>
-              {repo.local_path && (
+          <span className="flex items-center justify-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
+            <RefreshCw className="h-3 w-3" />
+            {repo.last_synced_at ? `Synced ${formatDateTime(repo.last_synced_at)}` : 'Never synced'}
+          </span>
+          <div className="flex items-center justify-self-end gap-2">
+              {vscodeUrl && (
                 <Button variant="outline" size="sm" asChild>
-                  <a href={`vscode://file/${repo.local_path}`}>
+                  <a
+                    href={vscodeUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Open in VS Code for the Web (a private repo will ask you to sign in to GitHub)"
+                  >
                     <Code2 className="h-4 w-4 mr-1.5" />
                     VS Code
                   </a>
@@ -840,19 +1199,17 @@ export function RepoDetailPage() {
                 <History className="h-4 w-4 mr-1.5" />
                 AI History
                 {(summaries?.length ?? 0) > 0 && (
-                  <span className="ml-1.5 bg-violet-100 text-violet-700 text-xs font-semibold rounded-full px-1.5 py-0.5 leading-none">
+                  <span className="ml-1.5 bg-orchid-100 text-orchid-700 text-xs font-semibold rounded-full px-2 py-0.5 leading-none">
                     {summaries!.length}
                   </span>
                 )}
               </Button>
-            </div>
-            {/* Row 2: actions */}
-            <div className="flex items-center gap-2">
               <Button
                 size="sm"
                 onClick={async () => {
                   const repoId = repo.id
                   const toastId = toast.loading('Syncing repository…')
+                  setSyncing(true)
                   try {
                     await syncMutation.mutateAsync(repoId)
                     toast.success('Sync started — data will refresh shortly.', { id: toastId })
@@ -861,105 +1218,111 @@ export function RepoDetailPage() {
                       queryClient.invalidateQueries({ queryKey: repoKeys.health(repoId) })
                       queryClient.invalidateQueries({ queryKey: repoKeys.commits(repoId) })
                       queryClient.invalidateQueries({ queryKey: repoKeys.contributors(repoId) })
+                      setSyncing(false)
                     }, 5000)
                   } catch {
+                    setSyncing(false)
                     toast.error('Sync failed — check backend logs for details.', { id: toastId })
                   }
                 }}
-                disabled={syncMutation.isPending || !hasToken}
+                loading={syncing || syncMutation.isPending} disabled={syncing || syncMutation.isPending || !hasToken}
                 title={!hasToken ? 'Add a GitHub token in your profile to enable syncing' : undefined}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                className="bg-brand-600 hover:bg-brand-700 text-white"
               >
-                <RefreshCw className={cn('h-4 w-4 mr-1.5', syncMutation.isPending && 'animate-spin')} />
+                <RefreshCw className={cn('h-4 w-4 mr-1.5', (syncing || syncMutation.isPending) && 'animate-spin motion-reduce:animate-none')} />
                 Sync
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleRemove}
-                disabled={deleteRepoMutation.isPending}
+                loading={deleteRepoMutation.isPending} disabled={deleteRepoMutation.isPending}
                 className="text-red-500 hover:text-red-600 border-red-200 hover:border-red-300"
               >
                 <Trash2 className="h-4 w-4 mr-1.5" />
                 Remove
               </Button>
-            </div>
           </div>
         </div>
       </div>
 
-      {/* Body — flex-row when notes are pinned, flex-col otherwise */}
-      <div className={cn('px-6 py-6 flex gap-6', notesPinned ? 'flex-row items-start' : 'flex-col')}>
+      {/* Body — notes open separately from the right edge */}
+      <div className={cn(PAGE_BODY_CLASS, 'flex flex-row items-start gap-4')}>
 
         {/* Main sections column */}
-        <div className={cn('flex flex-col gap-6', notesPinned ? 'flex-1 min-w-0' : 'w-full')}>
-        <div className="flex gap-8 items-start">
+        <div className="flex min-w-0 flex-1 flex-col gap-4">
+        {/* No "Overview" heading — the cards below are self-labelling. */}
 
-          {/* Left column — main content */}
-          <div className="flex-1 min-w-0 flex flex-col gap-6">
+        {/* AI Summary — spans the full width above the two columns */}
+        <motion.div variants={sectionVariants} initial="hidden" animate="visible">
+          <Card className="relative overflow-hidden">
+            <SummaryLiquidBackground generating={generateSummaryMutation.isPending} />
+            <CardHeader className="relative z-10 p-4 pb-2">
+              <div className="flex items-center justify-between">
+                <button
+                  className="flex items-center gap-1.5 text-base font-semibold hover:text-brand-600 transition-colors"
+                  onClick={() => latestSummary && setSummaryExpanded(v => !v)}
+                >
+                  AI Summary
+                  {latestSummary && (summaryExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />)}
+                </button>
+                <GenerateSummaryButton
+                  onClick={handleGenerateSummary}
+                  isPending={generateSummaryMutation.isPending}
+                />
+              </div>
+            </CardHeader>
+            {summaryExpanded && (
+            <CardContent className="relative z-10 p-4 pt-0">
+              {(generateSummaryMutation.isPending || summariesLoading) && (
+                <LoadingContent label={summariesLoading ? 'Loading summary…' : ''} />
+              )}
+              {/* Hidden while pending so the previous summary cannot sit under
+                  the thinking state, then revealed by the typing animation. */}
+              {!generateSummaryMutation.isPending && latestSummary ? (
+                <div>
+                  <TypedMarkdown
+                    content={latestSummary.content}
+                    animate={latestSummary.id === typingSummaryId}
+                    onDone={() => setTypingSummaryId(null)}
+                  />
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Generated {formatDateTime(latestSummary.generated_at)} · {latestSummary.model_used}
+                  </p>
+                </div>
+              ) : !generateSummaryMutation.isPending && !summariesLoading ? (
+                <p className="text-sm text-muted-foreground">
+                  No summary generated yet. Click "Generate Summary" to create one.
+                </p>
+              ) : null}
+            </CardContent>
+            )}
+          </Card>
+        </motion.div>
 
-            {/* Overview section */}
+        {/* Two columns: sidebar (PRs + contributors) renders to the left of the
+            main content via grid placement, so the DOM keeps main content first
+            for screen readers and tab order. */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[20rem_minmax(0,1fr)] xl:grid-cols-[24rem_minmax(0,1fr)]">
+
+          {/* Main content column — commit activity + commits */}
+          <div className="min-w-0 flex flex-col gap-4 lg:col-start-2 lg:row-start-1">
+
+            {/* Commit activity section */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible">
-              <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                <BarChart2 className="h-4 w-4 text-muted-foreground" />
-                Overview
-              </h2>
-              <div className="flex flex-col gap-5">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <button
-                        className="flex items-center gap-1.5 text-base font-semibold hover:text-indigo-600 transition-colors"
-                        onClick={() => latestSummary && setSummaryExpanded(v => !v)}
-                      >
-                        AI Summary
-                        {latestSummary && (summaryExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />)}
-                      </button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleGenerateSummary}
-                        disabled={generateSummaryMutation.isPending}
-                      >
-                        <Sparkles className={cn('h-4 w-4 mr-1.5', generateSummaryMutation.isPending && 'animate-pulse')} />
-                        {generateSummaryMutation.isPending ? 'Generating...' : 'Generate Summary'}
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  {summaryExpanded && (
-                  <CardContent>
-                    {latestSummary ? (
-                      <div>
-                        <MarkdownContent content={latestSummary.content} />
-                        <p className="text-xs text-muted-foreground mt-3">
-                          Generated {formatDateTime(latestSummary.generated_at)} · {latestSummary.model_used}
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        No summary generated yet. Click "Generate Summary" to create one.
-                      </p>
-                    )}
-                  </CardContent>
-                  )}
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <CardTitle className="text-base">Commit Activity</CardTitle>
-                        {checkIns.length > 0 && (
-                          <span className="text-xs text-muted-foreground">
-                            Last checked: {formatRelativeDays(checkIns[checkIns.length - 1])}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1">
+              <div className={cn('flex flex-col', SECTION_GAP)}>
+                <ContextualActivityChart key={id} collectionId={repo.collection_id} repoId={repo.id}
+                  selectedContributorIds={Array.from(selectedContributorIds)}
+                  activityOverride={graphActivityOverride}
+                  filterLabel={graphFilterLabel}
+                  highlightDate={selectedDate || undefined}
+                  expanded={activityExpanded}
+                  onToggle={toggleActivity}
+                  actions={<>
                         <button
                           onClick={handleCheckIn}
                           title="Record a check-in now"
-                          className="flex items-center gap-1 text-xs px-2 py-1 rounded border text-indigo-600 border-indigo-200 bg-indigo-50 hover:bg-indigo-100 transition-colors"
+                          className="flex items-center gap-1.5 text-xs px-2 py-1 rounded border text-brand-600 border-brand-200 bg-brand-50 hover:bg-brand-100 transition-colors"
                         >
                           <ClipboardCheck className="h-3.5 w-3.5" />
                           <span>Check In</span>
@@ -968,30 +1331,22 @@ export function RepoDetailPage() {
                           onClick={() => { setShowPastCheckIn(v => !v); setPastCheckInDate('') }}
                           title="Add a past check-in"
                           className={cn(
-                            'flex items-center gap-1 text-xs px-2 py-1 rounded border transition-colors mr-1',
+                            'flex items-center gap-1.5 text-xs px-2 py-1 rounded border transition-colors mr-1.5',
                             showPastCheckIn
-                              ? 'bg-indigo-100 text-indigo-700 border-indigo-300'
-                              : 'text-muted-foreground border-border hover:border-indigo-300'
+                              ? 'bg-brand-100 text-brand-700 border-brand-300'
+                              : 'text-muted-foreground border-border hover:border-brand-300'
                           )}
                         >
                           <CalendarPlus className="h-3.5 w-3.5" />
                         </button>
-                        {(['7d', '30d', '90d', 'all'] as const).map((r) => (
-                          <button
-                            key={r}
-                            onClick={() => setChartRange(r)}
-                            className={cn(
-                              'text-xs px-2 py-1 rounded border transition-colors',
-                              chartRange === r
-                                ? 'bg-indigo-600 text-white border-indigo-600'
-                                : 'text-muted-foreground border-border hover:border-indigo-300'
-                            )}
-                          >
-                            {r === 'all' ? 'All' : r}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+
+                  </>}
+                >
+                  {/* No py-1: the header's own spacing sets the gap, and the
+                      extra 4px top and bottom was the blank strip between the
+                      title row and these pills. */}
+                  <HealthSignalPills health={healthScore} />
+                  {checkIns.length > 0 && <p className="text-xs text-muted-foreground">Last checked: {formatRelativeDays(checkIns[checkIns.length - 1])}</p>}
                     {showPastCheckIn && (
                       <div className="flex items-center gap-2 mt-2 pt-2 border-t">
                         <input
@@ -999,239 +1354,201 @@ export function RepoDetailPage() {
                           value={pastCheckInDate}
                           onChange={(e) => setPastCheckInDate(e.target.value)}
                           max={new Date().toISOString().slice(0, 16)}
-                          className="text-xs border border-border rounded px-2 py-1 flex-1 focus:outline-none focus:border-indigo-400"
+                          className="text-xs border border-border rounded px-2 py-1 flex-1 focus:outline-none focus:border-brand-400"
                         />
                         <button
                           onClick={handleAddPastCheckIn}
                           disabled={!pastCheckInDate}
-                          className="text-xs px-2 py-1 rounded border bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          className="text-xs px-2 py-1 rounded border bg-brand-600 text-white border-brand-600 hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                         >
                           Add
                         </button>
                         <button
                           onClick={() => setShowPastCheckIn(false)}
-                          className="text-xs px-2 py-1 rounded border text-muted-foreground border-border hover:border-indigo-300 transition-colors"
+                          className="text-xs px-2 py-1 rounded border text-muted-foreground border-border hover:border-brand-300 transition-colors"
                         >
                           Cancel
                         </button>
                       </div>
                     )}
-                  </CardHeader>
-                  <CardContent>
-                    {commitChartData.points.filter(p => p.commits > 0).length > 0 ? (
-                      <div className="h-48">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={commitChartData.points}>
-                            <defs>
-                              <linearGradient id="periodGradient" x1="0" y1="0" x2="1" y2="0">
-                                {gradientStops.map((stop, i) => (
-                                  <stop key={i} offset={stop.offset} stopColor={stop.color} stopOpacity={1} />
-                                ))}
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                            <XAxis
-                              type="number"
-                              dataKey="ts"
-                              scale="time"
-                              domain={[commitChartData.rangeStartTs, commitChartData.todayTs]}
-                              tickCount={6}
-                              tick={{ fontSize: 11 }}
-                              tickFormatter={(ts: number) =>
-                                new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                              }
-                            />
-                            <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                            <Tooltip
-                              labelFormatter={(ts: number) =>
-                                new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                              }
-                              formatter={(v: number) => [v, 'Commits']}
-                            />
-                            {checkIns
-                              .map(ci => new Date(ci).getTime())
-                              .filter(ts => ts > commitChartData.rangeStartTs && ts < commitChartData.todayTs)
-                              .map((ts, i) => (
-                                <ReferenceLine
-                                  key={i}
-                                  x={ts}
-                                  stroke="#6366f1"
-                                  strokeDasharray="4 2"
-                                  strokeWidth={1.5}
-                                  label={{ value: '✓', position: 'insideTopRight', fontSize: 10, fill: '#6366f1' }}
-                                />
-                              ))}
-                            <Area
-                              type="monotone"
-                              dataKey="commits"
-                              stroke="url(#periodGradient)"
-                              fill="url(#periodGradient)"
-                              fillOpacity={0.2}
-                              strokeWidth={2}
-                            />
-                          </AreaChart>
-                        </ResponsiveContainer>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground py-8 text-center">
-                        No commits in the selected range.
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
+                </ContextualActivityChart>
 
               </div>
             </motion.div>
 
             {/* Commits section */}
             <motion.div variants={sectionVariants} initial="hidden" animate="visible" transition={{ delay: 0.1 }}>
-              <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                <GitCommit className="h-4 w-4 text-muted-foreground" />
-                Commits
-              </h2>
-              {!allCommitsData?.items.length ? (
+              <Card>
+                <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+                  <CardTitle className="text-base">Commits</CardTitle>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    loading={classifyMutation.isPending}
+                    onClick={() => runClassify(false)}
+                    className="gap-1.5"
+                  >
+                    {classifyMutation.isPending ? (
+                      <>
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+                        Classifying…
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="h-3.5 w-3.5" />
+                        Classify commits
+                      </>
+                    )}
+                  </Button>
+                </CardHeader>
+                <CardContent className="p-4 pt-0">
+              {/* Checked before the empty case: while the query is in flight
+                  allCommitsData is undefined, which used to render "No commits
+                  found." at every page load. */}
+              {allCommitsLoading ? (
+                <CommitsLoading />
+              ) : !allCommitsData?.items.length ? (
                 <p className="text-muted-foreground text-sm">No commits found.</p>
               ) : (
                 <div className="flex flex-col gap-2">
-                  <div className="flex flex-col gap-2">
-                    {allBranches.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground mr-1">Branch:</span>
-                        <button
-                          onClick={() => setSelectedBranches(new Set())}
-                          className={cn(
-                            'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                            selectedBranches.size === 0
-                              ? 'bg-indigo-600 text-white border-indigo-600'
-                              : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
-                          )}
-                        >
-                          All
-                        </button>
-                        {(showAllBranches ? allBranches : allBranches.slice(0, MAX_FILTER_CHIPS)).map(b => (
-                          <button
-                            key={b}
-                            onClick={() => toggleBranch(b)}
-                            className={cn(
-                              'text-xs px-1.5 py-0.5 rounded border font-mono transition-colors',
-                              selectedBranches.has(b)
-                                ? 'bg-indigo-600 text-white border-indigo-600'
-                                : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
-                            )}
-                          >
-                            {b}
-                          </button>
-                        ))}
-                        {allBranches.length > MAX_FILTER_CHIPS && (
-                          <button
-                            onClick={() => setShowAllBranches(v => !v)}
-                            className="text-xs px-1.5 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
-                          >
-                            {showAllBranches ? 'Show less' : `+${allBranches.length - MAX_FILTER_CHIPS} more`}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {allAuthors.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground mr-1">Author:</span>
-                        <button
-                          onClick={() => setSelectedAuthors(new Set())}
-                          className={cn(
-                            'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                            selectedAuthors.size === 0
-                              ? 'bg-violet-600 text-white border-violet-600'
-                              : 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
-                          )}
-                        >
-                          All
-                        </button>
-                        {(showAllAuthors ? allAuthors : allAuthors.slice(0, MAX_FILTER_CHIPS)).map(a => (
-                          <button
-                            key={a}
-                            onClick={() => toggleAuthor(a)}
-                            className={cn(
-                              'text-xs px-1.5 py-0.5 rounded border transition-colors',
-                              selectedAuthors.has(a)
-                                ? 'bg-violet-600 text-white border-violet-600'
-                                : 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
-                            )}
-                          >
-                            {a}
-                          </button>
-                        ))}
-                        {allAuthors.length > MAX_FILTER_CHIPS && (
-                          <button
-                            onClick={() => setShowAllAuthors(v => !v)}
-                            className="text-xs px-1.5 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
-                          >
-                            {showAllAuthors ? 'Show less' : `+${allAuthors.length - MAX_FILTER_CHIPS} more`}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  {totalCommitPages > 1 && (
-                    <div className="flex items-center justify-between py-1">
+                  {/* The clone could not be read, so these came from the last
+                      sync. Said out loud because anything committed since is
+                      missing, and a silently stale list looks live. */}
+                  {allCommitsData.stale && (
+                    <p
+                      data-testid="commits-stale-notice"
+                      className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+                    >
+                      <TriangleAlert className="mt-1.5 h-3.5 w-3.5 flex-shrink-0" />
+                      <span>
+                        Showing the last synced history — the local clone could
+                        not be read. Sync the repository for anything newer.
+                      </span>
+                    </p>
+                  )}
+                    <div className="flex flex-wrap items-center justify-between gap-2 py-1">
                       <p className="text-xs text-muted-foreground">
                         {filteredCommits.length} commit{filteredCommits.length !== 1 ? 's' : ''}
                         {filteredCommits.length !== (allCommitsData?.items.length ?? 0) && (
                           <span> (of {allCommitsData?.items.length ?? 0})</span>
                         )}
                       </p>
-                      {renderCommitPagination()}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                          Commits per page
+                          <select
+                            aria-label="Commits per page"
+                            className="h-8 rounded-md border border-border bg-background px-2 text-foreground"
+                            value={commitPageSizeOption}
+                            onChange={event => {
+                              const value = event.target.value
+                              setCommitPageSizeOption(value)
+                              if (value !== 'custom') {
+                                setCommitsPerPage(Number(value))
+                                setCommitPage(0)
+                              }
+                            }}
+                          >
+                            <option value="5">5</option>
+                            <option value="10">10</option>
+                            <option value="15">15</option>
+                            <option value="custom">Custom</option>
+                          </select>
+                        </label>
+                        {commitPageSizeOption === 'custom' && (
+                          <form className="flex items-center gap-2" onSubmit={event => {
+                            event.preventDefault()
+                            const value = Number(customCommitPageSize)
+                            if (!Number.isInteger(value) || value < 1 || value > 500) return
+                            setCommitsPerPage(value)
+                            setCommitPage(0)
+                          }}>
+                            <input aria-label="Custom commits per page" type="number" min="1" max="500" step="1" required value={customCommitPageSize} onChange={event => setCustomCommitPageSize(event.target.value)} className="h-8 w-20 rounded-md border border-border bg-background px-2 text-xs" />
+                            <Button type="submit" variant="outline" size="sm" className="h-8">Apply</Button>
+                          </form>
+                        )}
+                        {renderCommitPagination()}
+                      </div>
                     </div>
-                  )}
-                  <div className="overflow-x-auto">
+                  <div key={`${commitPage}-${COMMITS_PER_PAGE}`} role="region" aria-label="Commit list" tabIndex={0} className="max-h-[560px] overflow-auto overscroll-contain rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     <table className="w-full text-sm">
-                      <thead>
+                      <thead className="sticky top-0 z-10 bg-card">
                         <tr className="border-b text-muted-foreground text-xs">
+                          {/* Leftmost so the vertical scrollbar cannot clip
+                              it, with a floor on its width so neither the name
+                              nor the counts get squeezed. The diffstat stacks
+                              underneath the name — one heading covers both,
+                              since they answer who changed how much. */}
+                          <th className="text-left pb-2 pr-6 font-medium min-w-[9rem]">Author</th>
                           <th className="text-left pb-2 font-medium">Commit</th>
-                          <th className="text-left pb-2 font-medium">Author</th>
                           <th className="text-left pb-2 font-medium">Branch</th>
-                          <th className="text-right pb-2 font-medium">+/-</th>
+                          {/* Now the last column, so it needs its own gap from
+                              the scrollbar. */}
+                          <th className="text-left pb-2 pr-2 font-medium">Score</th>
                         </tr>
                       </thead>
                       <tbody>
                         {displayedCommits.map((commit) => (
-                          <>
-                          <tr id={`commit-${commit.hash}`} key={commit.hash} className={cn(
-                            'border-b hover:bg-accent/20 transition-colors',
-                            highlightedCommitHash === commit.hash && 'ring-2 ring-inset ring-indigo-400 bg-indigo-50'
-                          )}>
-                            <td className="py-2.5 pr-4">
+                          <Fragment key={commit.hash}>
+                          <tr
+                            id={`commit-${commit.hash}`}
+                            // The tint is the only thing carrying commit type
+                            // now that the column is gone, so the title gives
+                            // it a non-visual equivalent.
+                            title={commitRowTitle(commit.commit_type)}
+                            className={cn(
+                              'border-b transition-colors',
+                              // Untinted rows keep the neutral hover; tinted
+                              // ones bring their own, so the two don't stack.
+                              commit.commit_type === null && 'hover:bg-accent/20',
+                              commitRowClass(commit.commit_type),
+                              // Last, so tailwind-merge lets the link
+                              // highlight win over the type tint.
+                              highlightedCommitHash === commit.hash &&
+                                'ring-2 ring-inset ring-brand-400 bg-brand-100 hover:bg-brand-100'
+                            )}
+                          >
+                            <td className="py-2 pr-6 text-xs whitespace-nowrap align-top">
+                              <span className="block text-foreground">{resolvedAuthor(commit)}</span>
+                              <span className="block">
+                                <span className="text-health-green">+{commit.insertions}</span>
+                                {' / '}
+                                <span className="text-health-red">-{commit.deletions}</span>
+                              </span>
+                            </td>
+                            <td className="py-2 pr-4">
                               <div className="flex items-center gap-2">
                                 <a
                                   href={`${repo.github_url}/commit/${commit.hash}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="flex items-center gap-1 font-mono text-xs text-indigo-600 hover:underline whitespace-nowrap"
+                                  className="flex items-center gap-1.5 font-mono text-xs text-brand-600 hover:underline whitespace-nowrap"
                                   onClick={(e) => e.stopPropagation()}
                                 >
                                   <GitCommit className="h-3 w-3 flex-shrink-0" />
                                   {commit.hash.slice(0, 7)}
                                 </a>
-                                <span className="flex items-center gap-1 font-mono text-xs text-muted-foreground whitespace-nowrap">
+                                <span className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground whitespace-nowrap">
                                   <Calendar className="h-3 w-3 flex-shrink-0" />
                                   {formatDate(commit.date)}
                                 </span>
                               </div>
-                              <p className="text-xs mt-0.5 break-words">{commit.message}</p>
+                              <p className="text-xs mt-1.5 break-words">{commit.message}</p>
                               {(() => {
                                 const stats = commitNoteStats[commit.hash]
                                 return (
                                   <button
                                     onClick={() => setActiveCommitHash(activeCommitHash === commit.hash ? null : commit.hash)}
-                                    className="text-xs text-muted-foreground hover:text-indigo-600 mt-0.5 flex items-center gap-1"
+                                    className="text-xs text-muted-foreground hover:text-brand-600 mt-1.5 flex items-center gap-1.5"
                                   >
                                     <MessageSquare className="h-3 w-3" />
                                     {stats ? (
                                       <>
-                                        <span className="bg-indigo-100 text-indigo-700 rounded-full px-1.5 py-0.5 text-xs font-medium leading-none">
+                                        <span className="bg-brand-100 text-brand-700 rounded-full px-2 py-0.5 text-xs font-medium leading-none">
                                           {stats.total}
                                         </span>
                                         {stats.reminders > 0 && (
-                                          <span className="bg-amber-100 text-amber-700 rounded-full px-1.5 py-0.5 text-xs font-medium leading-none">
+                                          <span className="bg-amber-100 text-amber-700 rounded-full px-2 py-0.5 text-xs font-medium leading-none">
                                             {stats.reminders} reminder{stats.reminders !== 1 ? 's' : ''}
                                           </span>
                                         )}
@@ -1243,12 +1560,13 @@ export function RepoDetailPage() {
                                 )
                               })()}
                             </td>
-                            <td className="py-2.5 pr-4 text-xs whitespace-nowrap">{resolvedAuthor(commit)}</td>
-                            <td className="py-2.5 pr-4 text-xs max-w-[10rem]">
+                            <td className="py-2 pr-4 text-xs max-w-[10rem]">
                               {(() => {
                                 const mainNames = ['main', 'master']
                                 const onMain = commit.branches.some(b => mainNames.includes(b))
-                                const originBranch = commit.branches.find(b => !mainNames.includes(b)) ?? commit.branches[0]
+                                // The backend decides which branch owns a commit, so the
+                                // chip shown here is exactly what the filter matches on.
+                                const originBranch = commit.origin_branch
                                 const displayBranch = originBranch && originBranch.length > 22
                                   ? originBranch.slice(0, 20) + '…'
                                   : originBranch
@@ -1259,10 +1577,10 @@ export function RepoDetailPage() {
                                         title={originBranch.length > 22 ? originBranch : undefined}
                                         onClick={(e) => { e.stopPropagation(); toggleBranch(originBranch) }}
                                         className={cn(
-                                          'rounded px-1.5 py-0.5 font-mono border transition-colors truncate max-w-full',
+                                          'rounded px-2 py-0.5 font-mono border transition-colors truncate max-w-full',
                                           selectedBranches.has(originBranch)
-                                            ? 'bg-indigo-600 text-white border-indigo-600'
-                                            : 'bg-indigo-50 text-indigo-700 border-indigo-100 hover:bg-indigo-100'
+                                            ? 'bg-brand-600 text-white border-brand-600'
+                                            : 'bg-brand-50 text-brand-700 border-brand-100 hover:bg-brand-100'
                                         )}
                                       >
                                         {displayBranch}
@@ -1277,20 +1595,18 @@ export function RepoDetailPage() {
                                 )
                               })()}
                             </td>
-                            <td className="py-2.5 text-right text-xs whitespace-nowrap">
-                              <span className="text-health-green">+{commit.insertions}</span>
-                              {' / '}
-                              <span className="text-health-red">-{commit.deletions}</span>
+                            <td className="py-2 pr-2">
+                              <CommitScorePill score={commit.quality_score} />
                             </td>
                           </tr>
                           {activeCommitHash === commit.hash && (
                             <tr>
-                              <td colSpan={5} className="pb-3 pt-1">
+                              <td colSpan={4} className="pb-3 pt-1">
                                 <CommitNotesPanel repoId={id ?? ''} commitHash={commit.hash} />
                               </td>
                             </tr>
                           )}
-                          </>
+                          </Fragment>
                         ))}
                       </tbody>
                     </table>
@@ -1309,45 +1625,351 @@ export function RepoDetailPage() {
                   </div>
                 </div>
               )}
+                </CardContent>
+              </Card>
             </motion.div>
 
 
           </div>
 
-          {/* Right column — Contributors + Notes */}
-          <div className="w-80 xl:w-96 flex-shrink-0 flex flex-col gap-6">
+          {/* Sidebar column — Pull Requests + Contributors. self-stretch keeps
+              this column as tall as the main content so the sticky Contributors
+              panel has room to travel as you scroll. */}
+          <div className="min-w-0 self-stretch flex flex-col gap-4 lg:col-start-1 lg:row-start-1">
 
-            {/* Contributors panel */}
-            <div className="bg-gray-50 rounded-xl border border-border p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <User className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-sm font-semibold">Contributors</h2>
-                <div className="ml-auto flex items-center gap-1.5">
-                  <span className="text-xs text-muted-foreground">Expected:</span>
-                  <input
-                    type="number"
-                    min={contributors?.length ?? 1}
-                    value={expectedCount}
-                    onChange={e => setExpectedCount(e.target.value)}
-                    onBlur={handleSaveExpectedCount}
-                    onKeyDown={e => { if (e.key === 'Enter') handleSaveExpectedCount() }}
-                    placeholder="—"
-                    className="w-10 text-xs text-center border border-border rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white"
-                  />
+            <div className="flex flex-col gap-4" aria-label="Commit filters" role="group">
+            {(allCommitsLoading || (allCommitsData?.items.length ?? 0) > 0) && (
+              <SidebarPanel
+                title="Type and Date"
+                icon={Tag}
+                id="type-date-filter-content"
+                expanded={typeDateExpanded}
+                onToggle={toggleTypeDate}
+              >
+                <div className="flex flex-col gap-4">
+                  <div>
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">Type</p>
+                {allCommitsLoading ? <FilterPlaceholder /> : (
+                /* role/aria-label so tests and screen readers can tell this
+                   group apart — "All" appears in the Branch panel and the
+                   chart range selector too. */
+                <div
+                  role="group"
+                  aria-label="Filter by commit type"
+                  className="flex flex-wrap items-center gap-1.5"
+                >
+                  <button
+                    onClick={() => setSelectedTypes(new Set())}
+                    className={cn(
+                      'text-xs px-2 py-0.5 rounded border transition-colors',
+                      selectedTypes.size === 0
+                        ? 'bg-slate-700 text-white border-slate-700'
+                        : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                    )}
+                  >
+                    All
+                  </button>
+                  {/* Each chip wears its own type's colour, so this group is
+                      also the legend for the commit row tints. */}
+                  {COMMIT_TYPE_FILTERS.map((value) => {
+                    const style = commitTypeStyle(value)
+                    const active = selectedTypes.has(value)
+                    return (
+                      <button
+                        key={value}
+                        onClick={() => toggleType(value)}
+                        aria-pressed={active}
+                        className={cn(
+                          'text-xs px-2 py-0.5 rounded border transition-colors',
+                          active ? style.chipActive : style.chipIdle
+                        )}
+                      >
+                        {style.label}
+                      </button>
+                    )
+                  })}
                 </div>
-                {selectedContributorIds.size >= 2 && (
-                  <span className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full px-2 py-0.5 font-medium">
-                    {selectedContributorIds.size} selected
+                )}
+                  </div>
+                  <div>
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">Date</p>
+                {allCommitsLoading ? <FilterPlaceholder /> : (
+                <div
+                  role="group"
+                  aria-label="Filter by commit date"
+                  className="flex flex-wrap items-center gap-1.5"
+                >
+                  {/* "All" is the first option rather than a separate reset
+                      button, so this panel starts with the same affordance as
+                      the Branch and Type panels above it. */}
+                  <select
+                    aria-label="Filter commits by date"
+                    value={selectedDate}
+                    onChange={e => setSelectedDate(e.target.value)}
+                    className={cn(
+                      'text-xs px-2 py-0.5 rounded border transition-colors focus:outline-none focus:border-brand-400',
+                      selectedDate
+                        ? 'bg-brand-600 text-white border-brand-600'
+                        : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                    )}
+                  >
+                    <option value="">All</option>
+                    {commitDates.map(d => (
+                      <option key={d} value={d}>{formatMonthDay(d)}</option>
+                    ))}
+                  </select>
+                  <span className="text-xs italic text-gray-400">
+                    *only showing dates with commits
+                  </span>
+                </div>
+                )}
+                  </div>
+                </div>
+              </SidebarPanel>
+            )}
+
+            {(allCommitsLoading || allBranches.length > 0) && (
+              <SidebarPanel
+                title="Branch"
+                icon={GitBranch}
+                id="branch-filter-content"
+                expanded={branchFilterExpanded}
+                onToggle={toggleBranchFilter}
+              >
+                {/* role/aria-label to match the Type and Date panels below.
+                    Without it this group was unaddressable: every commit row
+                    also renders a clickable chip for its own branch, so
+                    `getByRole('button', { name: 'feature/auth' })` matched two
+                    elements and could not be scoped to the filter. */}
+                {allCommitsLoading ? <FilterPlaceholder /> : (
+                <div
+                  role="group"
+                  aria-label="Filter by commit branch"
+                  className="flex flex-wrap items-center gap-1.5"
+                >
+                  <button
+                    onClick={() => setSelectedBranches(new Set())}
+                    className={cn(
+                      'text-xs px-2 py-0.5 rounded border transition-colors',
+                      selectedBranches.size === 0
+                        ? 'bg-brand-600 text-white border-brand-600'
+                        : 'bg-brand-50 text-brand-700 border-brand-200 hover:bg-brand-100'
+                    )}
+                  >
+                    All
+                  </button>
+                  {(showAllBranches ? allBranches : allBranches.slice(0, MAX_BRANCH_CHIPS)).map(b => (
+                    <button
+                      key={b}
+                      onClick={() => toggleBranch(b)}
+                      className={cn(
+                        'text-xs px-2 py-0.5 rounded border font-mono transition-colors',
+                        selectedBranches.has(b)
+                          ? 'bg-brand-600 text-white border-brand-600'
+                          : 'bg-brand-50 text-brand-700 border-brand-200 hover:bg-brand-100'
+                      )}
+                    >
+                      {b}
+                    </button>
+                  ))}
+                  {allBranches.length > MAX_BRANCH_CHIPS && (
+                    <button
+                      onClick={() => setShowAllBranches(v => !v)}
+                      className="text-xs px-2 py-0.5 rounded border transition-colors bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
+                    >
+                      {showAllBranches ? 'Show less' : `+${allBranches.length - MAX_BRANCH_CHIPS} more`}
+                    </button>
+                  )}
+                </div>
+                )}
+              </SidebarPanel>
+            )}
+
+            </div>
+
+            {/* Pull Requests panel */}
+            <section
+              aria-label="Pull Requests"
+              className={cn('shrink-0 bg-card rounded-xl border border-border shadow-sm', PANEL_PADDING)}
+            >
+<div className="flex flex-wrap items-center gap-2">              <h2 className="text-sm font-semibold">
+                <button
+                  type="button"
+                  onClick={togglePullRequests}
+                  aria-expanded={pullRequestsExpanded}
+                  aria-controls="pull-requests-content"
+                  className="flex items-center gap-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                >
+                  <GitPullRequest className="h-4 w-4 text-muted-foreground" />
+                  Pull Requests
+                </button>
+              </h2>              <div hidden={!pullRequestsExpanded} className={cn("ml-auto items-center gap-2", pullRequestsExpanded && "flex")}>
+                <button
+                  onClick={() => syncPRsMutation.mutate()}
+                  disabled={syncPRsMutation.isPending || !hasToken}
+                  aria-busy={syncPRsMutation.isPending}
+                  className="ml-auto flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  title={!hasToken ? 'Add a GitHub token to fetch PRs' : prStats && prStats.total_count > 0 ? 'Refresh PRs' : 'Fetch PRs from GitHub'}
+                >
+                  {syncPRsMutation.isPending
+                    ? <RefreshCw className="h-3 w-3 animate-spin motion-reduce:animate-none" />
+                    : <RefreshCw className="h-3 w-3" />}
+                  {syncPRsMutation.isPending ? 'Syncing…' : prStats && prStats.total_count > 0 ? 'Refresh' : 'Fetch PRs'}
+                </button>
+                {prStats && prStats.total_count > 0 && (
+                  <span className="text-xs bg-brand-100 text-brand-700 border border-brand-200 rounded-full px-2 py-0.5 font-medium">
+                    {prStats.total_count}
                   </span>
                 )}
-              </div>
+              </div><button
+                type="button"
+                aria-label={`${pullRequestsExpanded ? 'Collapse' : 'Expand'} pull requests`}
+                aria-expanded={pullRequestsExpanded}
+                onClick={togglePullRequests}
+                className="ml-auto shrink-0 rounded p-1 hover:bg-brand-50 focus-visible:ring-2 focus-visible:ring-brand-400"
+              >
+                {pullRequestsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </button></div>
+              <div id="pull-requests-content" hidden={!pullRequestsExpanded} className="mt-2">
 
-              {/* Merge bar — shown when 2+ selected */}
-              {selectedContributorIds.size >= 2 && (
-                <div className="mb-3 p-2.5 bg-indigo-50 border border-indigo-200 rounded-lg flex flex-col gap-2">
-                  <p className="text-xs text-indigo-700 font-medium">Merge display name:</p>
+
+              {/* PR list */}
+              {!prStats || prStats.total_count === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">
+                  {prStats?.fetched_at
+                    ? 'No pull requests found.'
+                    : 'Click Fetch PRs above to load pull requests from GitHub.'}
+                </p>
+              ) : (
+                <div>
+                  {prList?.items.map((pr: PullRequest, index: number, arr: PullRequest[]) => (
+                    <div
+                      key={pr.id}
+                      className={cn('flex items-start gap-2 py-2', index < arr.length - 1 && 'border-b border-border')}
+                    >
+                      <span className="text-xs text-muted-foreground font-mono flex-shrink-0 mt-1.5">#{pr.pr_number}</span>
+                      <div className="flex-1 min-w-0">
+                        <a
+                          href={pr.html_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-foreground hover:text-brand-600 transition-colors leading-relaxed line-clamp-2"
+                          title={pr.title}
+                        >
+                          {pr.draft && <span className="text-muted-foreground">[Draft] </span>}
+                          {pr.title}
+                        </a>
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <PRStatePill state={pr.state} />
+                          <span className="text-[10px] text-muted-foreground truncate">{pr.author_login}</span>
+                          <span className="text-[10px] text-muted-foreground flex-shrink-0 ml-auto">
+                            {pr.state === 'merged' && pr.merged_at
+                              ? formatRelativeDays(pr.merged_at)
+                              : pr.state === 'closed' && pr.closed_at
+                              ? formatRelativeDays(pr.closed_at)
+                              : pr.created_at
+                              ? formatRelativeDays(pr.created_at)
+                              : ''}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {prList && prList.total > PR_PAGE_SIZE && (
+                    <div className="flex items-center justify-between pt-2 mt-1.5 border-t border-border">
+                      <span className="text-[10px] text-muted-foreground">
+                        {prPage * PR_PAGE_SIZE + 1}–{Math.min((prPage + 1) * PR_PAGE_SIZE, prList.total)} of {prList.total}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          disabled={prPage === 0}
+                          onClick={() => setPrPage(p => p - 1)}
+                          className="text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:border-brand-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Prev
+                        </button>
+                        <button
+                          disabled={(prPage + 1) * PR_PAGE_SIZE >= prList.total}
+                          onClick={() => setPrPage(p => p + 1)}
+                          className="text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:border-brand-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              </div>
+            </section>
+
+            {/* Contributors remain separate from the commit filters. */}
+            <div className="sticky top-6 flex max-h-[calc(100vh-3rem)] flex-col gap-4 overflow-y-auto">
+            {/* Contributors panel */}
+            <div className={cn('shrink-0 bg-card rounded-xl border border-border', PANEL_PADDING)}>
+
+<div className="flex flex-wrap items-center gap-2">              <h2 className="text-sm font-semibold">
+                <button
+                  type="button"
+                  onClick={toggleContributors}
+                  aria-expanded={contributorsExpanded}
+                  aria-controls="contributors-content"
+                  className="flex items-center gap-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                >
+                  <User className="h-4 w-4 text-muted-foreground" />
+                  Contributors
+                </button>
+              </h2><div hidden={!contributorsExpanded} className={cn("ml-auto items-center gap-2", contributorsExpanded && "flex")}>              {sortedContributors.length > 0 && <label className="flex items-center gap-1 whitespace-nowrap text-xs">
+                <input type="checkbox" aria-label="Select all contributors" checked={selectedContributorIds.size === sortedContributors.length}
+                  onChange={e => { setSelectedContributorIds(new Set(e.target.checked ? sortedContributors.map(c => c.id) : [])); setShowMerge(false) }} className="accent-brand-600" />
+                Select all
+              </label>}<label className="flex items-center gap-1">                <span className="text-xs text-muted-foreground">Expected:</span>
+                <input
+                  aria-label="Expected contributors"
+                  type="number"
+                  min={contributors?.length ?? 1}
+                  value={expectedCount}
+                  onChange={e => setExpectedCount(e.target.value)}
+                  onBlur={handleSaveExpectedCount}
+                  onKeyDown={e => { if (e.key === 'Enter') handleSaveExpectedCount() }}
+                  placeholder="—"
+                  className="w-10 text-xs text-center border border-border rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-brand-400 bg-white"
+                />
+</label></div><button
+                type="button"
+                aria-label={`${contributorsExpanded ? 'Collapse' : 'Expand'} contributors`}
+                aria-expanded={contributorsExpanded}
+                onClick={toggleContributors}
+                className="ml-auto shrink-0 rounded p-1 hover:bg-brand-50 focus-visible:ring-2 focus-visible:ring-brand-400"
+              >
+                {contributorsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </button></div>
+
+              {/* No cap here — the sticky wrapper scrolls the whole stack, and
+                  a scroll region inside a scroll region is miserable to use. */}
+              <div id="contributors-content" hidden={!contributorsExpanded} className="mt-2">
+              <div className="mb-2 flex flex-wrap items-center justify-end gap-1.5">
+                {selectedMergedContributor && (
+                  <button
+                    onClick={handleUnmerge}
+                    disabled={unmergeContributorMutation.isPending}
+                    aria-busy={unmergeContributorMutation.isPending}
+                    title="Undo this contributor's last merge"
+                    className="text-xs bg-brand-100 text-brand-700 border border-brand-200 rounded px-2 py-1 disabled:opacity-50"
+                  >
+                    {unmergeContributorMutation.isPending ? 'Unmerging…' : 'Unmerge'}
+                  </button>
+                )}
+                {selectedContributorIds.size >= 2 && (
+                  <button onClick={() => { initMerge(); setShowMerge(v => !v) }} className="text-xs bg-brand-100 text-brand-700 border border-brand-200 rounded px-2 py-1" aria-expanded={showMerge}>Merge</button>
+                )}
+              </div>
+              {/* Explicit merge confirmation */}
+              {showMerge && selectedContributorIds.size >= 2 && (
+                <div className="mb-2 p-2.5 bg-brand-50 border border-brand-200 rounded-lg flex flex-col gap-2">
+                  <p className="text-xs text-brand-700 font-medium">Merge display name:</p>
                   <input
-                    className="w-full text-xs border border-indigo-200 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                    className="w-full text-xs border border-brand-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
                     value={mergeDisplayName}
                     onChange={e => setMergeDisplayName(e.target.value)}
                     placeholder="Merged contributor name"
@@ -1357,13 +1979,15 @@ export function RepoDetailPage() {
                     <button
                       onClick={handleMerge}
                       disabled={!mergeDisplayName.trim() || mergeContributorsMutation.isPending}
-                      className="flex-1 text-xs bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded px-2 py-1.5 font-medium transition-colors"
+                      aria-busy={mergeContributorsMutation.isPending}
+                      className="flex-1 text-xs bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded px-2 py-1 font-medium transition-colors"
                     >
+                      {mergeContributorsMutation.isPending && <RefreshCw className="inline-block h-3.5 w-3.5 mr-1.5 animate-spin motion-reduce:animate-none" />}
                       {mergeContributorsMutation.isPending ? 'Merging…' : 'Confirm Merge'}
                     </button>
                     <button
-                      onClick={() => { setSelectedContributorIds(new Set()); setMergeDisplayName('') }}
-                      className="text-xs border border-border rounded px-2 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => { setShowMerge(false); setMergeDisplayName('') }}
+                      className="text-xs border border-border rounded px-2 py-1 text-muted-foreground hover:text-foreground transition-colors"
                     >
                       Cancel
                     </button>
@@ -1371,44 +1995,48 @@ export function RepoDetailPage() {
                 </div>
               )}
 
+
               {!sortedContributors.length ? (
                 <p className="text-xs text-muted-foreground text-center py-4">No contributors found.</p>
               ) : (
-                <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-2">
                   {sortedContributors.map((contributor) => (
                     <div key={contributor.id} className={cn(
                       'flex items-start gap-2 rounded-lg p-1.5 -mx-1.5 transition-colors',
-                      selectedContributorIds.has(contributor.id) && 'bg-indigo-50'
+                      // brand-100, not 50: selection drives the merge action, so
+                      // it has to be unmistakable against the white panel.
+                      selectedContributorIds.has(contributor.id) && 'bg-brand-100'
                     )}>
                       <input
                         type="checkbox"
+                        aria-label={`Select ${contributor.display_name}`}
                         checked={selectedContributorIds.has(contributor.id)}
                         onChange={() => toggleContributorSelect(contributor.id)}
-                        className="mt-1 h-3.5 w-3.5 flex-shrink-0 accent-indigo-600 cursor-pointer"
+                        className="mt-1.5 h-3.5 w-3.5 flex-shrink-0 accent-brand-600 cursor-pointer"
                       />
                       <div className="flex-1 min-w-0">
                         {editingContributorId === contributor.id ? (
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1.5">
                             <input
                               autoFocus
-                              className="flex-1 min-w-0 text-sm border border-indigo-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                              className="flex-1 min-w-0 text-sm border border-brand-300 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-brand-400"
                               value={editingName}
                               onChange={e => setEditingName(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') saveDisplayName(); if (e.key === 'Escape') cancelEditing() }}
                             />
-                            <button onClick={saveDisplayName} disabled={updateContributorMutation.isPending} className="text-emerald-600 hover:text-emerald-700">
-                              <Check className="h-3.5 w-3.5" />
+                            <button onClick={saveDisplayName} aria-busy={updateContributorMutation.isPending} disabled={updateContributorMutation.isPending} className="text-emerald-600 hover:text-emerald-700">
+                              {updateContributorMutation.isPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <Check className="h-3.5 w-3.5" />}
                             </button>
                             <button onClick={cancelEditing} className="text-muted-foreground hover:text-foreground">
                               <X className="h-3.5 w-3.5" />
                             </button>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-1 group">
+                          <div className="flex items-center gap-1.5 group">
                             <p className="font-medium text-sm truncate">{contributor.display_name}</p>
                             <button
                               onClick={() => startEditing(contributor)}
-                              className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-indigo-600 transition-opacity flex-shrink-0"
+                              className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-brand-600 transition-opacity flex-shrink-0"
                               title="Edit display name"
                             >
                               <Pencil className="h-3 w-3" />
@@ -1416,7 +2044,7 @@ export function RepoDetailPage() {
                             <ContributorGenerateButton contributorId={contributor.id} repoId={id ?? ''} />
                           </div>
                         )}
-                        <p className="text-xs text-muted-foreground mt-0.5">
+                        <p className="text-xs text-muted-foreground mt-1.5">
                           {contributor.aliases.length} alias{contributor.aliases.length !== 1 ? 'es' : ''}
                           {contributor.aliases.length > 0 && (
                             <span> — {contributor.aliases.map((a) => a.git_email).join(', ')}</span>
@@ -1429,7 +2057,7 @@ export function RepoDetailPage() {
                           const del = s?.deletions ?? contributor.total_deletions
                           const last = s?.lastCommitAt ?? contributor.last_commit_at
                           return (
-                            <p className="text-xs text-muted-foreground mt-1">
+                            <p className="text-xs text-muted-foreground mt-1.5">
                               {commits} commits
                               {' · '}
                               <span className="text-green-600">+{ins.toLocaleString()}</span>
@@ -1446,127 +2074,17 @@ export function RepoDetailPage() {
                   ))}
                 </div>
               )}
+              </div>{/* end contributors-content */}
             </div>
 
-            {/* Pull Requests panel */}
-            <div className="bg-gray-50 rounded-xl border border-border p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <GitPullRequest className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-sm font-semibold">Pull Requests</h2>
-                <button
-                  onClick={() => syncPRsMutation.mutate()}
-                  disabled={syncPRsMutation.isPending || !hasToken}
-                  className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground hover:text-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  title={!hasToken ? 'Add a GitHub token to fetch PRs' : prStats && prStats.total_count > 0 ? 'Refresh PRs' : 'Fetch PRs from GitHub'}
-                >
-                  {syncPRsMutation.isPending
-                    ? <div className="h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
-                    : <RefreshCw className="h-3 w-3" />}
-                  {syncPRsMutation.isPending ? 'Syncing…' : prStats && prStats.total_count > 0 ? 'Refresh' : 'Fetch PRs'}
-                </button>
-                {prStats && prStats.total_count > 0 && (
-                  <span className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full px-2 py-0.5 font-medium">
-                    {prStats.total_count}
-                  </span>
-                )}
-              </div>
-
-              {/* State filter */}
-              {prStats && prStats.total_count > 0 && (
-                <div className="flex gap-1 mb-3">
-                  {(['all', 'open', 'merged', 'closed'] as const).map(s => (
-                    <button
-                      key={s}
-                      onClick={() => { setPrStateFilter(s === 'all' ? undefined : s); setPrPage(0) }}
-                      className={cn(
-                        'flex-1 py-0.5 rounded text-xs font-medium transition-colors capitalize',
-                        (s === 'all' ? !prStateFilter : prStateFilter === s)
-                          ? 'bg-indigo-100 text-indigo-700'
-                          : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                      )}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* PR list */}
-              {!prStats || prStats.total_count === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-4">
-                  {prStats?.fetched_at
-                    ? 'No pull requests found.'
-                    : 'Click Fetch PRs above to load pull requests from GitHub.'}
-                </p>
-              ) : (
-                <div>
-                  {prList?.items.map((pr: PullRequest, index: number, arr: PullRequest[]) => (
-                    <div
-                      key={pr.id}
-                      className={cn('flex items-start gap-2 py-2', index < arr.length - 1 && 'border-b border-border')}
-                    >
-                      <span className="text-xs text-gray-400 font-mono flex-shrink-0 mt-0.5">#{pr.pr_number}</span>
-                      <div className="flex-1 min-w-0">
-                        <a
-                          href={pr.html_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-gray-700 hover:text-indigo-600 transition-colors leading-relaxed line-clamp-2"
-                          title={pr.title}
-                        >
-                          {pr.draft && <span className="text-gray-400">[Draft] </span>}
-                          {pr.title}
-                        </a>
-                        <div className="flex items-center gap-2 mt-1">
-                          <PRStatePill state={pr.state} />
-                          <span className="text-[10px] text-gray-400 truncate">{pr.author_login}</span>
-                          <span className="text-[10px] text-gray-400 flex-shrink-0 ml-auto">
-                            {pr.state === 'merged' && pr.merged_at
-                              ? formatRelativeDays(pr.merged_at)
-                              : pr.state === 'closed' && pr.closed_at
-                              ? formatRelativeDays(pr.closed_at)
-                              : pr.created_at
-                              ? formatRelativeDays(pr.created_at)
-                              : ''}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {prList && prList.total > PR_PAGE_SIZE && (
-                    <div className="flex items-center justify-between pt-2 mt-1 border-t border-border">
-                      <span className="text-[10px] text-muted-foreground">
-                        {prPage * PR_PAGE_SIZE + 1}–{Math.min((prPage + 1) * PR_PAGE_SIZE, prList.total)} of {prList.total}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          disabled={prPage === 0}
-                          onClick={() => setPrPage(p => p - 1)}
-                          className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                        >
-                          Prev
-                        </button>
-                        <button
-                          disabled={(prPage + 1) * PR_PAGE_SIZE >= prList.total}
-                          onClick={() => setPrPage(p => p + 1)}
-                          className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                        >
-                          Next
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
 
-          </div>{/* end right column */}
+          </div>{/* end sidebar column */}
 
-        </div>{/* end inner two-column flex */}
+        </div>{/* end inner two-column grid */}
         </div>{/* end main sections column */}
 
         <NotesDrawer
-          repoId={id ?? ''}
           notes={notes}
           noteCount={noteCount}
           showArchivedNotes={showArchivedNotes}
@@ -1577,7 +2095,7 @@ export function RepoDetailPage() {
           users={users}
           currentUser={currentUser}
           onScrollToCommit={handleScrollToCommit}
-          onPinnedChange={setNotesPinned}
+          highlightNoteId={highlightedNoteId}
         />
 
       </div>{/* end body flex wrapper */}
@@ -1588,6 +2106,54 @@ export function RepoDetailPage() {
         summaries={summaries ?? []}
         contributors={contributors ?? []}
       />
+
+      <Dialog
+        open={classifyPreview !== null}
+        onOpenChange={(open) => { if (!open) setClassifyPreview(null) }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-brand-500" />
+              Classify this repository?
+            </DialogTitle>
+          </DialogHeader>
+          {classifyPreview && (
+            <div className="space-y-3 text-sm text-muted-foreground">
+              <p>
+                <span className="font-semibold text-foreground">
+                  {classifyPreview.needs_llm}
+                </span>{' '}
+                commits need the model, which takes a few minutes.
+                {classifyPreview.resolvable_by_rules > 0 && (
+                  <>
+                    {' '}
+                    Another {classifyPreview.resolvable_by_rules} can be resolved
+                    instantly without one.
+                  </>
+                )}
+              </p>
+              <p>
+                Progress is saved as it goes, so you can close this page and run
+                it again later to pick up where it left off.
+              </p>
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" size="sm" onClick={() => setClassifyPreview(null)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              loading={classifyMutation.isPending}
+              onClick={() => runClassify(true)}
+              className="bg-brand-600 hover:bg-brand-700 text-white"
+            >
+              Classify all
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

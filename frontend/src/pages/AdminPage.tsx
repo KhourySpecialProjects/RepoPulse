@@ -1,51 +1,57 @@
 import { useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Pencil, Key, Trash2, Plus, Eye, EyeOff } from 'lucide-react'
+import { Pencil, Link2, Trash2, Plus, Copy } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
-import { useUsers, useCreateUser, useUpdateUser, useDeleteUser, useResetUserPassword } from '@/hooks/useUsers'
-import { useSettings } from '@/hooks/useSettings'
+import { useUsers, useCreateUser, useUpdateUser, useDeleteUser, useGenerateSetupLink } from '@/hooks/useUsers'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { AdminOverviewTab } from '@/components/admin/AdminOverviewTab'
+import { AiSettingsTab } from '@/components/admin/AiSettingsTab'
 import { toast } from 'sonner'
-import type { UserDetail, CreateUserData, UpdateUserData } from '@/types'
+import type { UserDetail, CreateUserData, UpdateUserData, SetupLink } from '@/types'
+import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
 
 const ROLE_BADGE: Record<UserDetail['role'], string> = {
-  instructor: 'bg-indigo-100 text-indigo-700',
-  ta: 'bg-violet-100 text-violet-700',
+  instructor: 'bg-brand-100 text-brand-700',
+  ta: 'bg-orchid-100 text-orchid-700',
   admin: 'bg-rose-100 text-rose-700',
 }
 
 // ---- Create User Dialog ----
-function CreateUserDialog({ onClose }: { onClose: () => void }) {
+function CreateUserDialog({
+  onCreated,
+  onClose,
+}: {
+  onCreated: (user: UserDetail, setup: SetupLink) => void
+  onClose: () => void
+}) {
   const createUser = useCreateUser()
   const [form, setForm] = useState<CreateUserData>({
     email: '',
     display_name: '',
     role: 'ta',
-    password: '',
-    github_token: '',
   })
-  const [showPassword, setShowPassword] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     try {
-      await createUser.mutateAsync({
-        ...form,
-        github_token: form.github_token || undefined,
-      })
+      const result = await createUser.mutateAsync(form)
       toast.success('User created')
-      onClose()
+      // Straight to the link rather than closing: the token is readable only
+      // in this response, so this is the one chance to hand it over.
+      onCreated(result.user, result.setup)
     } catch {
       toast.error('Failed to create user')
     }
@@ -83,7 +89,7 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
               value={form.role}
               onValueChange={(v) => setForm((f) => ({ ...f, role: v as CreateUserData['role'] }))}
             >
-              <SelectTrigger style={{ backgroundColor: 'white' }}>
+              <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -93,42 +99,15 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium">Password *</label>
-            <div className="relative">
-              <Input
-                type={showPassword ? 'text' : 'password'}
-                value={form.password}
-                onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                required
-                minLength={8}
-                placeholder="••••••••"
-                className="pr-10"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium">GitHub Token (optional)</label>
-            <Input
-              type="password"
-              value={form.github_token ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, github_token: e.target.value }))}
-              placeholder="ghp_..."
-              className="font-mono text-sm"
-            />
-          </div>
+          <p className="text-xs text-muted-foreground">
+            No password and no GitHub token needed — you will get a one-time link to
+            send them, and they supply both themselves.
+          </p>
           <DialogFooter>
             <Button variant="outline" type="button" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={createUser.isPending}>
+            <Button type="submit" loading={createUser.isPending} disabled={createUser.isPending}>
               {createUser.isPending ? 'Creating...' : 'Create User'}
             </Button>
           </DialogFooter>
@@ -144,16 +123,12 @@ function EditUserDialog({ user, onClose }: { user: UserDetail; onClose: () => vo
   const [form, setForm] = useState<UpdateUserData>({
     display_name: user.display_name,
     role: user.role,
-    github_token: '',
   })
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     try {
-      await updateUser.mutateAsync({
-        id: user.id,
-        data: { ...form, github_token: form.github_token || undefined },
-      })
+      await updateUser.mutateAsync({ id: user.id, data: form })
       toast.success('User updated')
       onClose()
     } catch {
@@ -182,7 +157,7 @@ function EditUserDialog({ user, onClose }: { user: UserDetail; onClose: () => vo
               value={form.role}
               onValueChange={(v) => setForm((f) => ({ ...f, role: v as UpdateUserData['role'] }))}
             >
-              <SelectTrigger style={{ backgroundColor: 'white' }}>
+              <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -192,26 +167,23 @@ function EditUserDialog({ user, onClose }: { user: UserDetail; onClose: () => vo
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium">
-              GitHub Token
-              {user.github_token_configured && (
-                <span className="ml-2 text-xs font-normal text-emerald-600">(configured)</span>
-              )}
-            </label>
-            <Input
-              type="password"
-              value={form.github_token ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, github_token: e.target.value }))}
-              placeholder={user.github_token_configured ? 'Leave blank to keep existing' : 'ghp_...'}
-              className="font-mono text-sm"
-            />
-          </div>
+          {/* No token field: a PAT is the user's own credential, set when they
+              redeem their setup link or from their own Settings page. The
+              admin can see whether there is one, and that is all. */}
+          <p className="text-xs text-muted-foreground">
+            GitHub token:{' '}
+            {user.github_token_configured ? (
+              <span className="text-emerald-600 font-medium">configured</span>
+            ) : (
+              'not set'
+            )}
+            . Only {user.display_name} can change it.
+          </p>
           <DialogFooter>
             <Button variant="outline" type="button" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={updateUser.isPending}>
+            <Button type="submit" loading={updateUser.isPending} disabled={updateUser.isPending}>
               {updateUser.isPending ? 'Saving...' : 'Save'}
             </Button>
           </DialogFooter>
@@ -221,20 +193,36 @@ function EditUserDialog({ user, onClose }: { user: UserDetail; onClose: () => vo
   )
 }
 
-// ---- Reset Password Dialog ----
-function ResetPasswordDialog({ user, onClose }: { user: UserDetail; onClose: () => void }) {
-  const resetPassword = useResetUserPassword()
-  const [newPassword, setNewPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
+// ---- Setup Link Dialog ----
+/**
+ * Hands the admin a setup link to pass on. Shown after creating a user and
+ * after generating a reset link. The token is only readable here — the server
+ * stores a hash — so closing this dialog loses it and a new link is needed.
+ */
+function SetupLinkDialog({
+  user,
+  setup,
+  onClose,
+}: {
+  user: UserDetail
+  setup: SetupLink
+  onClose: () => void
+}) {
+  const url = `${window.location.origin}${setup.setup_path}`
+  const [copied, setCopied] = useState(false)
+  const [copyFailed, setCopyFailed] = useState(false)
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  async function handleCopy() {
     try {
-      await resetPassword.mutateAsync({ id: user.id, password: newPassword })
-      toast.success('Password reset')
-      onClose()
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      setCopyFailed(false)
+      toast.success('Link copied')
     } catch {
-      toast.error('Failed to reset password')
+      // Clipboard access can be refused outright; the field is selectable, so
+      // say so rather than pretending it worked.
+      setCopyFailed(true)
+      toast.error('Could not copy — select the link and copy it manually')
     }
   }
 
@@ -242,39 +230,34 @@ function ResetPasswordDialog({ user, onClose }: { user: UserDetail; onClose: () 
     <Dialog open onOpenChange={onClose}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Reset Password — {user.display_name}</DialogTitle>
+          <DialogTitle>Setup link — {user.display_name}</DialogTitle>
+          <DialogDescription>
+            Send this to {user.email}. It works once, and expires{' '}
+            {new Date(setup.expires_at).toLocaleString()}.
+          </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3 py-1">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium">New Password *</label>
-            <div className="relative">
-              <Input
-                type={showPassword ? 'text' : 'password'}
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                required
-                minLength={8}
-                placeholder="••••••••"
-                className="pr-10"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
+        <div className="flex flex-col gap-3 py-1">
+          <div className="flex items-center gap-2">
+            <Input readOnly value={url} className="font-mono text-xs" onFocus={(e) => e.target.select()} />
+            <Button type="button" variant="outline" onClick={handleCopy}>
+              <Copy className="h-4 w-4 mr-1.5" />
+              {copied ? 'Copied' : 'Copy'}
+            </Button>
           </div>
-          <DialogFooter>
-            <Button variant="outline" type="button" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={resetPassword.isPending || newPassword.length < 8}>
-              {resetPassword.isPending ? 'Resetting...' : 'Reset Password'}
-            </Button>
-          </DialogFooter>
-        </form>
+          {copyFailed && (
+            <p className="text-xs text-destructive">
+              Copying was blocked. Select the link above and copy it yourself.
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            You will not be able to see this link again. Generate a new one if it is lost.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button type="button" onClick={onClose}>
+            Done
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
@@ -306,7 +289,7 @@ function DeleteConfirmDialog({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="destructive" onClick={onConfirm} disabled={isPending}>
+          <Button variant="destructive" onClick={onConfirm} loading={isPending} disabled={isPending}>
             {isPending ? 'Deleting...' : 'Delete'}
           </Button>
         </DialogFooter>
@@ -319,9 +302,10 @@ function DeleteConfirmDialog({
 function UsersTab() {
   const { data: users = [], isLoading } = useUsers()
   const deleteUser = useDeleteUser()
+  const generateSetupLink = useGenerateSetupLink()
   const [showCreate, setShowCreate] = useState(false)
   const [editingUser, setEditingUser] = useState<UserDetail | null>(null)
-  const [resetPasswordUser, setResetPasswordUser] = useState<UserDetail | null>(null)
+  const [issuedLink, setIssuedLink] = useState<{ user: UserDetail; setup: SetupLink } | null>(null)
   const [deleteUser_, setDeleteUser_] = useState<UserDetail | null>(null)
 
   async function handleDelete(user: UserDetail) {
@@ -331,6 +315,15 @@ function UsersTab() {
       setDeleteUser_(null)
     } catch {
       toast.error('Failed to delete user')
+    }
+  }
+
+  async function handleGenerateLink(user: UserDetail) {
+    try {
+      const setup = await generateSetupLink.mutateAsync(user.id)
+      setIssuedLink({ user, setup })
+    } catch {
+      toast.error('Failed to generate setup link')
     }
   }
 
@@ -361,7 +354,7 @@ function UsersTab() {
             className="flex items-center justify-between rounded-lg border border-border px-4 py-3 bg-white"
           >
             <div className="flex items-center gap-3 min-w-0">
-              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold flex items-center justify-center">
+              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-brand-100 text-brand-700 text-xs font-semibold flex items-center justify-center">
                 {user.display_name.charAt(0).toUpperCase()}
               </div>
               <div className="min-w-0">
@@ -384,17 +377,18 @@ function UsersTab() {
                 type="button"
                 onClick={() => setEditingUser(user)}
                 title="Edit user"
-                className="p-1.5 rounded text-muted-foreground hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                className="p-1.5 rounded text-muted-foreground hover:text-brand-600 hover:bg-brand-50 transition-colors"
               >
                 <Pencil className="h-3.5 w-3.5" />
               </button>
               <button
                 type="button"
-                onClick={() => setResetPasswordUser(user)}
-                title="Reset password"
-                className="p-1.5 rounded text-muted-foreground hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                onClick={() => handleGenerateLink(user)}
+                title="Generate setup link"
+                disabled={generateSetupLink.isPending}
+                className="p-1.5 rounded text-muted-foreground hover:text-amber-600 hover:bg-amber-50 transition-colors disabled:opacity-50"
               >
-                <Key className="h-3.5 w-3.5" />
+                <Link2 className="h-3.5 w-3.5" />
               </button>
               <button
                 type="button"
@@ -409,12 +403,21 @@ function UsersTab() {
         ))}
       </div>
 
-      {showCreate && <CreateUserDialog onClose={() => setShowCreate(false)} />}
+      {showCreate && (
+        <CreateUserDialog
+          onCreated={(user, setup) => {
+            setShowCreate(false)
+            setIssuedLink({ user, setup })
+          }}
+          onClose={() => setShowCreate(false)}
+        />
+      )}
       {editingUser && <EditUserDialog user={editingUser} onClose={() => setEditingUser(null)} />}
-      {resetPasswordUser && (
-        <ResetPasswordDialog
-          user={resetPasswordUser}
-          onClose={() => setResetPasswordUser(null)}
+      {issuedLink && (
+        <SetupLinkDialog
+          user={issuedLink.user}
+          setup={issuedLink.setup}
+          onClose={() => setIssuedLink(null)}
         />
       )}
       {deleteUser_ && (
@@ -430,10 +433,11 @@ function UsersTab() {
 }
 
 // ---- Admin Page ----
+type AdminTab = 'overview' | 'users' | 'ai'
+
 export function AdminPage() {
   const { user } = useAuth()
-  const [activeTab, setActiveTab] = useState<'users' | 'llm' | 'system'>('users')
-  const { data: settings } = useSettings()
+  const [activeTab, setActiveTab] = useState<AdminTab>('overview')
 
   if (user?.role !== 'admin') {
     return <Navigate to="/collections" replace />
@@ -441,73 +445,62 @@ export function AdminPage() {
 
   return (
     <motion.div
-      className="px-6 py-6 max-w-3xl"
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
     >
-      <h1 className="text-xl font-semibold mb-6">Admin Panel</h1>
-
-      {/* Tab nav */}
-      <div className="flex gap-1 border-b border-border mb-6">
-        {(['users', 'llm', 'system'] as const).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              activeTab === tab
-                ? 'border-indigo-600 text-indigo-700'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {tab === 'users' ? 'Users' : tab === 'llm' ? 'LLM Settings' : 'System'}
-          </button>
-        ))}
+      <div data-testid="page-header" className={PAGE_HEADER_CLASS}>
+        <h1 className="text-xl font-semibold">Admin Panel</h1>
       </div>
 
-      {activeTab === 'users' && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">User Management</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <UsersTab />
-          </CardContent>
-        </Card>
-      )}
+      {/* Overview takes the full width — it is a multi-column card layout
+          that packs more columns as the screen grows — while the other tabs
+          stay narrow so their label/value rows and tables do not stretch
+          into unreadably long lines. */}
+      <div
+        className={`${PAGE_BODY_CLASS} ${
+          activeTab === 'overview' ? 'max-w-none' : 'max-w-5xl'
+        }`}
+      >
 
-      {activeTab === 'llm' && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">LLM Configuration</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              LLM provider and model are configured per-user in Settings.
-            </p>
-          </CardContent>
-        </Card>
-      )}
+      {/* Radix Tabs rather than hand-rolled buttons: keyboard navigation and
+          correct tab/tabpanel ARIA come for free, and the component was
+          already in the repo unused. */}
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as AdminTab)}>
+        <TabsList className="mb-6">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="users">Users</TabsTrigger>
+          {/* One AI tab, not two. The old LLM Usage tab reported call counts
+              and could only say token usage and cost were unrecorded; both
+              are recorded now, so that reporting lives at the bottom of the
+              tab that sets the rates it is priced at. Call volume over time
+              is still on Overview's LLM Volume card. */}
+          <TabsTrigger value="ai">AI Settings</TabsTrigger>
+        </TabsList>
 
-      {activeTab === 'system' && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Repository Root</CardTitle>
-            <CardDescription>The directory where repository clones are stored</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Input
-              value={settings?.repo_root_directory ?? ''}
-              readOnly
-              className="bg-muted cursor-not-allowed font-mono text-sm"
-            />
-            <p className="text-xs text-muted-foreground mt-1.5">
-              Configured via the <code className="font-mono">REPO_ROOT_DIR</code> environment variable
-            </p>
-          </CardContent>
-        </Card>
-      )}
+        <TabsContent value="overview">
+          {/* A fault chip on the dashboard opens the tab that can fix it. */}
+          <AdminOverviewTab
+            onNavigate={(tab) => setActiveTab(tab as AdminTab)}
+          />
+        </TabsContent>
+
+        <TabsContent value="users">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">User Management</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <UsersTab />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="ai">
+          <AiSettingsTab />
+        </TabsContent>
+      </Tabs>
+      </div>
     </motion.div>
   )
 }

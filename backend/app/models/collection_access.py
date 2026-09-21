@@ -25,11 +25,13 @@ class CollectionAccess(Base):
         UUID(as_uuid=True),
         ForeignKey("collections.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     access_role: Mapped[CollectionRole] = mapped_column(
         Enum(CollectionRole, name="collection_role", create_type=False),

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -23,12 +23,17 @@ const mockRepo: Repo = {
   local_path: '/repos/student-project',
   health_status: 'green',
   health_score: null,
+  last_commit_at: null,
   last_synced_at: '2025-10-14T14:00:00Z',
   created_at: '2025-09-01T00:00:00Z',
   updated_at: '2025-10-14T14:00:00Z',
   contributor_count: 3,
   active_reminder_count: 0,
   expected_contributor_count: null,
+  sync_status: 'idle',
+  sync_started_at: null,
+  sync_started_by_name: null,
+  sync_error: null,
 }
 
 function renderCard(repo: Repo = mockRepo, weeklyCommits: number[] = []) {
@@ -72,8 +77,29 @@ describe('RepoCard', () => {
     expect(screen.getByRole('button', { name: /vs code/i })).toBeInTheDocument()
   })
 
-  it('VS Code button is disabled when no local_path', () => {
+  it('opens the repo in vscode.dev, not a local clone path', () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+    renderCard()
+    fireEvent.click(screen.getByRole('button', { name: /vs code/i }))
+    expect(openSpy).toHaveBeenCalledWith(
+      'https://vscode.dev/github/student/project',
+      '_blank',
+      'noopener,noreferrer'
+    )
+    openSpy.mockRestore()
+  })
+
+  // The button used to be gated on local_path, which is the path *inside* the
+  // backend container. It resolved on no user's machine, and on a public
+  // deployment the clones sit in a Docker volume no browser can reach. The URL
+  // now comes from github_url alone, so a repo that was never cloned still opens.
+  it('VS Code button stays enabled when there is no local clone', () => {
     renderCard({ ...mockRepo, local_path: null })
+    expect(screen.getByRole('button', { name: /vs code/i })).toBeEnabled()
+  })
+
+  it('VS Code button is disabled when the repo URL is not a GitHub URL', () => {
+    renderCard({ ...mockRepo, github_url: 'https://gitlab.com/student/project' })
     expect(screen.getByRole('button', { name: /vs code/i })).toBeDisabled()
   })
 
@@ -82,7 +108,9 @@ describe('RepoCard', () => {
     // Click the card itself (not a button)
     const heading = screen.getByText('student-project')
     fireEvent.click(heading.closest('[class*="cursor-pointer"]')!)
-    expect(mockNavigate).toHaveBeenCalledWith('/repos/repo-1')
+    // The origin rides along so the repo page's back arrow returns to the page
+    // the card was clicked on. MemoryRouter defaults to "/" here.
+    expect(mockNavigate).toHaveBeenCalledWith('/repos/repo-1', { state: { from: '/' } })
   })
 
   it('renders critical badge for red status', () => {

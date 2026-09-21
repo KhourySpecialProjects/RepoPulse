@@ -4,15 +4,37 @@ import { cleanup } from '@testing-library/react'
 import { server } from '@/mocks/server'
 
 // Polyfill ResizeObserver for Recharts in jsdom
-global.ResizeObserver = class ResizeObserver {
+globalThis.ResizeObserver = class ResizeObserver {
   observe() {}
   unobserve() {}
   disconnect() {}
 }
 
+// Polyfill IntersectionObserver for framer-motion's useInView, which
+// SummaryLiquidBackground uses. Without it the hook throws during commit and
+// takes the whole page render down with it.
+globalThis.IntersectionObserver = class IntersectionObserver {
+  readonly root = null
+  readonly rootMargin = ''
+  readonly thresholds: ReadonlyArray<number> = []
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+  takeRecords(): IntersectionObserverEntry[] {
+    return []
+  }
+} as unknown as typeof globalThis.IntersectionObserver
+
 beforeAll(() => server.listen({ onUnhandledRequest: 'warn' }))
 afterEach(() => {
   cleanup()
   server.resetHandlers()
+  // The repo page persists sidebar panel state and check-ins per repo. Without
+  // this, one test collapsing a panel silently changes what later tests render.
+  try {
+    localStorage.clear()
+  } catch {
+    // jsdom without storage — nothing to reset.
+  }
 })
 afterAll(() => server.close())

@@ -12,11 +12,16 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db_session
+from app.models.notification import NotificationType
 from app.models.pull_request import PullRequest
 from app.models.repo import Repo
 from app.models.user import User
 from app.schemas.errors import ErrorResponse
 from app.services.github_service import GitHubService
+from app.services.notification_service import (
+    notify_repo_event,
+    recipients_for_repo,
+)
 from app.services.permission_service import can_access_collection
 
 router = APIRouter()
@@ -124,6 +129,19 @@ async def sync_pull_requests(
     now = datetime.now(timezone.utc)
 
     if raw_prs:
+        # The upsert below overwrites state in place, so what we knew before it
+        # runs is the only way to tell a newly opened or newly merged PR from
+        # one that has been sitting there since the last sync.
+        known_states = dict(
+            (
+                await db.execute(
+                    select(PullRequest.pr_number, PullRequest.state).where(
+                        PullRequest.repo_id == repo_id
+                    )
+                )
+            ).all()
+        )
+
         rows = []
         for raw in raw_prs:
             parsed = svc.parse_pr(raw)
@@ -150,6 +168,8 @@ async def sync_pull_requests(
             },
         )
         await db.execute(stmt)
+
+        await _notify_pr_changes(db, repo, rows, known_states)
         await db.commit()
 
     return PRSyncResponse(
@@ -157,6 +177,69 @@ async def sync_pull_requests(
         repo_id=str(repo_id),
         fetched_at=now.isoformat(),
     )
+
+
+async def _notify_pr_changes(
+    db: AsyncSession,
+    repo: Repo,
+    rows: list[dict],
+    known_states: dict[int, str],
+) -> None:
+    """Raise pr_opened / pr_merged for PRs whose state is news.
+
+    A PR is "opened" only the first time this repo sees it, and "merged" only
+    on the sync where its state first becomes merged. A PR that was already
+    merged before this sync produces nothing, so re-syncing a finished
+    semester's repo stays silent.
+
+    The PR author is a student on GitHub, not a RepoPulse user, so there is
+    nobody to exclude from the recipient list here.
+    """
+    # An empty `known_states` means this repo has never had a PR synced, so
+    # every PR GitHub returned is history being backfilled rather than news.
+    # Announcing all of it would mean one notification per open PR per
+    # recipient the first time anyone presses Sync — dozens of rows describing
+    # things that happened weeks ago. Stay silent and start reporting changes
+    # from the next sync onwards.
+    #
+    # The cost is one missed notification in the narrow case of a repo that was
+    # synced while it genuinely had zero PRs, and whose very first PR arrives
+    # later. That is a far better failure than the storm.
+    if not known_states:
+        return
+
+    # Resolved once: the audience is the same for every PR on this repo.
+    recipients = await recipients_for_repo(db, repo)
+
+    for row in rows:
+        number = row["pr_number"]
+        state = row["state"]
+        previously = known_states.get(number)
+
+        if previously is None and state == "open":
+            await notify_repo_event(
+                db,
+                repo=repo,
+                type=NotificationType.pr_opened,
+                subject=f"{repo.name} #{number} opened: {row['title']}",
+                body=(
+                    f"{row['author_login']} opened pull request #{number} "
+                    f"on {repo.name}.\n{row['html_url']}"
+                ),
+                recipients=recipients,
+            )
+        elif state == "merged" and previously != "merged":
+            await notify_repo_event(
+                db,
+                repo=repo,
+                type=NotificationType.pr_merged,
+                subject=f"{repo.name} #{number} merged: {row['title']}",
+                body=(
+                    f"Pull request #{number} by {row['author_login']} was "
+                    f"merged on {repo.name}.\n{row['html_url']}"
+                ),
+                recipients=recipients,
+            )
 
 
 @router.get(

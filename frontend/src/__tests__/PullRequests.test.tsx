@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
@@ -49,12 +49,17 @@ const mockRepo: Repo = {
   local_path: '/repos/student-project',
   health_status: 'green',
   health_score: null,
+  last_commit_at: null,
   last_synced_at: '2025-10-15T10:00:00Z',
   created_at: '2025-09-01T00:00:00Z',
   updated_at: '2025-10-15T10:00:00Z',
   contributor_count: 2,
   active_reminder_count: 0,
   expected_contributor_count: null,
+  sync_status: 'idle',
+  sync_started_at: null,
+  sync_started_by_name: null,
+  sync_error: null,
 }
 
 const mockPRStats: PRStats = {
@@ -120,7 +125,7 @@ describe('Pull Requests — PRStats row', () => {
     await waitFor(() => expect(screen.getByText('Fetch PRs')).toBeInTheDocument())
   })
 
-  it('shows PR stat cards with counts when prStats has data', async () => {
+  it('shows the total PR count when data is available', async () => {
     server.use(
       http.get('/api/v1/repos/:id', () => HttpResponse.json(mockRepo)),
       http.get('/api/v1/repos/:id/pull-requests/stats', () => HttpResponse.json(mockPRStats)),
@@ -128,17 +133,11 @@ describe('Pull Requests — PRStats row', () => {
     )
     renderPage()
     await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
-    await waitFor(() => {
-      expect(screen.getByText('Merged (30d)')).toBeInTheDocument()
-      expect(screen.getByText('Avg Days to Merge')).toBeInTheDocument()
-      expect(screen.getByText('Total PRs')).toBeInTheDocument()
-    })
-    // Check actual numbers — use specific values unlikely to appear elsewhere
-    expect(screen.getByText('2.5')).toBeInTheDocument() // avg_days_to_merge
-    expect(screen.getByText('15')).toBeInTheDocument()  // total_count
+    const panel = screen.getByRole('heading', { name: 'Pull Requests' }).parentElement!
+    expect(await within(panel).findByText('15')).toBeInTheDocument()
   })
 
-  it('shows — for avg_days_to_merge when null', async () => {
+  it('renders the PR list when the average merge time is unavailable', async () => {
     server.use(
       http.get('/api/v1/repos/:id', () => HttpResponse.json(mockRepo)),
       http.get('/api/v1/repos/:id/pull-requests/stats', () =>
@@ -148,9 +147,7 @@ describe('Pull Requests — PRStats row', () => {
     )
     renderPage()
     await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
-    await waitFor(() => expect(screen.getByText('Avg Days to Merge')).toBeInTheDocument())
-    // "—" appears in the Avg Days to Merge stat card when value is null
-    expect(screen.getAllByText('—').length).toBeGreaterThan(0)
+    expect(await screen.findByText('feat: add user authentication')).toBeInTheDocument()
   })
 })
 
@@ -185,7 +182,7 @@ describe('Pull Requests — PR list section', () => {
     await waitFor(() => expect(screen.getByText('[Draft]')).toBeInTheDocument())
   })
 
-  it('filters PRs by state when tab is clicked', async () => {
+  it('shows all PR states without state filter buttons', async () => {
     server.use(
       http.get('/api/v1/repos/:id', () => HttpResponse.json(mockRepo)),
       http.get('/api/v1/repos/:id/pull-requests/stats', () => HttpResponse.json(mockPRStats)),
@@ -208,14 +205,11 @@ describe('Pull Requests — PR list section', () => {
     await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
     await waitFor(() => expect(screen.getByText('feat: add user authentication')).toBeInTheDocument())
 
-    // Click the "open" filter tab
-    const openTab = screen.getByRole('button', { name: /^open$/i })
-    fireEvent.click(openTab)
+    expect(screen.queryByRole('button', { name: /^open$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^merged$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^closed$/i })).not.toBeInTheDocument()
+    expect(screen.getByText('fix: resolve database connection issue')).toBeInTheDocument()
 
-    await waitFor(() => {
-      expect(screen.queryByText('feat: add user authentication')).not.toBeInTheDocument()
-      expect(screen.getByText('fix: resolve database connection issue')).toBeInTheDocument()
-    })
   })
 
   it('does not render PR list section when total is 0', async () => {
@@ -262,9 +256,9 @@ describe('Pull Requests — sync mutation', () => {
     )
     renderPage()
     await waitFor(() => expect(screen.getByText('student-project')).toBeInTheDocument())
-    await waitFor(() => expect(screen.getByText('Refresh PRs')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument())
 
-    const refreshBtn = screen.getByText('Refresh PRs')
+    const refreshBtn = screen.getByRole('button', { name: 'Refresh' })
     fireEvent.click(refreshBtn)
 
     await waitFor(() => expect(syncCalled).toBe(true))
