@@ -1,4 +1,4 @@
-.PHONY: up down build logs test test-backend test-db test-frontend test-landing test-watch test-smoke seed migrate shell-backend shell-db
+.PHONY: up down build logs test test-backend test-db test-frontend test-landing test-watch test-smoke test-migrations seed seed-admin migrate shell-backend shell-db
 
 up:
 	docker compose up
@@ -34,6 +34,11 @@ test-db:
 test-smoke:
 	docker compose exec backend pytest tests/test_smoke.py -v
 
+# The same checks CI gates a merge on (.github/workflows/migrations.yml): the chain
+# applies to an empty database, the result matches the models, one head only.
+test-migrations:
+	docker compose exec backend pytest tests/test_migrations.py -v
+
 test-frontend:
 	docker compose exec frontend npx vitest run
 
@@ -50,6 +55,11 @@ test-watch:
 # Database
 seed:
 	docker compose exec backend python -m app.db.seed
+
+# Bootstrap the first admin without wiping anything, for a real deployment.
+# ADMIN_EMAIL is required; ADMIN_PASSWORD optional (omitted = setup link).
+seed-admin:
+	docker compose exec -e ADMIN_EMAIL -e ADMIN_NAME -e ADMIN_PASSWORD backend python -m app.db.seed_admin
 
 migrate:
 	docker compose exec backend alembic upgrade head
