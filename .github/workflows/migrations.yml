@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  migrations:
+    name: Database migrations
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      db:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: repopulse
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/repopulse
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/repopulse_test
+      REPO_ROOT_DIR: /tmp/repos
+      AUTH_MODE: dev
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create the test database
+        run: psql -h localhost -U postgres -c 'CREATE DATABASE repopulse_test'
+        env:
+          PGPASSWORD: postgres
+
+      - name: Migration chain
+        run: pytest tests/test_migrations.py -v
+
+      - name: Downgrade round trip
+        run: |
+          alembic upgrade head
+          alembic downgrade base
+          alembic upgrade head
