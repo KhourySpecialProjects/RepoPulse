@@ -9,3 +9,5 @@ RUN chmod +x /app/entrypoint.sh
 # ./backend bind mount shadows /app with host files and their host permissions.
 ENTRYPOINT ["/bin/sh", "/app/entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+RUN curl -1sLf 'https://artifacts-cli.infisical.com/setup.deb.sh' | bash \
+    && apt-get update && apt-get install -y infisical
