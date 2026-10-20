@@ -127,6 +127,7 @@ def _repo_to_read(repo: Repo, contributor_count: int | None = None, active_remin
         last_synced_at=repo.last_synced_at,
         last_commit_at=repo.last_commit_at,
         expected_contributor_count=repo.expected_contributor_count,
+        linear_team_id=repo.linear_team_id,
         created_at=repo.created_at,
         updated_at=repo.updated_at,
         contributor_count=contributor_count,

@@ -10,6 +10,7 @@ import {
   generateSetupLink,
 } from '@/services/api'
 import type { UpdateUserData, PatchMeData, ChangePasswordData, CreateUserData } from '@/types'
+import { linearKeys } from '@/hooks/useLinear'
 
 export function useUsers(params?: { collection_id?: string }) {
   return useQuery({
@@ -31,7 +32,13 @@ export function useUpdateCurrentUser() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: PatchMeData) => updateCurrentUser(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['users', 'me'] }),
+    onSuccess: (_result, data) => {
+      qc.invalidateQueries({ queryKey: ['users', 'me'] })
+      // Every Linear panel was read with the old key (or none).
+      if (data.linear_api_key !== undefined) {
+        qc.invalidateQueries({ queryKey: linearKeys.all })
+      }
+    },
   })
 }
 

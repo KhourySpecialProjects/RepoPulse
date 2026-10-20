@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RepoCreate(BaseModel):
@@ -25,6 +25,7 @@ class RepoRead(BaseModel):
     last_synced_at: Optional[datetime] = None
     last_commit_at: Optional[datetime] = None
     expected_contributor_count: Optional[int] = None
+    linear_team_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     contributor_count: int = 0
@@ -39,6 +40,8 @@ class RepoRead(BaseModel):
 
 class RepoUpdate(BaseModel):
     expected_contributor_count: Optional[int] = None
+    # Explicit null clears the link and returns the repo to name matching.
+    linear_team_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class PaginatedRepos(BaseModel):

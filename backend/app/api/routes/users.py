@@ -34,6 +34,7 @@ def _to_user_read(user: User) -> UserRead:
 def _to_user_detail(user: User) -> UserDetail:
     data = UserRead.model_validate(user).model_dump()
     data["github_token_configured"] = bool(user.github_token)
+    data["linear_api_key_configured"] = bool(user.linear_api_key)
     return UserDetail(**data)
 
 
@@ -101,7 +102,7 @@ async def patch_me(
     db: AsyncSession = Depends(get_db_session),
     current_user_id: str = Depends(get_current_user),
 ) -> UserDetail:
-    """Update own profile: display_name, github_token, or change password."""
+    """Update own profile: display_name, github_token, linear_api_key, or change password."""
     user = await _get_user_or_404(db, uuid.UUID(current_user_id))
 
     if body.display_name is not None:
@@ -110,6 +111,10 @@ async def patch_me(
     if body.github_token is not None:
         # Empty string clears the token
         user.github_token = body.github_token if body.github_token else None
+
+    if body.linear_api_key is not None:
+        # Empty string clears the key
+        user.linear_api_key = body.linear_api_key.strip() or None
 
     if body.change_password is not None:
         cp: ChangePassword = body.change_password
