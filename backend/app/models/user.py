@@ -27,10 +27,6 @@ class User(Base):
         default="instructor",
     )
     github_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    # Personal Linear API key, per-user like github_token: the Linear panel on
-    # Repo Detail reads the *viewer's* workspace with it. Never returned by the
-    # API — UserDetail carries linear_api_key_configured instead.
-    linear_api_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # This user's monthly LLM token allowance, overriding
     # LlmConfig.default_monthly_token_limit. Three distinct states, all
     # meaningful, which is why it is nullable rather than defaulted:

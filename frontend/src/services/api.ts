@@ -35,9 +35,6 @@ import type {
   PRListResponse,
   PRStats,
   PRSyncResponse,
-  LinearTeamList,
-  RepoLinear,
-  RepoUpdateData,
   PaginatedResponse,
   PatchMeData,
   RecentlyDeletedListResponse,
@@ -224,7 +221,7 @@ export async function syncRepo(id: string): Promise<void> {
   await apiClient.post(`/repos/${id}/sync`)
 }
 
-export async function patchRepo(id: string, data: RepoUpdateData): Promise<Repo> {
+export async function patchRepo(id: string, data: { expected_contributor_count?: number | null }): Promise<Repo> {
   const response = await apiClient.patch<Repo>(`/repos/${id}`, data)
   return response.data
 }
@@ -550,17 +547,6 @@ export async function getPRStats(repoId: string): Promise<PRStats> {
 
 export async function syncPullRequests(repoId: string): Promise<PRSyncResponse> {
   const response = await apiClient.post<PRSyncResponse>(`/repos/${repoId}/pull-requests/sync`)
-  return response.data
-}
-
-// Linear — read live with the signed-in user's own Linear key
-export async function getRepoLinear(repoId: string): Promise<RepoLinear> {
-  const response = await apiClient.get<RepoLinear>(`/repos/${repoId}/linear`)
-  return response.data
-}
-
-export async function getLinearTeams(): Promise<LinearTeamList> {
-  const response = await apiClient.get<LinearTeamList>('/linear/teams')
   return response.data
 }
 

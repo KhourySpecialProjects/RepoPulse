@@ -8,7 +8,6 @@ RepoPulse is a web app for monitoring student GitHub project repositories. It pr
 - **Backend:** FastAPI (Python 3.11+) + SQLAlchemy 2.0 (async) + asyncpg + Alembic
 - **Database:** PostgreSQL 16 (Docker container)
 - **Git operations:** GitPython against local clones; the GitHub REST API for pull requests only
-- **Issue tracking:** Linear's GraphQL API, read live with each user's own key
 - **LLM:** Anthropic SDK or a local Ollama server, both behind one provider abstraction
 - **Tracing:** OpenTelemetry → Arize Phoenix, opt-in via `OTEL_EXPORTER_OTLP_ENDPOINT`
 - **Charts:** Recharts
@@ -58,7 +57,6 @@ repo-pulse/
 │   │   ├── services/              # Business logic layer
 │   │   │   ├── git_service.py
 │   │   │   ├── github_service.py
-│   │   │   ├── linear_service.py
 │   │   │   ├── health_service.py
 │   │   │   ├── health_thresholds.py
 │   │   │   ├── permission_service.py
@@ -148,7 +146,7 @@ Every feature is built test-first. The workflow is always:
 - SQLAlchemy models define the schema. Alembic manages migrations.
 - When changing models, always generate and review a migration: `alembic revision --autogenerate -m "description"`.
 - **Alembic owns the schema.** Nothing calls `Base.metadata.create_all` except the test fixtures, and `backend/entrypoint.sh` runs `alembic upgrade head` before uvicorn. `tests/test_migrations.py` fails if the chain and the models disagree, if there is more than one head, or if the chain does not apply to an empty database — these are the checks CI gates a merge on.
-- The migration history was squashed into `0001_baseline_schema`; revisions run `0001`–`0014`. Comments referring to pre-squash revision numbers are historical.
+- The migration history was squashed into `0001_baseline_schema`; revisions run `0001`–`0013`. Comments referring to pre-squash revision numbers are historical.
 - The schema is designed for future PostgreSQL/Supabase compatibility — it is already PostgreSQL. Do not use SQLite-specific features.
 - Use `relationship()` with `lazy="selectin"` as the default loading strategy to avoid N+1 queries. Note that `get_current_user_obj` loads a `User` on every authenticated request, so a new `selectin` relationship on `User` costs a query on *every* API call — see `AccountSetupToken` for why one was deliberately left off.
 
@@ -183,13 +181,6 @@ Every feature is built test-first. The workflow is always:
 - Commits are **not** persisted as the source of truth — they are re-parsed from the clone on each sync. `commit_snapshot_service` stores a copy so the UI degrades to "what we last saw" instead of an empty table when a clone is unreadable; nothing reads it while the clone is readable.
 - The GitHub REST API is used for **pull requests only** (`github_service.py`). Everything else comes from the clone.
 - **Authentication is per-user, not per-instance.** Clone, fetch and PR sync all use the signed-in user's `users.github_token`; without one, adding a repo and syncing PRs return 403. The `GITHUB_TOKEN` env var is *not* a fallback — it is read in exactly one place, `admin_stats_service`, to show "configured" on the admin System card. Do not write code or docs that assume it authenticates anything.
-
-### Linear Integration
-- `app/services/linear_service.py` is the single point of contact for Linear's GraphQL API. No other module calls `api.linear.app`.
-- **Keys are per-user**, like GitHub tokens: `users.linear_api_key`, set on the Settings page through `PATCH /users/me` and never returned (`UserDetail.linear_api_key_configured` instead). Personal keys go in the `Authorization` header with no `Bearer` prefix.
-- **Read live, never stored.** `GET /repos/{id}/linear` fetches the team's issues with the *viewer's* key on each request (the frontend caches it for five minutes). The only Linear state in the database is `repos.linear_team_id`.
-- Which team a repo shows: `repos.linear_team_id` if someone picked one (owner/co-instructor, via `PATCH /repos/{id}`), otherwise `match_team` guesses from the repo name. A tie matches nothing rather than guessing, and a picked team the viewer's key cannot see reports `no_team` rather than falling back to a name match.
-- A rejected key is a 400 `linear_key_invalid`, never a 401 — the frontend treats 401 as signed out. An unreachable Linear is a 502 `linear_unavailable`.
 
 ### Notifications
 - Raise notifications through `notification_service.notify`, never by inserting rows. It resolves recipients from collection access and honours per-user subscriptions.
@@ -265,7 +256,6 @@ The original build order in `PRD.md` §9.1 is complete. To find current work:
 | Contributors, aliases | `routes/contributors.py`, `services/contributor_service.py` | `components/` under Repo Detail |
 | Commits, classification | `routes/commit_classification.py`, `routes/commit_quality.py` | `components/CommitQualityPanel.tsx`, `components/CommitScorePill.tsx` |
 | Pull requests | `routes/pull_requests.py`, `services/github_service.py` | Repo Detail PR panel |
-| Linear | `routes/linear.py`, `services/linear_service.py` | `components/LinearPanel.tsx`, `hooks/useLinear.ts` |
 | Notes, comments, reminders | `routes/notes.py`, `routes/note_comments.py` | `components/NotesDrawer.tsx`, `components/NoteForm.tsx` |
 | Notifications | `routes/notifications.py`, `services/notification_service.py` | `pages/NotificationsPage.tsx`, `components/NotificationIcon.tsx` |
 | Summaries | `routes/summaries.py`, `services/summary_service.py` | `hooks/useSummaries.ts` |

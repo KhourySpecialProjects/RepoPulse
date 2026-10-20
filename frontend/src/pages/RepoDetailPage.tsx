@@ -16,7 +16,6 @@ import { HealthBadge } from '@/components/HealthBadge'
 import { HealthSignalPills } from '@/components/HealthSignalPills'
 import { CommitScorePill } from '@/components/CommitScorePill'
 import { CommitNotesPanel } from '@/components/CommitNotesPanel'
-import { LinearPanel } from '@/components/LinearPanel'
 import { MarkdownContent } from '@/components/MarkdownContent'
 import { TypedMarkdown } from '@/components/TypedMarkdown'
 import { ThinkingLabel } from '@/components/ThinkingLabel'
@@ -1377,12 +1376,8 @@ export function RepoDetailPage() {
               </div>
             </motion.div>
 
-            {/* Commits and Linear share a row, half each. Only from 2xl: below
-                that the main column is too narrow for the commit table's four
-                columns at half width, so Linear stacks underneath instead. */}
-            <div data-testid="commits-linear-row" className="grid grid-cols-1 items-start gap-4 2xl:grid-cols-2">
             {/* Commits section */}
-            <motion.div className="min-w-0" variants={sectionVariants} initial="hidden" animate="visible" transition={{ delay: 0.1 }}>
+            <motion.div variants={sectionVariants} initial="hidden" animate="visible" transition={{ delay: 0.1 }}>
               <Card>
                 <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
                   <CardTitle className="text-base">Commits</CardTitle>
@@ -1634,11 +1629,6 @@ export function RepoDetailPage() {
               </Card>
             </motion.div>
 
-            {/* Linear section */}
-            <motion.div className="min-w-0" variants={sectionVariants} initial="hidden" animate="visible" transition={{ delay: 0.15 }}>
-              <LinearPanel repoId={repo.id} />
-            </motion.div>
-            </div>
 
           </div>
 
