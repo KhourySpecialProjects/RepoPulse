@@ -18,7 +18,7 @@ import {
   syncPullRequests,
   classifyRepoCommits,
 } from '@/services/api'
-import type { GetCommitsParams, SyncStatus } from '@/types'
+import type { GetCommitsParams, RepoUpdateData, SyncStatus } from '@/types'
 import { toast } from 'sonner'
 
 export const repoKeys = {
@@ -225,7 +225,7 @@ export function useMergeContributors(repoId: string) {
 export function usePatchRepo() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { expected_contributor_count?: number | null } }) =>
+    mutationFn: ({ id, data }: { id: string; data: RepoUpdateData }) =>
       patchRepo(id, data),
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: repoKeys.detail(variables.id) })

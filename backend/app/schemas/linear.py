@@ -1,0 +1,79 @@
+from __future__ import annotations
+
+from datetime import date, datetime
+from typing import Literal, Optional
+
+from pydantic import BaseModel
+
+
+class LinearTeamRead(BaseModel):
+    id: str
+    key: str
+    name: str
+
+
+class LinearTeamList(BaseModel):
+    items: list[LinearTeamRead]
+    total: int
+    limit: int
+    offset: int
+
+
+class LinearStatusCounts(BaseModel):
+    """Issues per Linear workflow-state *type*.
+
+    Types rather than state names: every team names its states differently
+    ("In Review", "QA"), but each one belongs to one of these six types.
+    """
+    triage: int = 0
+    backlog: int = 0
+    unstarted: int = 0
+    started: int = 0
+    completed: int = 0
+    canceled: int = 0
+
+
+class LinearCycleProgress(BaseModel):
+    number: int
+    name: Optional[str] = None
+    starts_at: datetime
+    ends_at: datetime
+    # Linear's own figure (0.0–1.0), so the panel agrees with Linear's UI.
+    progress: float
+    issue_count: int
+    completed_issue_count: int
+
+
+class LinearWeeklyCompletion(BaseModel):
+    week_start: date  # Monday, UTC
+    completed: int
+
+
+class LinearMemberStats(BaseModel):
+    name: str
+    open: int
+    completed: int
+
+
+class LinearTeamStats(BaseModel):
+    status_counts: LinearStatusCounts
+    total_issues: int
+    active_cycle: Optional[LinearCycleProgress] = None
+    completed_per_week: list[LinearWeeklyCompletion]
+    members: list[LinearMemberStats]
+
+
+class RepoLinearResponse(BaseModel):
+    """What the Linear panel on Repo Detail renders.
+
+    `status` is one of the three states the panel has to draw, none of which is
+    an error: `not_configured` (the viewer has no Linear key), `no_team` (no
+    team linked or matched), and `ok`. A rejected key or a Linear outage is an
+    error response instead.
+    """
+    status: Literal["not_configured", "no_team", "ok"]
+    team: Optional[LinearTeamRead] = None
+    matched_by: Optional[Literal["manual", "auto"]] = None
+    stats: Optional[LinearTeamStats] = None
+    # Whether the viewer may change which team is linked (owner/co-instructor).
+    can_change_team: bool = False

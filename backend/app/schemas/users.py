@@ -24,6 +24,7 @@ class UserRead(BaseModel):
 class UserDetail(UserRead):
     """Returned to admin or self only."""
     github_token_configured: bool
+    linear_api_key_configured: bool = False
 
 
 class UserCreate(BaseModel):
@@ -79,6 +80,7 @@ class PatchMeRequest(BaseModel):
     """
     display_name: Optional[str] = None
     github_token: Optional[str] = None
+    linear_api_key: Optional[str] = None
     change_password: Optional[ChangePassword] = None
 
 
