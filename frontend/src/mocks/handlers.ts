@@ -18,8 +18,6 @@ import type {
   UpdateNotificationPreferencesData,
   CollectionAccessEntry,
   PRStats,
-  RepoLinear,
-  LinearTeamList,
   PRListResponse,
   PRSyncResponse,
   LlmConfig,
@@ -1165,22 +1163,6 @@ export const handlers = [
         ...body.subscribed_events,
       },
     })
-  }),
-
-  // Linear — default to a viewer with no key, the state that calls nothing else
-  http.get(`${BASE}/repos/:id/linear`, () => {
-    const body: RepoLinear = {
-      status: 'not_configured',
-      team: null,
-      matched_by: null,
-      stats: null,
-      can_change_team: true,
-    }
-    return HttpResponse.json(body)
-  }),
-  http.get(`${BASE}/linear/teams`, () => {
-    const body: LinearTeamList = { items: [], total: 0, limit: 100, offset: 0 }
-    return HttpResponse.json(body)
   }),
 
   // Pull Requests

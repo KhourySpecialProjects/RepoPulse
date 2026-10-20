@@ -52,11 +52,7 @@ describe('SettingsPage no longer configures the LLM', () => {
     renderPage()
 
     await screen.findByLabelText('Criteria')
-    // The user's own Linear key is the one API key Settings may ask for — it
-    // reads their Linear workspace, it does not pay for LLM calls.
-    expect(
-      screen.queryAllByLabelText(/api key/i).map((el) => el.getAttribute('aria-label'))
-    ).toEqual(['Linear API key'])
+    expect(screen.queryByLabelText(/api key/i)).not.toBeInTheDocument()
     expect(screen.queryByPlaceholderText(/sk-ant/i)).not.toBeInTheDocument()
   })
 
