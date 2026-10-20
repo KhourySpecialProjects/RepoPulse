@@ -35,6 +35,11 @@ class Repo(Base):
     expected_contributor_count: Mapped[int | None] = mapped_column(
         Integer, nullable=True
     )
+    # Linear team chosen by hand for this repo. NULL means "not chosen", and
+    # the Linear panel falls back to matching a team by repo name — see
+    # linear_service.match_team. An id, not a name, so renaming the team in
+    # Linear does not break the link.
+    linear_team_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Size on disk, persisted rather than measured per request: walking full
     # clones on every dashboard load is unbounded work in a request handler.
     #
