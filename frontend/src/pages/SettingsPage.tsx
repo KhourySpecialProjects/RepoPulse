@@ -45,6 +45,10 @@ export function SettingsPage() {
   const [githubToken, setGithubToken] = useState('')
   const [showToken, setShowToken] = useState(false)
 
+  // Linear API key
+  const [linearKey, setLinearKey] = useState('')
+  const [showLinearKey, setShowLinearKey] = useState(false)
+
   // Change password
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -79,6 +83,29 @@ export function SettingsPage() {
       toast.success(githubToken ? 'GitHub token updated' : 'GitHub token cleared')
     } catch {
       toast.error('Failed to update GitHub token')
+    }
+  }
+
+  async function handleSaveLinearKey(e: React.FormEvent) {
+    e.preventDefault()
+    const key = linearKey.trim()
+    if (!key) return
+    try {
+      await updateCurrentUser.mutateAsync({ linear_api_key: key })
+      setLinearKey('')
+      toast.success('Linear API key saved')
+    } catch {
+      toast.error('Failed to save Linear API key')
+    }
+  }
+
+  async function handleRemoveLinearKey() {
+    try {
+      // An empty string is what clears it; omitting the field leaves it alone.
+      await updateCurrentUser.mutateAsync({ linear_api_key: '' })
+      toast.success('Linear API key removed')
+    } catch {
+      toast.error('Failed to remove Linear API key')
     }
   }
 
@@ -282,6 +309,85 @@ export function SettingsPage() {
                 >
                   <ExternalLink className="h-3 w-3" />
                   Get a token
+                </a>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* Linear API Key */}
+        <Card data-testid="linear-key-card">
+          <CardHeader>
+            <CardTitle className="text-base">Linear API Key</CardTitle>
+            <CardDescription>
+              Personal API key for showing your Linear team&apos;s issues next to each repo&apos;s commits
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-3 flex items-center gap-2">
+              {currentUser?.linear_api_key_configured ? (
+                <span className="flex items-center gap-1 text-sm text-emerald-600">
+                  <CheckCircle2 className="h-4 w-4" />
+                  Key configured
+                </span>
+              ) : (
+                <span className="text-sm text-muted-foreground">Not configured</span>
+              )}
+            </div>
+            <form onSubmit={handleSaveLinearKey} className="flex flex-col gap-2">
+              <div className="relative flex-1">
+                <Input
+                  aria-label="Linear API key"
+                  type={showLinearKey ? 'text' : 'password'}
+                  value={linearKey}
+                  onChange={(e) => setLinearKey(e.target.value)}
+                  placeholder={
+                    currentUser?.linear_api_key_configured
+                      ? 'Enter new key to replace'
+                      : 'lin_api_...'
+                  }
+                  className="pr-10 font-mono text-sm"
+                />
+                <button
+                  type="button"
+                  aria-label={showLinearKey ? 'Hide key' : 'Show key'}
+                  onClick={() => setShowLinearKey((v) => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showLinearKey ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="submit"
+                  variant="outline"
+                  loading={updateCurrentUser.isPending}
+                  disabled={updateCurrentUser.isPending || !linearKey.trim()}
+                >
+                  Save Key
+                </Button>
+                {currentUser?.linear_api_key_configured && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={handleRemoveLinearKey}
+                    disabled={updateCurrentUser.isPending}
+                  >
+                    Remove Key
+                  </Button>
+                )}
+                <a
+                  href="https://linear.app/settings/account/security"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors self-center"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Get a key
                 </a>
               </div>
             </form>

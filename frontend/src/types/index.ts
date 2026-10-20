@@ -103,6 +103,8 @@ export interface Repo {
   contributor_count: number
   active_reminder_count: number
   expected_contributor_count: number | null
+  /** The hand-picked Linear team; null means "match a team by repo name". */
+  linear_team_id?: string | null
   /**
    * Sync state is shared, not per-session: a sync started by a TA reads as
    * `syncing` for everyone with access to the collection until it finishes.
@@ -389,6 +391,7 @@ export interface UserDetail {
   display_name: string
   role: 'instructor' | 'ta' | 'admin'
   github_token_configured: boolean
+  linear_api_key_configured?: boolean
   created_at: string
   updated_at: string
 }
@@ -433,6 +436,8 @@ export interface UpdateUserData {
 export interface PatchMeData {
   display_name?: string
   github_token?: string
+  /** An empty string removes the stored key. */
+  linear_api_key?: string
 }
 
 export interface ChangePasswordData {
@@ -647,6 +652,88 @@ export interface PRSyncResponse {
   synced: number
   repo_id: string
   fetched_at: string
+}
+
+/** PATCH /repos/:id body. `linear_team_id: null` returns the repo to name matching. */
+export interface RepoUpdateData {
+  expected_contributor_count?: number | null
+  linear_team_id?: string | null
+}
+
+/** The error envelope every endpoint returns. */
+export interface ApiErrorBody {
+  detail: string
+  error_code?: string
+}
+
+// ── Linear ──────────────────────────────────────────────────────────────────
+
+export interface LinearTeam {
+  id: string
+  key: string
+  name: string
+}
+
+export interface LinearTeamList {
+  items: LinearTeam[]
+  total: number
+  limit: number
+  offset: number
+}
+
+/** Issues per Linear workflow-state type — every team's states map onto these six. */
+export interface LinearStatusCounts {
+  triage: number
+  backlog: number
+  unstarted: number
+  started: number
+  completed: number
+  canceled: number
+}
+
+export interface LinearCycleProgress {
+  number: number
+  name: string | null
+  starts_at: string
+  ends_at: string
+  /** 0–1, Linear's own figure. */
+  progress: number
+  issue_count: number
+  completed_issue_count: number
+}
+
+export interface LinearWeeklyCompletion {
+  /** Monday, as YYYY-MM-DD. */
+  week_start: string
+  completed: number
+}
+
+export interface LinearMemberStats {
+  name: string
+  open: number
+  completed: number
+}
+
+export interface LinearTeamStats {
+  status_counts: LinearStatusCounts
+  total_issues: number
+  active_cycle: LinearCycleProgress | null
+  /** Oldest first, current week last. */
+  completed_per_week: LinearWeeklyCompletion[]
+  members: LinearMemberStats[]
+}
+
+/**
+ * GET /repos/:id/linear. `not_configured`: the viewer has no Linear key.
+ * `no_team`: no team linked or matched. A rejected key or a Linear outage is
+ * an error response, not a status.
+ */
+export interface RepoLinear {
+  status: 'not_configured' | 'no_team' | 'ok'
+  team: LinearTeam | null
+  matched_by: 'manual' | 'auto' | null
+  stats: LinearTeamStats | null
+  can_change_team: boolean
 }
 
 /** Why a day is marked on the activity graph. Drives the marker colour and the
