@@ -190,6 +190,7 @@ Every feature is built test-first. The workflow is always:
 - **Read live, never stored.** `GET /repos/{id}/linear` fetches the team's issues with the *viewer's* key on each request (the frontend caches it for five minutes). The only Linear state in the database is `repos.linear_team_id`.
 - Which team a repo shows: `repos.linear_team_id` if someone picked one (owner/co-instructor, via `PATCH /repos/{id}`), otherwise `match_team` guesses from the repo name. A tie matches nothing rather than guessing, and a picked team the viewer's key cannot see reports `no_team` rather than falling back to a name match.
 - A rejected key is a 400 `linear_key_invalid`, never a 401 — the frontend treats 401 as signed out. An unreachable Linear is a 502 `linear_unavailable`.
+- The dashboard's **Linear projects** box (`components/dashboard/LinearProjectsPanel.tsx`) and its "active Linear projects" tile read `GET /linear/projects` — Linear *Projects*, workspace-wide, sorted in-progress first by `linear_service`. They are not scoped by the collection picker, and they make no request at all until the viewer has a key (`linear_api_key_configured`). This box replaced the dashboard's Needs attention list; the health donut's legend now links to Collections instead of filtering it.
 
 ### Notifications
 - Raise notifications through `notification_service.notify`, never by inserting rows. It resolves recipients from collection access and honours per-user subscriptions.

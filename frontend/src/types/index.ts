@@ -723,6 +723,31 @@ export interface LinearTeamStats {
   members: LinearMemberStats[]
 }
 
+/** A Linear *Project* (the planning object), from GET /linear/projects. */
+export interface LinearProject {
+  id: string
+  name: string
+  url: string
+  status_name: string
+  /** backlog | planned | started | paused | completed | canceled */
+  status_type: string
+  /** 0–1, Linear's own figure. */
+  progress: number
+  /** YYYY-MM-DD, no time zone. */
+  start_date: string | null
+  target_date: string | null
+  lead_name: string | null
+  team_keys: string[]
+}
+
+/** Ordered by the server: in-progress work first, finished last. */
+export interface LinearProjectList {
+  items: LinearProject[]
+  total: number
+  limit: number
+  offset: number
+}
+
 /**
  * GET /repos/:id/linear. `not_configured`: the viewer has no Linear key.
  * `no_team`: no team linked or matched. A rejected key or a Linear outage is

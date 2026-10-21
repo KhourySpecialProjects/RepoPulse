@@ -341,3 +341,110 @@ class TestFetchTeamStats:
         assert stats.active_cycle is not None
         assert stats.active_cycle.number == 9
         assert stats.active_cycle.issue_count == 1
+
+
+# ---------------------------------------------------------------------------
+# LinearService.list_projects
+# ---------------------------------------------------------------------------
+
+
+def _project(
+    name: str,
+    status_type: str = "started",
+    *,
+    target: str | None = None,
+    lead: str | None = "Alice",
+    progress: float = 0.5,
+) -> dict:
+    return {
+        "id": f"p-{name.lower()}",
+        "name": name,
+        "url": f"https://linear.app/acme/project/{name.lower()}",
+        "progress": progress,
+        "startDate": "2026-09-01",
+        "targetDate": target,
+        "status": {"name": status_type.title(), "type": status_type},
+        "lead": {"name": lead} if lead else None,
+        "teams": {"nodes": [{"key": "FAL"}, {"key": "HAW"}]},
+    }
+
+
+def _projects_page(nodes: list[dict], *, has_next: bool = False, cursor: str | None = None) -> dict:
+    return {
+        "data": {
+            "projects": {
+                "nodes": nodes,
+                "pageInfo": {"hasNextPage": has_next, "endCursor": cursor},
+            }
+        }
+    }
+
+
+class TestListProjects:
+    async def test_parses_each_project(self):
+        node = _project("Launch", target="2026-11-01", progress=0.25)
+        service = _service(lambda r: httpx.Response(200, json=_projects_page([node])))
+
+        [project] = await service.list_projects()
+
+        assert project.id == "p-launch"
+        assert project.name == "Launch"
+        assert project.url == "https://linear.app/acme/project/launch"
+        assert project.status_name == "Started"
+        assert project.status_type == "started"
+        assert project.progress == 0.25
+        assert project.start_date == date(2026, 9, 1)
+        assert project.target_date == date(2026, 11, 1)
+        assert project.lead_name == "Alice"
+        assert project.team_keys == ["FAL", "HAW"]
+
+    async def test_project_without_lead_or_dates(self):
+        node = _project("Loose", lead=None)
+        node["startDate"] = None
+        service = _service(lambda r: httpx.Response(200, json=_projects_page([node])))
+
+        [project] = await service.list_projects()
+
+        assert project.lead_name is None
+        assert project.start_date is None
+        assert project.target_date is None
+
+    async def test_active_work_sorts_first_then_by_target_date(self):
+        nodes = [
+            _project("Done", "completed", target="2026-10-01"),
+            _project("Later", "planned", target="2026-12-01"),
+            _project("Undated", "started"),
+            _project("Dropped", "canceled"),
+            _project("Soon", "started", target="2026-10-30"),
+            _project("Sooner", "planned", target="2026-11-15"),
+            _project("Paused", "paused"),
+            _project("Idea", "backlog"),
+        ]
+        service = _service(lambda r: httpx.Response(200, json=_projects_page(nodes)))
+
+        names = [p.name for p in await service.list_projects()]
+
+        # In progress, then planned, paused, backlog, completed, canceled; a
+        # target date sorts before none within each group.
+        assert names == ["Soon", "Undated", "Sooner", "Later", "Paused", "Idea", "Done", "Dropped"]
+
+    async def test_follows_pagination(self):
+        cursors: list[str | None] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            after = json.loads(request.content)["variables"].get("after")
+            cursors.append(after)
+            if after is None:
+                return httpx.Response(
+                    200, json=_projects_page([_project("A")], has_next=True, cursor="c1")
+                )
+            return httpx.Response(200, json=_projects_page([_project("B")]))
+
+        projects = await _service(handler).list_projects()
+
+        assert cursors == [None, "c1"]
+        assert sorted(p.name for p in projects) == ["A", "B"]
+
+    async def test_rejected_key_raises_auth_error(self):
+        with pytest.raises(LinearAuthError):
+            await _service(lambda r: httpx.Response(401, text="nope")).list_projects()

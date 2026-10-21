@@ -77,3 +77,27 @@ class RepoLinearResponse(BaseModel):
     stats: Optional[LinearTeamStats] = None
     # Whether the viewer may change which team is linked (owner/co-instructor).
     can_change_team: bool = False
+
+
+class LinearProjectRead(BaseModel):
+    """A Linear *Project* — the planning object, not a team."""
+    id: str
+    name: str
+    url: str
+    status_name: str
+    # backlog | planned | started | paused | completed | canceled — the fixed
+    # set every workspace's custom project statuses map onto.
+    status_type: str
+    # Linear's own completion figure, 0.0–1.0.
+    progress: float
+    start_date: Optional[date] = None
+    target_date: Optional[date] = None
+    lead_name: Optional[str] = None
+    team_keys: list[str] = []
+
+
+class LinearProjectList(BaseModel):
+    items: list[LinearProjectRead]
+    total: int
+    limit: int
+    offset: int

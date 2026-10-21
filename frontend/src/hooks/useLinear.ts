@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
-import { getLinearTeams, getRepoLinear, patchRepo } from '@/services/api'
+import { getLinearProjects, getLinearTeams, getRepoLinear, patchRepo } from '@/services/api'
 import type { ApiErrorBody } from '@/types'
 import { repoKeys } from '@/hooks/useRepos'
 
@@ -8,6 +8,7 @@ export const linearKeys = {
   all: ['linear'] as const,
   repo: (repoId: string) => ['linear', 'repo', repoId] as const,
   teams: ['linear', 'teams'] as const,
+  projects: ['linear', 'projects'] as const,
 }
 
 // Linear is read live on every panel load, so a short cache saves the two
@@ -36,6 +37,22 @@ export function useLinearTeams(enabled: boolean) {
   return useQuery({
     queryKey: linearKeys.teams,
     queryFn: getLinearTeams,
+    enabled,
+    staleTime: LINEAR_STALE_MS,
+    retry: false,
+  })
+}
+
+/**
+ * Every project in the viewer's Linear workspace. `enabled` should follow
+ * `linear_api_key_configured`, so a user without a key never makes a call
+ * that can only answer "not configured". The dashboard's box and its tile share
+ * this query, so they cost one request between them.
+ */
+export function useLinearProjects(enabled: boolean) {
+  return useQuery({
+    queryKey: linearKeys.projects,
+    queryFn: getLinearProjects,
     enabled,
     staleTime: LINEAR_STALE_MS,
     retry: false,

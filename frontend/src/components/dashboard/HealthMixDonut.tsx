@@ -17,9 +17,8 @@ const TILE_CLASS: Record<HealthStatus, string> = {
   unknown: 'border-slate-200 bg-slate-100 text-slate-500 hover:bg-slate-200',
 }
 
-export function HealthMixDonut({ repos, className, loading, failed, selectedStatus, onSelectStatus }: {
+export function HealthMixDonut({ repos, className, loading, failed }: {
   repos: Repo[]; className?: string; loading?: boolean; failed?: boolean
-  selectedStatus?: HealthStatus | null; onSelectStatus?: (status: HealthStatus) => void
 }) {
   const mix = healthMix(repos)
   const healthyPct = repos.length === 0 ? 0 : Math.round((mix[0].count / repos.length) * 100)
@@ -45,10 +44,12 @@ export function HealthMixDonut({ repos, className, loading, failed, selectedStat
             </>}
           </div>
           <ul className="min-w-0 flex-1 space-y-1">
+            {/* Links, not filter toggles: the dashboard no longer has a repo
+                list to filter, and Collections is where repos are browsed. */}
             {mix.map(slice => <li key={slice.status}>
-              <button type="button" aria-label={`Show ${slice.label} repositories`} aria-pressed={selectedStatus === slice.status} onClick={() => onSelectStatus?.(slice.status)} className={cn('flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-xs transition-colors hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-brand-500', selectedStatus === slice.status && 'bg-brand-50 ring-1 ring-brand-200')}>
+              <Link to="/collections" aria-label={`Show ${slice.label} repositories in Collections`} className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-xs transition-colors hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-brand-500">
                 <span className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', DOT_CLASS[slice.status])} /><span className="flex-1 text-left text-slate-500">{slice.label}</span><span className="font-semibold tabular-nums">{slice.count}</span>
-              </button>
+              </Link>
             </li>)}
           </ul>
         </div>

@@ -19,6 +19,7 @@ from app.models.repo import Repo
 from app.schemas.linear import (
     LinearCycleProgress,
     LinearMemberStats,
+    LinearProjectRead,
     LinearStatusCounts,
     LinearTeamRead,
     LinearTeamStats,
@@ -228,6 +229,62 @@ query TeamIssues($teamId: String!, $first: Int!, $after: String) {
 }
 """
 
+PROJECTS_QUERY = """
+query Projects($first: Int!, $after: String) {
+  projects(first: $first, after: $after) {
+    nodes {
+      id name url progress startDate targetDate
+      status { name type }
+      lead { name }
+      teams { nodes { key } }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+"""
+
+# 5 × 100 = 500 projects, far past any course's workspace, bounds one call.
+PROJECT_PAGE_SIZE = 100
+MAX_PROJECT_PAGES = 5
+
+# Work in flight first, finished work last. Keys are Linear's fixed project
+# status types; a type Linear adds later sorts with backlog rather than failing.
+_PROJECT_STATUS_ORDER = {
+    "started": 0,
+    "planned": 1,
+    "paused": 2,
+    "backlog": 3,
+    "completed": 4,
+    "canceled": 5,
+}
+
+
+def _parse_project(node: dict) -> LinearProjectRead:
+    status = node.get("status") or {}
+    return LinearProjectRead(
+        id=node["id"],
+        name=node["name"],
+        url=node.get("url") or "",
+        status_name=status.get("name") or "",
+        status_type=status.get("type") or "",
+        progress=float(node.get("progress") or 0.0),
+        # TimelessDate: a bare YYYY-MM-DD with no time zone to convert.
+        start_date=date.fromisoformat(node["startDate"]) if node.get("startDate") else None,
+        target_date=date.fromisoformat(node["targetDate"]) if node.get("targetDate") else None,
+        lead_name=(node.get("lead") or {}).get("name"),
+        team_keys=[t["key"] for t in (node.get("teams") or {}).get("nodes", [])],
+    )
+
+
+def _project_sort_key(project: LinearProjectRead) -> tuple:
+    return (
+        _PROJECT_STATUS_ORDER.get(project.status_type, _PROJECT_STATUS_ORDER["backlog"]),
+        # Dated before undated, soonest first.
+        project.target_date is None,
+        project.target_date or date.max,
+        project.name.lower(),
+    )
+
 
 def _is_auth_error(errors: list | None) -> bool:
     for error in errors or []:
@@ -307,6 +364,24 @@ class LinearService:
         return summarize_team(
             issues, active_cycle, now=now or datetime.now(timezone.utc)
         )
+
+    async def list_projects(self) -> list[LinearProjectRead]:
+        """Every project the key can see, active work first. See _project_sort_key."""
+        projects: list[LinearProjectRead] = []
+        after: str | None = None
+
+        for _ in range(MAX_PROJECT_PAGES):
+            data = await self._query(
+                PROJECTS_QUERY, {"first": PROJECT_PAGE_SIZE, "after": after}
+            )
+            page = data.get("projects") or {}
+            projects.extend(_parse_project(node) for node in page.get("nodes", []))
+            page_info = page.get("pageInfo") or {}
+            if not page_info.get("hasNextPage"):
+                break
+            after = page_info.get("endCursor")
+
+        return sorted(projects, key=_project_sort_key)
 
 
 # ---------------------------------------------------------------------------

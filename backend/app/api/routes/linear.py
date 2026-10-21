@@ -11,7 +11,7 @@ from app.core.errors import AppError
 from app.models.repo import Repo
 from app.models.user import User
 from app.schemas.errors import ErrorResponse
-from app.schemas.linear import LinearTeamList, RepoLinearResponse
+from app.schemas.linear import LinearProjectList, LinearTeamList, RepoLinearResponse
 from app.services.linear_service import (
     LinearAPIError,
     LinearAuthError,
@@ -53,6 +53,18 @@ async def _call_linear(awaitable: Awaitable[T]) -> T:
         )
 
 
+async def _linear_key(db: AsyncSession, current_user_id: str) -> str:
+    """The current user's Linear key, or the not-configured error."""
+    user = await db.get(User, uuid.UUID(current_user_id))
+    if user is None or not user.linear_api_key:
+        raise AppError(
+            status.HTTP_400_BAD_REQUEST,
+            "Linear API key not configured. Add one in Settings.",
+            "linear_not_configured",
+        )
+    return user.linear_api_key
+
+
 @router.get("/linear/teams", response_model=LinearTeamList, responses=_LINEAR_ERRORS)
 async def list_linear_teams(
     limit: int = Query(default=100, ge=1, le=250),
@@ -61,19 +73,30 @@ async def list_linear_teams(
     current_user_id: str = Depends(get_current_user),
 ) -> LinearTeamList:
     """Teams visible to the current user's Linear key, for the team picker."""
-    user = await db.get(User, uuid.UUID(current_user_id))
-    if user is None or not user.linear_api_key:
-        raise AppError(
-            status.HTTP_400_BAD_REQUEST,
-            "Linear API key not configured. Add one in Settings.",
-            "linear_not_configured",
-        )
-
-    teams = await _call_linear(LinearService(user.linear_api_key).list_teams())
+    api_key = await _linear_key(db, current_user_id)
+    teams = await _call_linear(LinearService(api_key).list_teams())
     teams.sort(key=lambda t: t.name.lower())
     return LinearTeamList(
         items=[t.to_read() for t in teams[offset : offset + limit]],
         total=len(teams),
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/linear/projects", response_model=LinearProjectList, responses=_LINEAR_ERRORS)
+async def list_linear_projects(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db_session),
+    current_user_id: str = Depends(get_current_user),
+) -> LinearProjectList:
+    """Projects across the current user's Linear workspace, for the dashboard."""
+    api_key = await _linear_key(db, current_user_id)
+    projects = await _call_linear(LinearService(api_key).list_projects())
+    return LinearProjectList(
+        items=projects[offset : offset + limit],
+        total=len(projects),
         limit=limit,
         offset=offset,
     )

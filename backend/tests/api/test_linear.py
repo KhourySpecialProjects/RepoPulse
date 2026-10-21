@@ -19,6 +19,7 @@ from app.models.collection import Collection
 from app.models.collection_access import CollectionAccess, CollectionRole
 from app.models.repo import Repo
 from app.models.user import User
+from app.schemas.linear import LinearProjectRead
 from app.services.linear_service import (
     LinearAPIError,
     LinearAuthError,
@@ -423,3 +424,82 @@ class TestRepoLinear:
             f"/api/v1/repos/{uuid.uuid4()}/linear", headers=_headers(linear_user)
         )
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /linear/projects
+# ---------------------------------------------------------------------------
+
+
+def _project(name: str, status_type: str = "started") -> LinearProjectRead:
+    return LinearProjectRead(
+        id=f"p-{name.lower()}",
+        name=name,
+        url=f"https://linear.app/acme/project/{name.lower()}",
+        status_name=status_type.title(),
+        status_type=status_type,
+        progress=0.5,
+        start_date=None,
+        target_date=None,
+        lead_name="Alice",
+        team_keys=["FAL"],
+    )
+
+
+class TestListLinearProjects:
+    async def test_without_a_key_is_a_400(self, test_client: AsyncClient, test_user: User):
+        resp = await test_client.get("/api/v1/linear/projects", headers=_headers(test_user))
+        assert resp.status_code == 400
+        assert resp.json()["error_code"] == "linear_not_configured"
+
+    async def test_lists_projects_in_envelope(self, test_client: AsyncClient, linear_user: User):
+        projects = [_project("Launch"), _project("Docs", "planned")]
+        with patch.object(LinearService, "list_projects", AsyncMock(return_value=projects)):
+            resp = await test_client.get(
+                "/api/v1/linear/projects", headers=_headers(linear_user)
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # The service's order is kept: it is the one that knows what matters.
+        assert [p["name"] for p in data["items"]] == ["Launch", "Docs"]
+        assert data["items"][0]["status_type"] == "started"
+        assert data["items"][0]["team_keys"] == ["FAL"]
+        assert data["total"] == 2
+        assert data["offset"] == 0
+
+    async def test_limit_and_offset_page_the_list(
+        self, test_client: AsyncClient, linear_user: User
+    ):
+        projects = [_project(f"P{i}") for i in range(5)]
+        with patch.object(LinearService, "list_projects", AsyncMock(return_value=projects)):
+            resp = await test_client.get(
+                "/api/v1/linear/projects?limit=2&offset=2", headers=_headers(linear_user)
+            )
+        data = resp.json()
+        assert [p["name"] for p in data["items"]] == ["P2", "P3"]
+        assert data["total"] == 5
+        assert data["limit"] == 2
+
+    async def test_rejected_key_is_reported(self, test_client: AsyncClient, linear_user: User):
+        with patch.object(
+            LinearService, "list_projects", AsyncMock(side_effect=LinearAuthError("bad"))
+        ):
+            resp = await test_client.get(
+                "/api/v1/linear/projects", headers=_headers(linear_user)
+            )
+        assert resp.status_code == 400
+        assert resp.json()["error_code"] == "linear_key_invalid"
+
+    async def test_linear_outage_is_a_502(self, test_client: AsyncClient, linear_user: User):
+        with patch.object(
+            LinearService, "list_projects", AsyncMock(side_effect=LinearAPIError("down"))
+        ):
+            resp = await test_client.get(
+                "/api/v1/linear/projects", headers=_headers(linear_user)
+            )
+        assert resp.status_code == 502
+        assert resp.json()["error_code"] == "linear_unavailable"
+
+    async def test_requires_auth(self, test_client: AsyncClient):
+        resp = await test_client.get("/api/v1/linear/projects")
+        assert resp.status_code == 401
