@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
+import { apiProxyTarget } from './src/lib/apiProxyTarget'
 
 export default defineConfig({
   plugins: [react()],
@@ -15,7 +16,9 @@ export default defineConfig({
     allowedHosts: true, //adding this to allow use on coolify?
     proxy: {
       '/api': {
-        target: 'http://backend:8000',
+        // `backend`, unless a Coolify preview points it at its own backend —
+        // see src/lib/apiProxyTarget.ts.
+        target: apiProxyTarget(process.env),
         changeOrigin: true,
       },
     },

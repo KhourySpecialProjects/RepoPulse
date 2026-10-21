@@ -1,8 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowUpRight, GitBranch, Bell, GitCommit, AlertTriangle, RefreshCw, X, ArrowRight, Layers, CheckCircle2 } from 'lucide-react'
-import { HealthBadge, HEALTH_STATUS_LABELS } from '@/components/HealthBadge'
+import { ArrowUpRight, GitBranch, Bell, GitCommit, RefreshCw, ArrowRight, Layers, ListChecks } from 'lucide-react'
 import { NotificationIcon } from '@/components/NotificationIcon'
 import { MetricTile } from '@/components/dashboard/MetricTile'
 import { WorkspacePulseChart } from '@/components/dashboard/WorkspacePulseChart'
@@ -11,7 +10,11 @@ import { HealthSignalRadar } from '@/components/dashboard/HealthSignalRadar'
 import { StalenessChart } from '@/components/dashboard/StalenessChart'
 import { WorkspaceInsights } from '@/components/dashboard/WorkspaceInsights'
 import { DashboardSearch } from '@/components/dashboard/DashboardSearch'
+import { LinearTeamsPanel } from '@/components/dashboard/LinearTeamsPanel'
 import { useDashboard } from '@/hooks/useDashboard'
+import { useLinearRepoTeams } from '@/hooks/useLinear'
+import { openIssueCount } from '@/lib/linear'
+import { useCurrentUser } from '@/hooks/useUsers'
 import { useWorkspacePeople } from '@/hooks/useWorkspacePeople'
 import { useMarkNotificationRead, useNotifications } from '@/hooks/useNotifications'
 import {
@@ -24,9 +27,8 @@ import { feedTitleFor } from '@/lib/notificationEvents'
 import { notificationTarget } from '@/lib/notificationTarget'
 import { formatTimeAgo } from '@/lib/time'
 import { cn } from '@/lib/utils'
-import type { HealthStatus, Notification, Repo } from '@/types'
+import type { Notification } from '@/types'
 import { PAGE_HEADER_CLASS, PAGE_BODY_CLASS } from '@/lib/layout'
-import { useBackState } from '@/hooks/useBackTarget'
 
 const card = 'rounded-2xl border border-border bg-white shadow-sm'
 const listBody = 'min-h-0 flex-1 divide-y divide-border overflow-y-auto'
@@ -35,12 +37,6 @@ const tileGrid = { hidden: {}, visible: { transition: { staggerChildren: 0.05 } 
 
 /** How many unread items the panel lists before deferring to the full page. */
 const NOTIFICATION_LIMIT = 8
-
-function lastCommit(repo: Repo) {
-  return repo.last_commit_at
-    ? new Date(repo.last_commit_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-    : 'never'
-}
 
 /**
  * The unread half of the notification feed, in the slot Follow-ups held.
@@ -117,9 +113,7 @@ function RecentNotificationsPanel() {
 }
 
 export function DashboardPage() {
-  const backState = useBackState()
   const [collectionId, setCollectionId] = useState('')
-  const [healthFilter, setHealthFilter] = useState<HealthStatus | null>(null)
   const [peopleWanted, setPeopleWanted] = useState(false)
   const { collections, selected, repos, loading, failed, refreshing, refresh, activityQuery } = useDashboard(collectionId)
   // Searching people is opt-in: the endpoint behind it walks git history, so it
@@ -127,9 +121,16 @@ export function DashboardPage() {
   const peopleQuery = useWorkspacePeople(selected.map(collection => collection.id), peopleWanted)
   const wantPeople = useCallback(() => setPeopleWanted(true), [])
 
-  const attention = repos.filter(repo => repo.health_status === 'red' || repo.health_status === 'yellow')
-    .sort((a, b) => Number(b.health_status === 'red') - Number(a.health_status === 'red'))
-  const reviewRepos = healthFilter ? repos.filter(repo => repo.health_status === healthFilter) : attention
+  // Shares its query with LinearTeamsPanel, so the tile costs no request.
+  const { data: me } = useCurrentUser()
+  const linearConfigured = Boolean(me?.linear_api_key_configured)
+  const linearRepoTeams = useLinearRepoTeams(collectionId, linearConfigured)
+  const linearTeams = useMemo(() => {
+    // Per team, not per repo: two repos on one team are one team's issues.
+    const byTeam = new Map((linearRepoTeams.data?.items ?? []).map(item => [item.team.id, item.stats.status_counts]))
+    return { count: byTeam.size, open: [...byTeam.values()].reduce((sum, counts) => sum + openIssueCount(counts), 0) }
+  }, [linearRepoTeams.data])
+
   const reminders = repos.filter(repo => repo.active_reminder_count > 0).sort((a, b) => b.active_reminder_count - a.active_reminder_count)
 
   const signals = useMemo(() => averageHealthSignals(repos), [repos])
@@ -161,7 +162,7 @@ export function DashboardPage() {
           className="w-full md:w-72 lg:w-96"
         />
         <div className="flex min-w-0 flex-wrap items-center gap-2 md:justify-end">
-          <select aria-label="Collection scope" value={collectionId} onChange={event => { setCollectionId(event.target.value); setHealthFilter(null) }} className="h-9 max-w-48 rounded-lg border border-border bg-background pl-3 pr-7 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+          <select aria-label="Collection scope" value={collectionId} onChange={event => setCollectionId(event.target.value)} className="h-9 max-w-48 rounded-lg border border-border bg-background pl-3 pr-7 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
             <option value="">All collections</option>
             {collections.map(collection => <option key={collection.id} value={collection.id}>{collection.name}</option>)}
           </select>
@@ -210,12 +211,21 @@ export function DashboardPage() {
             sparkline={activityQuery.isError ? undefined : sparkline}
             loading={loading || activityQuery.isPending}
           />
+          {/* The Linear box's teams, totalled. "—" rather than 0 when there is
+              nothing to count, so "no teams linked" never reads as "no work". */}
           <MetricTile
-            label="need attention"
-            value={failed ? '—' : attention.length}
-            icon={AlertTriangle}
-            accent="amber"
-            loading={loading}
+            label="open Linear issues"
+            value={linearConfigured && linearTeams.count > 0 ? linearTeams.open : '—'}
+            detail={
+              !me ? undefined
+                : !linearConfigured ? 'connect Linear in Settings'
+                : !linearRepoTeams.data ? undefined
+                : linearTeams.count === 0 ? 'no teams linked yet'
+                : `across ${linearTeams.count} team${linearTeams.count === 1 ? '' : 's'}`
+            }
+            icon={ListChecks}
+            accent="brand"
+            loading={!me || (linearConfigured && linearRepoTeams.isPending)}
           />
           <MetricTile
             label="active reminders"
@@ -241,39 +251,15 @@ export function DashboardPage() {
             onRetry={() => void activityQuery.refetch()}
             className="min-h-72 sm:col-span-2 xl:min-h-0"
           />
-          <HealthMixDonut repos={repos} loading={loading} failed={failed} selectedStatus={healthFilter} onSelectStatus={setHealthFilter} />
+          <HealthMixDonut repos={repos} loading={loading} failed={failed} />
           <HealthSignalRadar repos={repos} loading={loading} failed={failed} />
 
           <WorkspaceInsights insights={insights} />
 
-          {/* With nothing to report there is no insights card, so the list
-              beside it widens rather than leaving a hole in the row. */}
-          <section className={cn(card, 'flex h-64 min-h-0 flex-col xl:h-auto', insights.length === 0 && 'xl:col-span-2')}>
-            <div className="flex flex-shrink-0 items-center justify-between gap-2 px-4 pt-3 pb-2">
-              <h2 className="text-sm font-semibold">{healthFilter ? `${HEALTH_STATUS_LABELS[healthFilter]} repositories` : 'Needs attention'}</h2>
-              {healthFilter && <button aria-label="Clear health filter" onClick={() => setHealthFilter(null)} className="rounded p-1 text-muted-foreground hover:bg-brand-50"><X className="h-3 w-3" /></button>}
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 tabular-nums">
-                {loading || failed ? '—' : reviewRepos.length}
-              </span>
-            </div>
-            <div data-testid="attention-list" className={listBody}>
-              {!loading && !failed && reviewRepos.map(repo => (
-                <Link
-                  key={repo.id}
-                  to={`/repos/${repo.id}`}
-                  state={backState}
-                  className="group flex items-center justify-between gap-2 px-4 py-3 transition-colors hover:bg-brand-50/50"
-                >
-                  <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium group-hover:text-brand-700" title={repo.name}>{repo.name}</span><span className="mt-1 block text-[10px] text-muted-foreground">Last commit {lastCommit(repo)}</span></span>
-
-                  <HealthBadge status={repo.health_status} className="flex-shrink-0 scale-90" />
-                </Link>
-              ))}
-              {loading || failed ? <p className="px-4 py-3 text-xs text-muted-foreground">{loading ? 'Loading repositories…' : 'Repository data is unavailable.'}</p> : !reviewRepos.length && (
-                <div className="flex h-full flex-col items-center justify-center gap-2 p-5 text-center"><CheckCircle2 className="h-7 w-7 text-emerald-500" /><p className="text-xs text-muted-foreground">{healthFilter ? 'No repositories with this status.' : 'Nothing flagged. Looking good.'}</p></div>
-              )}
-            </div>
-          </section>
+          {/* Was "Needs attention". With nothing to report there is no
+              insights card, so this box widens rather than leaving a hole in
+              the row. */}
+          <LinearTeamsPanel collectionId={collectionId} className={cn(insights.length === 0 && 'xl:col-span-2')} />
 
           {/* Was "Follow-ups" — a list of repos that merely *had* reminders.
               Now the unread notification feed itself, so the panel shows what

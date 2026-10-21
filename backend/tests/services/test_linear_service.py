@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, timezone
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -18,6 +19,7 @@ from app.services.linear_service import (
     LinearService,
     LinearTeam,
     match_team,
+    resolve_team,
     summarize_team,
 )
 
@@ -341,3 +343,29 @@ class TestFetchTeamStats:
         assert stats.active_cycle is not None
         assert stats.active_cycle.number == 9
         assert stats.active_cycle.issue_count == 1
+
+
+# ---------------------------------------------------------------------------
+# resolve_team — the one rule for which team a repo shows
+# ---------------------------------------------------------------------------
+
+
+def _repo(name: str, linear_team_id: str | None = None) -> SimpleNamespace:
+    # resolve_team reads only these two attributes of a Repo.
+    return SimpleNamespace(name=name, linear_team_id=linear_team_id)
+
+
+class TestResolveTeam:
+    def test_a_picked_team_wins_over_a_name_match(self):
+        assert resolve_team(_repo("team-falcon", "t-hawk"), [FALCON, HAWK]) == (HAWK, "manual")
+
+    def test_a_picked_team_the_key_cannot_see_resolves_to_nothing(self):
+        # Not a fallback to the name match: that would show a different team
+        # from the one someone chose.
+        assert resolve_team(_repo("team-falcon", "t-elsewhere"), [FALCON]) == (None, "manual")
+
+    def test_without_a_pick_the_name_decides(self):
+        assert resolve_team(_repo("team-falcon"), [HAWK, FALCON]) == (FALCON, "auto")
+
+    def test_without_a_pick_or_a_match_there_is_no_team(self):
+        assert resolve_team(_repo("eagle"), [HAWK, FALCON]) == (None, None)

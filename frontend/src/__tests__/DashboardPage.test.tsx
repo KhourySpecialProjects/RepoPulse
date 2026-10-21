@@ -325,16 +325,104 @@ describe('DashboardPage — toolbar layout', () => {
 })
 
 describe('DashboardPage — working lists survive', () => {
-  it('keeps the attention list alongside the notification feed', async () => {
+  it('puts the Linear box alongside the notification feed', async () => {
     setup([repo({ health_status: 'red', active_reminder_count: 2 })])
     renderPage()
 
-    expect(await screen.findByText('Needs attention')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Linear teams' })).toBeInTheDocument()
+    // The Needs attention list was replaced by the Linear box; red and yellow
+    // repos are still the donut's slices and the repository map's tiles.
+    expect(screen.queryByText('Needs attention')).not.toBeInTheDocument()
     // Follow-ups listed repos that merely *had* reminders; the slot now holds
     // the unread feed, which shows what actually happened.
     expect(screen.getByText('Recent notifications')).toBeInTheDocument()
     expect(screen.queryByText('Follow-ups')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument()
+  })
+})
+
+describe('DashboardPage — Linear tile', () => {
+  const me = {
+    id: 'user-instructor-1',
+    email: 'mark@example.com',
+    display_name: 'Mark',
+    role: 'admin',
+    github_token_configured: true,
+    created_at: '2025-01-01T00:00:00Z',
+    updated_at: '2025-01-01T00:00:00Z',
+  }
+  const counts = (open: number) => ({ triage: 0, backlog: open, unstarted: 0, started: 0, completed: 3, canceled: 0 })
+  const linked = (repoId: string, teamId: string, open: number) => ({
+    repo_id: repoId, repo_name: repoId, collection_id: 'col-1',
+    team: { id: teamId, key: teamId.toUpperCase(), name: teamId }, matched_by: 'auto',
+    stats: { status_counts: counts(open), total_issues: open + 3, active_cycle: null, completed_per_week: [], members: [] },
+  })
+  const tileFor = async () => {
+    const metrics = screen.getByLabelText('Workspace metrics')
+    return (await within(metrics).findByText('open Linear issues')).closest('div[class*="rounded"]') as HTMLElement
+  }
+
+  it('totals the open issues of the linked teams, counting a shared team once', async () => {
+    setup([repo({ health_status: 'red' })])
+    server.use(
+      http.get('/api/v1/users/me', () => HttpResponse.json({ ...me, linear_api_key_configured: true })),
+      http.get('/api/v1/linear/repo-teams', () => HttpResponse.json({
+        // Two repos on team "a" (5 open) and one on team "b" (2 open): 7, not 12.
+        items: [linked('r1', 'a', 5), linked('r2', 'a', 5), linked('r3', 'b', 2)],
+        total: 3, limit: 500, offset: 0,
+      }))
+    )
+    renderPage()
+
+    const tile = await tileFor()
+    await within(tile).findByText('7')
+    expect(within(tile).getByText('across 2 teams')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Workspace metrics')).queryByText('need attention')).not.toBeInTheDocument()
+  })
+
+  it('says no teams are linked instead of claiming zero open issues', async () => {
+    setup([repo()])
+    server.use(
+      http.get('/api/v1/users/me', () => HttpResponse.json({ ...me, linear_api_key_configured: true })),
+      http.get('/api/v1/linear/repo-teams', () => HttpResponse.json({ items: [], total: 0, limit: 500, offset: 0 }))
+    )
+    renderPage()
+
+    const tile = await tileFor()
+    expect(await within(tile).findByText('no teams linked yet')).toBeInTheDocument()
+    expect(within(tile).getByText('—')).toBeInTheDocument()
+  })
+
+  it('points at Settings instead of a zero when Linear is not connected', async () => {
+    setup([repo()])
+    server.use(http.get('/api/v1/users/me', () => HttpResponse.json({ ...me, linear_api_key_configured: false })))
+    renderPage()
+
+    const tile = await tileFor()
+    expect(await within(tile).findByText('connect Linear in Settings')).toBeInTheDocument()
+    expect(within(tile).getByText('—')).toBeInTheDocument()
+  })
+
+  it('scopes the Linear box and tile to the selected collection', async () => {
+    const seen: (string | null)[] = []
+    setup([repo()])
+    server.use(
+      http.get('/api/v1/users/me', () => HttpResponse.json({ ...me, linear_api_key_configured: true })),
+      http.get('/api/v1/collections', () => HttpResponse.json({
+        items: [collection, { ...collection, id: 'col-2', name: 'Spring Studio' }], total: 2, limit: 50, offset: 0,
+      })),
+      http.get('/api/v1/linear/repo-teams', ({ request }) => {
+        seen.push(new URL(request.url).searchParams.get('collection_id'))
+        return HttpResponse.json({ items: [], total: 0, limit: 500, offset: 0 })
+      })
+    )
+    renderPage()
+    await tileFor()
+    await waitFor(() => expect(seen).toContain(null))
+
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Collection scope' }), 'col-2')
+    // One request per scope, shared by the box and the tile.
+    await waitFor(() => expect(seen).toEqual([null, 'col-2']))
   })
 })
 
@@ -363,16 +451,14 @@ describe('DashboardPage — interactive workspace', () => {
     expect(within(screen.getByLabelText('Workspace metrics')).getByText('repos · 1 collection')).toBeInTheDocument()
   })
 
-  it('uses health legend buttons to explore repositories with that status', async () => {
+  it('sends health legend clicks to Collections, now that the dashboard has no repo list', async () => {
     setup([repo({ id: 'good', name: 'healthy-team' }), repo({ id: 'bad', name: 'critical-team', health_status: 'red' })])
     renderPage()
-    const list = await screen.findByTestId('attention-list')
-    await within(list).findByText('critical-team')
-    await userEvent.click(screen.getByRole('button', { name: 'Show Healthy repositories' }))
-    expect(within(list).getByText('healthy-team')).toBeInTheDocument()
-    expect(within(list).queryByText('critical-team')).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Clear health filter' }))
-    expect(within(list).getByText('critical-team')).toBeInTheDocument()
+    const donut = await screen.findByLabelText('Health mix')
+    const healthy = await within(donut).findByRole('link', { name: 'Show Healthy repositories in Collections' })
+    expect(healthy).toHaveAttribute('href', '/collections')
+    expect(within(donut).getByRole('link', { name: 'Show Critical repositories in Collections' })).toHaveAttribute('href', '/collections')
+    expect(screen.queryByTestId('attention-list')).not.toBeInTheDocument()
   })
 
   it('shows an activity failure instead of a fabricated zero and can retry', async () => {
@@ -425,11 +511,12 @@ describe('DashboardPage — stays within one screen', () => {
     setup(Array.from({ length: 40 }, (_, i) => repo({ id: `r${i}`, health_status: 'red' })))
     renderPage()
 
-    const list = await screen.findByTestId('attention-list')
+    const list = await screen.findByTestId('notification-list')
     expect(list.className).toMatch(/overflow-(y-)?auto/)
     // Bounded by its flex parent rather than a hardcoded max-height, so the
     // list grows with the window. min-h-0 is what stops flex-1 from being
-    // overridden by the content's intrinsic height.
+    // overridden by the content's intrinsic height. The Linear box's list
+    // carries the same guard in LinearTeamsPanel.test.tsx.
     expect(list.className).toContain('min-h-0')
     expect(list.className).toContain('flex-1')
   })

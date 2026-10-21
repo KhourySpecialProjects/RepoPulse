@@ -724,6 +724,27 @@ export interface LinearTeamStats {
 }
 
 /**
+ * One row of the dashboard's Linear box: a repo and the team it shows — the
+ * same team its Repo Detail panel shows (picked, else matched by name).
+ */
+export interface RepoLinearTeam {
+  repo_id: string
+  repo_name: string
+  collection_id: string
+  team: LinearTeam
+  matched_by: 'manual' | 'auto'
+  stats: LinearTeamStats
+}
+
+/** GET /linear/repo-teams — only repos that have a team, sorted by repo name. */
+export interface RepoLinearTeamList {
+  items: RepoLinearTeam[]
+  total: number
+  limit: number
+  offset: number
+}
+
+/**
  * GET /repos/:id/linear. `not_configured`: the viewer has no Linear key.
  * `no_team`: no team linked or matched. A rejected key or a Linear outage is
  * an error response, not a status.

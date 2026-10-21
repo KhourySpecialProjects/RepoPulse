@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 from typing import Literal, Optional
 
@@ -77,3 +78,24 @@ class RepoLinearResponse(BaseModel):
     stats: Optional[LinearTeamStats] = None
     # Whether the viewer may change which team is linked (owner/co-instructor).
     can_change_team: bool = False
+
+
+class RepoLinearTeamSummary(BaseModel):
+    """One dashboard row: a repo and the Linear team it shows.
+
+    The team is decided exactly as on Repo Detail — the picked team, else a
+    name match (linear_service.resolve_team) — so the two can never disagree.
+    """
+    repo_id: uuid.UUID
+    repo_name: str
+    collection_id: uuid.UUID
+    team: LinearTeamRead
+    matched_by: Literal["manual", "auto"]
+    stats: LinearTeamStats
+
+
+class RepoLinearTeamList(BaseModel):
+    items: list[RepoLinearTeamSummary]
+    total: int
+    limit: int
+    offset: int
