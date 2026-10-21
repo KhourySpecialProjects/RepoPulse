@@ -20,7 +20,7 @@ import type {
   PRStats,
   RepoLinear,
   LinearTeamList,
-  LinearProjectList,
+  RepoLinearTeamList,
   PRListResponse,
   PRSyncResponse,
   LlmConfig,
@@ -1183,8 +1183,8 @@ export const handlers = [
     const body: LinearTeamList = { items: [], total: 0, limit: 100, offset: 0 }
     return HttpResponse.json(body)
   }),
-  http.get(`${BASE}/linear/projects`, () => {
-    const body: LinearProjectList = { items: [], total: 0, limit: 500, offset: 0 }
+  http.get(`${BASE}/linear/repo-teams`, () => {
+    const body: RepoLinearTeamList = { items: [], total: 0, limit: 500, offset: 0 }
     return HttpResponse.json(body)
   }),
 

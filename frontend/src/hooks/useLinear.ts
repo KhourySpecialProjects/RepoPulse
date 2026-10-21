@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
-import { getLinearProjects, getLinearTeams, getRepoLinear, patchRepo } from '@/services/api'
+import { getLinearRepoTeams, getLinearTeams, getRepoLinear, patchRepo } from '@/services/api'
 import type { ApiErrorBody } from '@/types'
 import { repoKeys } from '@/hooks/useRepos'
 
@@ -8,7 +8,8 @@ export const linearKeys = {
   all: ['linear'] as const,
   repo: (repoId: string) => ['linear', 'repo', repoId] as const,
   teams: ['linear', 'teams'] as const,
-  projects: ['linear', 'projects'] as const,
+  repoTeamsAll: ['linear', 'repo-teams'] as const,
+  repoTeams: (collectionId: string) => ['linear', 'repo-teams', collectionId] as const,
 }
 
 // Linear is read live on every panel load, so a short cache saves the two
@@ -44,15 +45,17 @@ export function useLinearTeams(enabled: boolean) {
 }
 
 /**
- * Every project in the viewer's Linear workspace. `enabled` should follow
- * `linear_api_key_configured`, so a user without a key never makes a call
- * that can only answer "not configured". The dashboard's box and its tile share
- * this query, so they cost one request between them.
+ * The dashboard's repos that have a Linear team, with each team's stats.
+ * `collectionId` is the dashboard's picker ('' for all collections).
+ *
+ * `enabled` should follow `linear_api_key_configured`, so a user without a key
+ * never makes a call that can only answer "not configured". The dashboard's
+ * box and its tile share this query, so they cost one request between them.
  */
-export function useLinearProjects(enabled: boolean) {
+export function useLinearRepoTeams(collectionId: string, enabled: boolean) {
   return useQuery({
-    queryKey: linearKeys.projects,
-    queryFn: getLinearProjects,
+    queryKey: linearKeys.repoTeams(collectionId),
+    queryFn: () => getLinearRepoTeams(collectionId),
     enabled,
     staleTime: LINEAR_STALE_MS,
     retry: false,
@@ -66,6 +69,8 @@ export function useLinkLinearTeam(repoId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: linearKeys.repo(repoId) })
       queryClient.invalidateQueries({ queryKey: repoKeys.detail(repoId) })
+      // The dashboard's box lists this repo under whichever team it now shows.
+      queryClient.invalidateQueries({ queryKey: linearKeys.repoTeamsAll })
     },
   })
 }

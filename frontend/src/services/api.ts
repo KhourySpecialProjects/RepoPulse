@@ -35,9 +35,9 @@ import type {
   PRListResponse,
   PRStats,
   PRSyncResponse,
-  LinearProjectList,
   LinearTeamList,
   RepoLinear,
+  RepoLinearTeamList,
   RepoUpdateData,
   PaginatedResponse,
   PatchMeData,
@@ -565,9 +565,11 @@ export async function getLinearTeams(): Promise<LinearTeamList> {
   return response.data
 }
 
-export async function getLinearProjects(): Promise<LinearProjectList> {
-  // The server's cap, so the dashboard sees every project in one call.
-  const response = await apiClient.get<LinearProjectList>('/linear/projects', { params: { limit: 500 } })
+export async function getLinearRepoTeams(collectionId: string): Promise<RepoLinearTeamList> {
+  // The server's cap, so the dashboard gets every linked repo in one call.
+  const response = await apiClient.get<RepoLinearTeamList>('/linear/repo-teams', {
+    params: { limit: 500, ...(collectionId ? { collection_id: collectionId } : {}) },
+  })
   return response.data
 }
 

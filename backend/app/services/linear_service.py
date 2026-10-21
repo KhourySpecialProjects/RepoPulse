@@ -4,14 +4,18 @@ Read live, per viewer: every call uses the signed-in user's own Linear key
 (`users.linear_api_key`), and nothing fetched here is stored. The only Linear
 state RepoPulse keeps is `repos.linear_team_id`, the team someone picked.
 
-Which team belongs to a repo is decided by `build_repo_linear`: the picked team
-if there is one, otherwise `match_team`'s guess from the repo name.
+Which team belongs to a repo is decided by `resolve_team` alone: the picked team
+if there is one, otherwise `match_team`'s guess from the repo name. Repo Detail
+(`build_repo_linear`) and the dashboard (`build_repo_team_summaries`) both go
+through it, so they cannot disagree about a repo's team.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from typing import Literal
 
 import httpx
 
@@ -19,12 +23,12 @@ from app.models.repo import Repo
 from app.schemas.linear import (
     LinearCycleProgress,
     LinearMemberStats,
-    LinearProjectRead,
     LinearStatusCounts,
     LinearTeamRead,
     LinearTeamStats,
     LinearWeeklyCompletion,
     RepoLinearResponse,
+    RepoLinearTeamSummary,
 )
 
 API_URL = "https://api.linear.app/graphql"
@@ -229,63 +233,6 @@ query TeamIssues($teamId: String!, $first: Int!, $after: String) {
 }
 """
 
-PROJECTS_QUERY = """
-query Projects($first: Int!, $after: String) {
-  projects(first: $first, after: $after) {
-    nodes {
-      id name url progress startDate targetDate
-      status { name type }
-      lead { name }
-      teams { nodes { key } }
-    }
-    pageInfo { hasNextPage endCursor }
-  }
-}
-"""
-
-# 5 × 100 = 500 projects, far past any course's workspace, bounds one call.
-PROJECT_PAGE_SIZE = 100
-MAX_PROJECT_PAGES = 5
-
-# Work in flight first, finished work last. Keys are Linear's fixed project
-# status types; a type Linear adds later sorts with backlog rather than failing.
-_PROJECT_STATUS_ORDER = {
-    "started": 0,
-    "planned": 1,
-    "paused": 2,
-    "backlog": 3,
-    "completed": 4,
-    "canceled": 5,
-}
-
-
-def _parse_project(node: dict) -> LinearProjectRead:
-    status = node.get("status") or {}
-    return LinearProjectRead(
-        id=node["id"],
-        name=node["name"],
-        url=node.get("url") or "",
-        status_name=status.get("name") or "",
-        status_type=status.get("type") or "",
-        progress=float(node.get("progress") or 0.0),
-        # TimelessDate: a bare YYYY-MM-DD with no time zone to convert.
-        start_date=date.fromisoformat(node["startDate"]) if node.get("startDate") else None,
-        target_date=date.fromisoformat(node["targetDate"]) if node.get("targetDate") else None,
-        lead_name=(node.get("lead") or {}).get("name"),
-        team_keys=[t["key"] for t in (node.get("teams") or {}).get("nodes", [])],
-    )
-
-
-def _project_sort_key(project: LinearProjectRead) -> tuple:
-    return (
-        _PROJECT_STATUS_ORDER.get(project.status_type, _PROJECT_STATUS_ORDER["backlog"]),
-        # Dated before undated, soonest first.
-        project.target_date is None,
-        project.target_date or date.max,
-        project.name.lower(),
-    )
-
-
 def _is_auth_error(errors: list | None) -> bool:
     for error in errors or []:
         extensions = (error or {}).get("extensions") or {}
@@ -365,38 +312,38 @@ class LinearService:
             issues, active_cycle, now=now or datetime.now(timezone.utc)
         )
 
-    async def list_projects(self) -> list[LinearProjectRead]:
-        """Every project the key can see, active work first. See _project_sort_key."""
-        projects: list[LinearProjectRead] = []
-        after: str | None = None
-
-        for _ in range(MAX_PROJECT_PAGES):
-            data = await self._query(
-                PROJECTS_QUERY, {"first": PROJECT_PAGE_SIZE, "after": after}
-            )
-            page = data.get("projects") or {}
-            projects.extend(_parse_project(node) for node in page.get("nodes", []))
-            page_info = page.get("pageInfo") or {}
-            if not page_info.get("hasNextPage"):
-                break
-            after = page_info.get("endCursor")
-
-        return sorted(projects, key=_project_sort_key)
-
 
 # ---------------------------------------------------------------------------
-# The Repo Detail panel
+# Which team a repo shows — Repo Detail and the dashboard
 # ---------------------------------------------------------------------------
+
+# Teams' stats are fetched concurrently for the dashboard, a few at a time, so
+# a collection of many teams neither serializes into a slow page nor fires a
+# burst Linear would rate-limit.
+MAX_CONCURRENT_TEAM_FETCHES = 4
+
+
+def resolve_team(
+    repo: Repo, teams: list[LinearTeam]
+) -> tuple[LinearTeam | None, Literal["manual", "auto"] | None]:
+    """The team a repo shows, and how it was chosen. The one rule for this.
+
+    The picked team (`repos.linear_team_id`) if there is one, else `match_team`
+    on the repo name. A picked team the viewer's key cannot see (linked by
+    someone in a different workspace) resolves to no team rather than falling
+    back to a name match, which would show a different team than the one
+    chosen — so it returns (None, "manual").
+    """
+    if repo.linear_team_id:
+        return next((t for t in teams if t.id == repo.linear_team_id), None), "manual"
+    team = match_team(repo.name, teams)
+    return (team, "auto") if team else (None, None)
 
 
 async def build_repo_linear(
     repo: Repo, api_key: str | None, *, can_change_team: bool
 ) -> RepoLinearResponse:
-    """Resolve the repo's team with the viewer's key and fetch its stats.
-
-    A picked team that the viewer's key cannot see (linked by someone in a
-    different workspace) reports `no_team` rather than falling back to a name
-    match, which would show a different team than the one chosen.
+    """The Repo Detail panel: the repo's team, read with the viewer's key.
 
     Raises LinearAuthError / LinearAPIError; the route turns them into errors.
     """
@@ -404,27 +351,63 @@ async def build_repo_linear(
         return RepoLinearResponse(status="not_configured", can_change_team=can_change_team)
 
     client = LinearService(api_key)
-    teams = await client.list_teams()
-
-    if repo.linear_team_id:
-        matched_by = "manual"
-        team = next((t for t in teams if t.id == repo.linear_team_id), None)
-    else:
-        matched_by = "auto"
-        team = match_team(repo.name, teams)
-
+    team, matched_by = resolve_team(repo, await client.list_teams())
     if team is None:
         return RepoLinearResponse(
-            status="no_team",
-            matched_by="manual" if repo.linear_team_id else None,
-            can_change_team=can_change_team,
+            status="no_team", matched_by=matched_by, can_change_team=can_change_team
         )
 
-    stats = await client.fetch_team_stats(team.id)
     return RepoLinearResponse(
         status="ok",
         team=team.to_read(),
         matched_by=matched_by,
-        stats=stats,
+        stats=await client.fetch_team_stats(team.id),
         can_change_team=can_change_team,
+    )
+
+
+async def build_repo_team_summaries(
+    repos: list[Repo], api_key: str
+) -> list[RepoLinearTeamSummary]:
+    """The dashboard's Linear box: every repo that shows a team, with its stats.
+
+    Repos with no team are left out. Each team's stats are fetched once however
+    many repos share it, and nothing is called at all for an empty repo list.
+
+    Raises LinearAuthError / LinearAPIError; the route turns them into errors.
+    """
+    if not repos:
+        return []
+
+    client = LinearService(api_key)
+    teams = await client.list_teams()
+    linked = [
+        (repo, team, matched_by)
+        for repo in repos
+        for team, matched_by in [resolve_team(repo, teams)]
+        if team is not None
+    ]
+
+    limit = asyncio.Semaphore(MAX_CONCURRENT_TEAM_FETCHES)
+
+    async def fetch(team_id: str) -> tuple[str, LinearTeamStats]:
+        async with limit:
+            return team_id, await client.fetch_team_stats(team_id)
+
+    team_ids = {team.id for _, team, _ in linked}
+    stats = dict(await asyncio.gather(*(fetch(team_id) for team_id in team_ids)))
+
+    return sorted(
+        (
+            RepoLinearTeamSummary(
+                repo_id=repo.id,
+                repo_name=repo.name,
+                collection_id=repo.collection_id,
+                team=team.to_read(),
+                matched_by=matched_by,
+                stats=stats[team.id],
+            )
+            for repo, team, matched_by in linked
+        ),
+        key=lambda summary: summary.repo_name.lower(),
     )

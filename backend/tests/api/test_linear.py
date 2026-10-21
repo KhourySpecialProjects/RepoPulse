@@ -19,7 +19,6 @@ from app.models.collection import Collection
 from app.models.collection_access import CollectionAccess, CollectionRole
 from app.models.repo import Repo
 from app.models.user import User
-from app.schemas.linear import LinearProjectRead
 from app.services.linear_service import (
     LinearAPIError,
     LinearAuthError,
@@ -427,79 +426,182 @@ class TestRepoLinear:
 
 
 # ---------------------------------------------------------------------------
-# GET /linear/projects
+# GET /linear/repo-teams — the dashboard's Linear box
 # ---------------------------------------------------------------------------
 
 
-def _project(name: str, status_type: str = "started") -> LinearProjectRead:
-    return LinearProjectRead(
-        id=f"p-{name.lower()}",
+async def _add_repo(db: AsyncSession, collection_id: uuid.UUID, name: str, **over) -> Repo:
+    r = Repo(
+        id=uuid.uuid4(),
+        collection_id=collection_id,
+        github_url=f"https://github.com/org/{name}",
         name=name,
-        url=f"https://linear.app/acme/project/{name.lower()}",
-        status_name=status_type.title(),
-        status_type=status_type,
-        progress=0.5,
-        start_date=None,
-        target_date=None,
-        lead_name="Alice",
-        team_keys=["FAL"],
+        **over,
     )
+    db.add(r)
+    await db.flush()
+    return r
 
 
-class TestListLinearProjects:
-    async def test_without_a_key_is_a_400(self, test_client: AsyncClient, test_user: User):
-        resp = await test_client.get("/api/v1/linear/projects", headers=_headers(test_user))
+async def _add_collection(db: AsyncSession, owner: User, **over) -> Collection:
+    col = Collection(
+        id=uuid.uuid4(),
+        name=over.pop("name", "Other Collection"),
+        local_folder_name=f"col-{uuid.uuid4().hex[:8]}",
+        owner_id=owner.id,
+        **over,
+    )
+    db.add(col)
+    await db.flush()
+    return col
+
+
+class TestLinearRepoTeams:
+    URL = "/api/v1/linear/repo-teams"
+
+    async def test_without_a_key_is_a_400(self, test_client: AsyncClient, test_user: User, repo: Repo):
+        resp = await test_client.get(self.URL, headers=_headers(test_user))
         assert resp.status_code == 400
         assert resp.json()["error_code"] == "linear_not_configured"
 
-    async def test_lists_projects_in_envelope(self, test_client: AsyncClient, linear_user: User):
-        projects = [_project("Launch"), _project("Docs", "planned")]
-        with patch.object(LinearService, "list_projects", AsyncMock(return_value=projects)):
-            resp = await test_client.get(
-                "/api/v1/linear/projects", headers=_headers(linear_user)
-            )
+    async def test_lists_only_repos_that_have_a_team(
+        self,
+        test_client: AsyncClient,
+        linear_user: User,
+        repo: Repo,
+        collection: Collection,
+        db_session: AsyncSession,
+    ):
+        await _add_repo(db_session, collection.id, "unrelated")
+        p_teams, p_stats, _, _ = _mock_linear(teams=[HAWK, FALCON])
+        with p_teams, p_stats:
+            resp = await test_client.get(self.URL, headers=_headers(linear_user))
+
         assert resp.status_code == 200
         data = resp.json()
-        # The service's order is kept: it is the one that knows what matters.
-        assert [p["name"] for p in data["items"]] == ["Launch", "Docs"]
-        assert data["items"][0]["status_type"] == "started"
-        assert data["items"][0]["team_keys"] == ["FAL"]
-        assert data["total"] == 2
-        assert data["offset"] == 0
+        assert data["total"] == 1
+        [item] = data["items"]
+        assert item["repo_id"] == str(repo.id)
+        assert item["repo_name"] == "team-falcon"
+        assert item["collection_id"] == str(collection.id)
+        assert item["team"] == {"id": "t-falcon", "key": "FAL", "name": "Falcon"}
+        assert item["matched_by"] == "auto"
+        assert item["stats"]["total_issues"] == 2
 
-    async def test_limit_and_offset_page_the_list(
+    async def test_a_picked_team_is_used(
+        self, test_client: AsyncClient, linear_user: User, repo: Repo, db_session: AsyncSession
+    ):
+        repo.linear_team_id = "t-hawk"
+        await db_session.flush()
+        p_teams, p_stats, _, _ = _mock_linear(teams=[HAWK, FALCON])
+        with p_teams, p_stats:
+            resp = await test_client.get(self.URL, headers=_headers(linear_user))
+
+        [item] = resp.json()["items"]
+        assert item["team"]["id"] == "t-hawk"
+        assert item["matched_by"] == "manual"
+
+    async def test_repos_sharing_a_team_fetch_its_stats_once(
+        self,
+        test_client: AsyncClient,
+        linear_user: User,
+        repo: Repo,
+        collection: Collection,
+        db_session: AsyncSession,
+    ):
+        await _add_repo(db_session, collection.id, "falcon-web")
+        p_teams, p_stats, _, fetch_stats = _mock_linear(teams=[FALCON])
+        with p_teams, p_stats:
+            resp = await test_client.get(self.URL, headers=_headers(linear_user))
+
+        # Sorted by repo name, both on the one team.
+        assert [i["repo_name"] for i in resp.json()["items"]] == ["falcon-web", "team-falcon"]
+        fetch_stats.assert_awaited_once_with("t-falcon")
+
+    async def test_collection_id_narrows_to_one_collection(
+        self,
+        test_client: AsyncClient,
+        linear_user: User,
+        repo: Repo,
+        db_session: AsyncSession,
+    ):
+        other = await _add_collection(db_session, linear_user)
+        await _add_repo(db_session, other.id, "hawk-app")
+        p_teams, p_stats, _, _ = _mock_linear(teams=[FALCON, HAWK])
+        with p_teams, p_stats:
+            everything = await test_client.get(self.URL, headers=_headers(linear_user))
+            scoped = await test_client.get(
+                self.URL, params={"collection_id": str(repo.collection_id)}, headers=_headers(linear_user)
+            )
+
+        assert sorted(i["repo_name"] for i in everything.json()["items"]) == ["hawk-app", "team-falcon"]
+        assert [i["repo_name"] for i in scoped.json()["items"]] == ["team-falcon"]
+
+    async def test_collections_the_viewer_cannot_see_are_left_out(
+        self,
+        test_client: AsyncClient,
+        linear_user: User,
+        repo: Repo,
+        outsider: User,
+        db_session: AsyncSession,
+    ):
+        theirs = await _add_collection(db_session, outsider)
+        await _add_repo(db_session, theirs.id, "hawk-app")
+        p_teams, p_stats, _, _ = _mock_linear(teams=[FALCON, HAWK])
+        with p_teams, p_stats:
+            resp = await test_client.get(self.URL, headers=_headers(linear_user))
+            asked = await test_client.get(
+                self.URL, params={"collection_id": str(theirs.id)}, headers=_headers(linear_user)
+            )
+
+        assert [i["repo_name"] for i in resp.json()["items"]] == ["team-falcon"]
+        assert asked.status_code == 404
+
+    async def test_archived_collections_are_left_out(
+        self,
+        test_client: AsyncClient,
+        linear_user: User,
+        repo: Repo,
+        db_session: AsyncSession,
+    ):
+        # The dashboard lists non-archived collections, so this box does too.
+        archived = await _add_collection(db_session, linear_user, is_archived=True)
+        await _add_repo(db_session, archived.id, "hawk-app")
+        p_teams, p_stats, _, _ = _mock_linear(teams=[FALCON, HAWK])
+        with p_teams, p_stats:
+            resp = await test_client.get(self.URL, headers=_headers(linear_user))
+
+        assert [i["repo_name"] for i in resp.json()["items"]] == ["team-falcon"]
+
+    async def test_no_repos_means_no_call_to_linear(
         self, test_client: AsyncClient, linear_user: User
     ):
-        projects = [_project(f"P{i}") for i in range(5)]
-        with patch.object(LinearService, "list_projects", AsyncMock(return_value=projects)):
-            resp = await test_client.get(
-                "/api/v1/linear/projects?limit=2&offset=2", headers=_headers(linear_user)
-            )
-        data = resp.json()
-        assert [p["name"] for p in data["items"]] == ["P2", "P3"]
-        assert data["total"] == 5
-        assert data["limit"] == 2
+        p_teams, p_stats, list_teams, _ = _mock_linear(teams=[FALCON])
+        with p_teams, p_stats:
+            resp = await test_client.get(self.URL, headers=_headers(linear_user))
 
-    async def test_rejected_key_is_reported(self, test_client: AsyncClient, linear_user: User):
-        with patch.object(
-            LinearService, "list_projects", AsyncMock(side_effect=LinearAuthError("bad"))
-        ):
-            resp = await test_client.get(
-                "/api/v1/linear/projects", headers=_headers(linear_user)
-            )
+        assert resp.status_code == 200
+        assert resp.json()["items"] == []
+        list_teams.assert_not_awaited()
+
+    async def test_rejected_key_is_reported(
+        self, test_client: AsyncClient, linear_user: User, repo: Repo
+    ):
+        p_teams, p_stats, _, _ = _mock_linear(teams_error=LinearAuthError("bad key"))
+        with p_teams, p_stats:
+            resp = await test_client.get(self.URL, headers=_headers(linear_user))
         assert resp.status_code == 400
         assert resp.json()["error_code"] == "linear_key_invalid"
 
-    async def test_linear_outage_is_a_502(self, test_client: AsyncClient, linear_user: User):
-        with patch.object(
-            LinearService, "list_projects", AsyncMock(side_effect=LinearAPIError("down"))
-        ):
-            resp = await test_client.get(
-                "/api/v1/linear/projects", headers=_headers(linear_user)
-            )
+    async def test_linear_outage_is_a_502(
+        self, test_client: AsyncClient, linear_user: User, repo: Repo
+    ):
+        p_teams, p_stats, _, _ = _mock_linear(teams=[FALCON], stats_error=LinearAPIError("down"))
+        with p_teams, p_stats:
+            resp = await test_client.get(self.URL, headers=_headers(linear_user))
         assert resp.status_code == 502
         assert resp.json()["error_code"] == "linear_unavailable"
 
     async def test_requires_auth(self, test_client: AsyncClient):
-        resp = await test_client.get("/api/v1/linear/projects")
+        resp = await test_client.get(self.URL)
         assert resp.status_code == 401

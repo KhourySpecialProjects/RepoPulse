@@ -723,26 +723,22 @@ export interface LinearTeamStats {
   members: LinearMemberStats[]
 }
 
-/** A Linear *Project* (the planning object), from GET /linear/projects. */
-export interface LinearProject {
-  id: string
-  name: string
-  url: string
-  status_name: string
-  /** backlog | planned | started | paused | completed | canceled */
-  status_type: string
-  /** 0–1, Linear's own figure. */
-  progress: number
-  /** YYYY-MM-DD, no time zone. */
-  start_date: string | null
-  target_date: string | null
-  lead_name: string | null
-  team_keys: string[]
+/**
+ * One row of the dashboard's Linear box: a repo and the team it shows — the
+ * same team its Repo Detail panel shows (picked, else matched by name).
+ */
+export interface RepoLinearTeam {
+  repo_id: string
+  repo_name: string
+  collection_id: string
+  team: LinearTeam
+  matched_by: 'manual' | 'auto'
+  stats: LinearTeamStats
 }
 
-/** Ordered by the server: in-progress work first, finished last. */
-export interface LinearProjectList {
-  items: LinearProject[]
+/** GET /linear/repo-teams — only repos that have a team, sorted by repo name. */
+export interface RepoLinearTeamList {
+  items: RepoLinearTeam[]
   total: number
   limit: number
   offset: number

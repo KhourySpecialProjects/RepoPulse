@@ -10,9 +10,10 @@ import { HealthSignalRadar } from '@/components/dashboard/HealthSignalRadar'
 import { StalenessChart } from '@/components/dashboard/StalenessChart'
 import { WorkspaceInsights } from '@/components/dashboard/WorkspaceInsights'
 import { DashboardSearch } from '@/components/dashboard/DashboardSearch'
-import { LinearProjectsPanel } from '@/components/dashboard/LinearProjectsPanel'
+import { LinearTeamsPanel } from '@/components/dashboard/LinearTeamsPanel'
 import { useDashboard } from '@/hooks/useDashboard'
-import { useLinearProjects } from '@/hooks/useLinear'
+import { useLinearRepoTeams } from '@/hooks/useLinear'
+import { openIssueCount } from '@/lib/linear'
 import { useCurrentUser } from '@/hooks/useUsers'
 import { useWorkspacePeople } from '@/hooks/useWorkspacePeople'
 import { useMarkNotificationRead, useNotifications } from '@/hooks/useNotifications'
@@ -120,11 +121,15 @@ export function DashboardPage() {
   const peopleQuery = useWorkspacePeople(selected.map(collection => collection.id), peopleWanted)
   const wantPeople = useCallback(() => setPeopleWanted(true), [])
 
-  // Shares its query with LinearProjectsPanel, so the tile costs no request.
+  // Shares its query with LinearTeamsPanel, so the tile costs no request.
   const { data: me } = useCurrentUser()
   const linearConfigured = Boolean(me?.linear_api_key_configured)
-  const linearProjects = useLinearProjects(linearConfigured)
-  const activeLinearProjects = (linearProjects.data?.items ?? []).filter(project => project.status_type === 'started').length
+  const linearRepoTeams = useLinearRepoTeams(collectionId, linearConfigured)
+  const linearTeams = useMemo(() => {
+    // Per team, not per repo: two repos on one team are one team's issues.
+    const byTeam = new Map((linearRepoTeams.data?.items ?? []).map(item => [item.team.id, item.stats.status_counts]))
+    return { count: byTeam.size, open: [...byTeam.values()].reduce((sum, counts) => sum + openIssueCount(counts), 0) }
+  }, [linearRepoTeams.data])
 
   const reminders = repos.filter(repo => repo.active_reminder_count > 0).sort((a, b) => b.active_reminder_count - a.active_reminder_count)
 
@@ -206,20 +211,21 @@ export function DashboardPage() {
             sparkline={activityQuery.isError ? undefined : sparkline}
             loading={loading || activityQuery.isPending}
           />
-          {/* Workspace-wide like the Linear box, so the collection picker does
-              not scope it. "—" rather than 0 when the number is unknown. */}
+          {/* The Linear box's teams, totalled. "—" rather than 0 when there is
+              nothing to count, so "no teams linked" never reads as "no work". */}
           <MetricTile
-            label="active Linear projects"
-            value={linearConfigured && linearProjects.data ? activeLinearProjects : '—'}
+            label="open Linear issues"
+            value={linearConfigured && linearTeams.count > 0 ? linearTeams.open : '—'}
             detail={
               !me ? undefined
                 : !linearConfigured ? 'connect Linear in Settings'
-                : linearProjects.data ? `of ${linearProjects.data.total} project${linearProjects.data.total === 1 ? '' : 's'}`
-                : undefined
+                : !linearRepoTeams.data ? undefined
+                : linearTeams.count === 0 ? 'no teams linked yet'
+                : `across ${linearTeams.count} team${linearTeams.count === 1 ? '' : 's'}`
             }
             icon={ListChecks}
             accent="brand"
-            loading={!me || (linearConfigured && linearProjects.isPending)}
+            loading={!me || (linearConfigured && linearRepoTeams.isPending)}
           />
           <MetricTile
             label="active reminders"
@@ -253,7 +259,7 @@ export function DashboardPage() {
           {/* Was "Needs attention". With nothing to report there is no
               insights card, so this box widens rather than leaving a hole in
               the row. */}
-          <LinearProjectsPanel className={cn(insights.length === 0 && 'xl:col-span-2')} />
+          <LinearTeamsPanel collectionId={collectionId} className={cn(insights.length === 0 && 'xl:col-span-2')} />
 
           {/* Was "Follow-ups" — a list of repos that merely *had* reminders.
               Now the unread notification feed itself, so the panel shows what

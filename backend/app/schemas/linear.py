@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 from typing import Literal, Optional
 
@@ -79,25 +80,22 @@ class RepoLinearResponse(BaseModel):
     can_change_team: bool = False
 
 
-class LinearProjectRead(BaseModel):
-    """A Linear *Project* — the planning object, not a team."""
-    id: str
-    name: str
-    url: str
-    status_name: str
-    # backlog | planned | started | paused | completed | canceled — the fixed
-    # set every workspace's custom project statuses map onto.
-    status_type: str
-    # Linear's own completion figure, 0.0–1.0.
-    progress: float
-    start_date: Optional[date] = None
-    target_date: Optional[date] = None
-    lead_name: Optional[str] = None
-    team_keys: list[str] = []
+class RepoLinearTeamSummary(BaseModel):
+    """One dashboard row: a repo and the Linear team it shows.
+
+    The team is decided exactly as on Repo Detail — the picked team, else a
+    name match (linear_service.resolve_team) — so the two can never disagree.
+    """
+    repo_id: uuid.UUID
+    repo_name: str
+    collection_id: uuid.UUID
+    team: LinearTeamRead
+    matched_by: Literal["manual", "auto"]
+    stats: LinearTeamStats
 
 
-class LinearProjectList(BaseModel):
-    items: list[LinearProjectRead]
+class RepoLinearTeamList(BaseModel):
+    items: list[RepoLinearTeamSummary]
     total: int
     limit: int
     offset: int

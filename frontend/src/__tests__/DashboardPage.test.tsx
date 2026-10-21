@@ -325,11 +325,11 @@ describe('DashboardPage — toolbar layout', () => {
 })
 
 describe('DashboardPage — working lists survive', () => {
-  it('puts the Linear projects box alongside the notification feed', async () => {
+  it('puts the Linear box alongside the notification feed', async () => {
     setup([repo({ health_status: 'red', active_reminder_count: 2 })])
     renderPage()
 
-    expect(await screen.findByRole('heading', { name: 'Linear projects' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Linear teams' })).toBeInTheDocument()
     // The Needs attention list was replaced by the Linear box; red and yellow
     // repos are still the donut's slices and the repository map's tiles.
     expect(screen.queryByText('Needs attention')).not.toBeInTheDocument()
@@ -351,27 +351,46 @@ describe('DashboardPage — Linear tile', () => {
     created_at: '2025-01-01T00:00:00Z',
     updated_at: '2025-01-01T00:00:00Z',
   }
-  const linearProject = (id: string, status_type: string) => ({
-    id, name: id, url: `https://linear.app/acme/project/${id}`, status_name: status_type, status_type,
-    progress: 0.5, start_date: null, target_date: null, lead_name: null, team_keys: [],
+  const counts = (open: number) => ({ triage: 0, backlog: open, unstarted: 0, started: 0, completed: 3, canceled: 0 })
+  const linked = (repoId: string, teamId: string, open: number) => ({
+    repo_id: repoId, repo_name: repoId, collection_id: 'col-1',
+    team: { id: teamId, key: teamId.toUpperCase(), name: teamId }, matched_by: 'auto',
+    stats: { status_counts: counts(open), total_issues: open + 3, active_cycle: null, completed_per_week: [], members: [] },
   })
+  const tileFor = async () => {
+    const metrics = screen.getByLabelText('Workspace metrics')
+    return (await within(metrics).findByText('open Linear issues')).closest('div[class*="rounded"]') as HTMLElement
+  }
 
-  it('counts the Linear projects in progress where the attention count was', async () => {
+  it('totals the open issues of the linked teams, counting a shared team once', async () => {
     setup([repo({ health_status: 'red' })])
     server.use(
       http.get('/api/v1/users/me', () => HttpResponse.json({ ...me, linear_api_key_configured: true })),
-      http.get('/api/v1/linear/projects', () => HttpResponse.json({
-        items: [linearProject('a', 'started'), linearProject('b', 'started'), linearProject('c', 'planned')],
+      http.get('/api/v1/linear/repo-teams', () => HttpResponse.json({
+        // Two repos on team "a" (5 open) and one on team "b" (2 open): 7, not 12.
+        items: [linked('r1', 'a', 5), linked('r2', 'a', 5), linked('r3', 'b', 2)],
         total: 3, limit: 500, offset: 0,
       }))
     )
     renderPage()
 
-    const metrics = screen.getByLabelText('Workspace metrics')
-    const tile = (await within(metrics).findByText('active Linear projects')).closest('div[class*="rounded"]') as HTMLElement
-    await within(tile).findByText('2')
-    expect(within(tile).getByText('of 3 projects')).toBeInTheDocument()
-    expect(within(metrics).queryByText('need attention')).not.toBeInTheDocument()
+    const tile = await tileFor()
+    await within(tile).findByText('7')
+    expect(within(tile).getByText('across 2 teams')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Workspace metrics')).queryByText('need attention')).not.toBeInTheDocument()
+  })
+
+  it('says no teams are linked instead of claiming zero open issues', async () => {
+    setup([repo()])
+    server.use(
+      http.get('/api/v1/users/me', () => HttpResponse.json({ ...me, linear_api_key_configured: true })),
+      http.get('/api/v1/linear/repo-teams', () => HttpResponse.json({ items: [], total: 0, limit: 500, offset: 0 }))
+    )
+    renderPage()
+
+    const tile = await tileFor()
+    expect(await within(tile).findByText('no teams linked yet')).toBeInTheDocument()
+    expect(within(tile).getByText('—')).toBeInTheDocument()
   })
 
   it('points at Settings instead of a zero when Linear is not connected', async () => {
@@ -379,10 +398,31 @@ describe('DashboardPage — Linear tile', () => {
     server.use(http.get('/api/v1/users/me', () => HttpResponse.json({ ...me, linear_api_key_configured: false })))
     renderPage()
 
-    const metrics = screen.getByLabelText('Workspace metrics')
-    const tile = (await within(metrics).findByText('active Linear projects')).closest('div[class*="rounded"]') as HTMLElement
+    const tile = await tileFor()
     expect(await within(tile).findByText('connect Linear in Settings')).toBeInTheDocument()
     expect(within(tile).getByText('—')).toBeInTheDocument()
+  })
+
+  it('scopes the Linear box and tile to the selected collection', async () => {
+    const seen: (string | null)[] = []
+    setup([repo()])
+    server.use(
+      http.get('/api/v1/users/me', () => HttpResponse.json({ ...me, linear_api_key_configured: true })),
+      http.get('/api/v1/collections', () => HttpResponse.json({
+        items: [collection, { ...collection, id: 'col-2', name: 'Spring Studio' }], total: 2, limit: 50, offset: 0,
+      })),
+      http.get('/api/v1/linear/repo-teams', ({ request }) => {
+        seen.push(new URL(request.url).searchParams.get('collection_id'))
+        return HttpResponse.json({ items: [], total: 0, limit: 500, offset: 0 })
+      })
+    )
+    renderPage()
+    await tileFor()
+    await waitFor(() => expect(seen).toContain(null))
+
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Collection scope' }), 'col-2')
+    // One request per scope, shared by the box and the tile.
+    await waitFor(() => expect(seen).toEqual([null, 'col-2']))
   })
 })
 
@@ -475,8 +515,8 @@ describe('DashboardPage — stays within one screen', () => {
     expect(list.className).toMatch(/overflow-(y-)?auto/)
     // Bounded by its flex parent rather than a hardcoded max-height, so the
     // list grows with the window. min-h-0 is what stops flex-1 from being
-    // overridden by the content's intrinsic height. The Linear projects list
-    // carries the same guard in LinearProjectsPanel.test.tsx.
+    // overridden by the content's intrinsic height. The Linear box's list
+    // carries the same guard in LinearTeamsPanel.test.tsx.
     expect(list.className).toContain('min-h-0')
     expect(list.className).toContain('flex-1')
   })
