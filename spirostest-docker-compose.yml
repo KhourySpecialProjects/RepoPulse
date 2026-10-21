@@ -14,6 +14,12 @@ services:
       # `npm run dev` here too, so import.meta.env.DEV is true in this
       # environment as well.
       - VITE_PHOENIX_URL=https://phoenix.repopulse.cs4535.cloud/projects?timeRangeKey=7d
+      # Where the dev server forwards /api; unset, the `backend` service. A
+      # Coolify preview renames its services (backend-pr-<n>) but shares this
+      # deployment's network, where `backend` is the main deployment's backend
+      # — so in Coolify's *preview* environment variables set
+      # API_PROXY_TARGET=http://backend-pr-<n>:8000. See frontend/src/lib/apiProxyTarget.ts.
+      - API_PROXY_TARGET=${API_PROXY_TARGET:-http://backend:8000}
     depends_on:
       - backend
     networks:
