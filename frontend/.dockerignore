@@ -7,8 +7,6 @@ dist/
 *.tsbuildinfo
 
 # Tests — not needed in the image
-src/__tests__/
-src/mocks/
 coverage/
 
 # Environment files — injected at runtime via Docker Compose
