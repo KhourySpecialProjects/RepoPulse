@@ -190,7 +190,8 @@ Every feature is built test-first. The workflow is always:
 
 ### Docker & Local Dev
 - `docker compose up` starts four services: frontend, backend, db, and phoenix.
-- Frontend: Vite dev server with hot reload on port 5173, proxying `/api` to the backend.
+- Frontend: Vite dev server with hot reload on port 5173, proxying `/api` to the backend. `docker-compose.yml` builds the `dev` stage of `frontend/Dockerfile`.
+- Deployment (`spirostest-docker-compose.yml`) builds the Dockerfile's default target: `vite build` served by nginx on port 80. `frontend/nginx.conf` proxies `/api/` to `backend:8000` in place of the Vite proxy. `VITE_*` variables are inlined at build time, so they are build `args`, not `environment`.
 - Backend: Uvicorn with `--reload` on port 8000.
 - Database: `postgres:16-alpine` on port 5432 with a named volume for persistence. `db/init/` runs only on a fresh volume.
 - Phoenix: `arizephoenix/phoenix` on port 6006, receiving OTLP traces of LLM calls. Tracing initializes only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
