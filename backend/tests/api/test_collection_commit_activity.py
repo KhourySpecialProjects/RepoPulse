@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -13,40 +13,26 @@ from app.models.collection import Collection
 from app.models.repo import Repo
 
 
-FAKE_COMMITS = [
-    {
-        "hash": "abc001",
-        "author_name": "Alice",
-        "author_email": "alice@example.com",
-        "date": "2025-01-01T10:00:00",
-        "message": "First commit",
-        "branch": "main",
+def _parsed(sha: str, author: str, when: str, branch: str = "main") -> dict:
+    """One entry shaped like GitService.parse_commits output."""
+    return {
+        "hash": sha,
+        "author_name": author,
+        "author_email": f"{author.lower()}@example.com",
+        "date": datetime.fromisoformat(when).replace(tzinfo=timezone.utc),
+        "message": f"commit {sha}",
+        "branches": [branch],
+        "origin_branch": branch,
         "insertions": 10,
-        "deletions": 0,
+        "deletions": 1,
         "files_changed": 1,
-    },
-    {
-        "hash": "abc002",
-        "author_name": "Bob",
-        "author_email": "bob@example.com",
-        "date": "2025-01-01T14:00:00",
-        "message": "Second commit",
-        "branch": "main",
-        "insertions": 5,
-        "deletions": 2,
-        "files_changed": 1,
-    },
-    {
-        "hash": "abc003",
-        "author_name": "Alice",
-        "author_email": "alice@example.com",
-        "date": "2025-01-03T09:00:00",
-        "message": "Third commit",
-        "branch": "feature",
-        "insertions": 20,
-        "deletions": 5,
-        "files_changed": 3,
-    },
+    }
+
+
+FAKE_COMMITS = [
+    _parsed("abc001", "Alice", "2025-01-01T10:00:00"),
+    _parsed("abc002", "Bob", "2025-01-01T14:00:00"),
+    _parsed("abc003", "Alice", "2025-01-03T09:00:00", branch="feature"),
 ]
 
 
@@ -141,17 +127,7 @@ async def test_commit_activity_deduplicates_by_hash(
     db_session.add_all([repo1, repo2])
     await db_session.flush()
 
-    duplicate_commit = {
-        "hash": "shared-hash-xyz",
-        "author_name": "Dev",
-        "author_email": "dev@example.com",
-        "date": "2025-02-10T08:00:00",
-        "message": "Shared commit",
-        "branch": "main",
-        "insertions": 1,
-        "deletions": 0,
-        "files_changed": 1,
-    }
+    duplicate_commit = _parsed("shared-hash-xyz", "Dev", "2025-02-10T08:00:00")
 
     with patch(
         "app.api.routes.collections._git_service.parse_commits",
@@ -318,27 +294,17 @@ async def test_contextual_activity_authorized_collection(test_client, auth_heade
     assert anonymous.status_code in (401, 403)
 
 
-# ── Snapshot fallback ────────────────────────────────────────────────────────
+# ── Reading the stored history ───────────────────────────────────────────────
 #
-# The dashboard graph and the collection chart both read this endpoint, and it
-# was the only commit reader still going straight to the clone with no fallback:
-# `get_repo_commits` and `collect_activity` already drop back to the last synced
-# snapshot. On any machine that never did the clone — a fresh container, a
-# recreated bind mount, a seeded database — that made the graph read flat zero
-# while the commits table beside it showed history.
+# Sync stores what it parsed in the `commits` table, and this endpoint reads
+# that instead of re-parsing every clone in the collection on each load — which
+# took 30s+ on real collections. A repo with nothing stored is parsed once.
 
 
 async def _snapshot(db_session: AsyncSession, repo_id: uuid.UUID) -> None:
     from app.services import commit_snapshot_service
 
-    await commit_snapshot_service.store(
-        db_session,
-        repo_id,
-        [
-            {**commit, "date": datetime.fromisoformat(commit["date"]), "branches": [commit["branch"]], "origin_branch": commit["branch"]}
-            for commit in FAKE_COMMITS
-        ],
-    )
+    await commit_snapshot_service.store(db_session, repo_id, FAKE_COMMITS)
     await db_session.flush()
 
 
@@ -353,41 +319,39 @@ async def _collection(test_client: AsyncClient, auth_headers: dict, label: str) 
 
 
 @pytest.mark.asyncio
-async def test_commit_activity_falls_back_to_snapshot_when_the_clone_is_unreadable(
+async def test_commit_activity_reads_stored_history_without_parsing_the_clone(
     test_client: AsyncClient,
     auth_headers: dict,
     db_session: AsyncSession,
     test_user,
 ) -> None:
-    coll_id = await _collection(test_client, auth_headers, "fallback")
+    coll_id = await _collection(test_client, auth_headers, "stored")
 
     repo = Repo(
         id=uuid.uuid4(),
         collection_id=uuid.UUID(coll_id),
-        github_url="https://github.com/test/unreadable",
-        name="unreadable",
-        local_path="/nonexistent/clone",
+        github_url="https://github.com/test/stored",
+        name="stored",
+        local_path="/repos/stored",
         health_status="unknown",
     )
     db_session.add(repo)
     await db_session.flush()
     await _snapshot(db_session, repo.id)
 
-    with patch(
-        "app.api.routes.collections._git_service.parse_commits",
-        new=AsyncMock(side_effect=Exception("not a git repository")),
-    ):
+    parse = AsyncMock(side_effect=AssertionError("stored history must not be re-parsed"))
+    with patch("app.api.routes.collections._git_service.parse_commits", new=parse):
         resp = await test_client.get(
             f"/api/v1/collections/{coll_id}/commit-activity",
             headers=auth_headers,
         )
 
     assert resp.status_code == 200
-    # Same aggregation as a live clone: 2 commits on the 1st, 1 on the 3rd.
     assert resp.json()["activity"] == [
         {"date": "2025-01-01", "count": 2},
         {"date": "2025-01-03", "count": 1},
     ]
+    parse.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -426,44 +390,7 @@ async def test_commit_activity_uses_the_snapshot_when_there_is_no_clone_path(
 
 
 @pytest.mark.asyncio
-async def test_commit_activity_prefers_the_live_clone_over_the_snapshot(
-    test_client: AsyncClient,
-    auth_headers: dict,
-    db_session: AsyncSession,
-    test_user,
-) -> None:
-    """The clone stays the source of truth; the snapshot is only a fallback."""
-    coll_id = await _collection(test_client, auth_headers, "prefers-live")
-
-    repo = Repo(
-        id=uuid.uuid4(),
-        collection_id=uuid.UUID(coll_id),
-        github_url="https://github.com/test/live",
-        name="live",
-        local_path="/repos/live",
-        health_status="unknown",
-    )
-    db_session.add(repo)
-    await db_session.flush()
-    await _snapshot(db_session, repo.id)
-
-    live = [dict(FAKE_COMMITS[0], hash="live001", date="2025-06-09T10:00:00")]
-    with patch(
-        "app.api.routes.collections._git_service.parse_commits",
-        new=AsyncMock(return_value=live),
-    ):
-        resp = await test_client.get(
-            f"/api/v1/collections/{coll_id}/commit-activity",
-            headers=auth_headers,
-        )
-
-    assert resp.status_code == 200
-    # Only the clone's commit — the snapshot's three are not mixed in.
-    assert resp.json()["activity"] == [{"date": "2025-06-09", "count": 1}]
-
-
-@pytest.mark.asyncio
-async def test_commit_activity_still_dedupes_across_the_fallback(
+async def test_commit_activity_dedupes_stored_history_across_repos(
     test_client: AsyncClient,
     auth_headers: dict,
     db_session: AsyncSession,

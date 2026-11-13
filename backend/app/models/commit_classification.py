@@ -23,10 +23,9 @@ QUALITY_SCORES = ("good", "ok", "bad")
 class CommitClassification(Base):
     """LLM-derived per-commit attributes, cached by (repo_id, commit_hash).
 
-    Commits themselves are not persisted — they are parsed from the local git
-    clone on demand (see GitService.parse_commits). This is a sidecar table
-    keyed by commit hash, so a classification survives re-parsing and only
-    costs an LLM call once per commit.
+    Keyed by commit hash rather than pointing at `commits` rows, because sync
+    replaces a repo's `commits` rows wholesale; a classification survives that
+    and only costs an LLM call once per commit.
 
     Both columns are nullable: rows written before commit typing existed have
     a score but no type, and a commit may be typed without being scored.

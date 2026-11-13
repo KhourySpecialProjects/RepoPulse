@@ -101,6 +101,7 @@ async def test_no_history_and_invalid_merges(test_client, db_session, test_user,
 async def test_unmerge_keeps_new_records_and_refreshes_stats(test_client, db_session, test_user, auth_headers, monkeypatch):
     from unittest.mock import AsyncMock
     from datetime import datetime, timezone
+    from app.services import commit_snapshot_service
     from app.services.git_service import GitService
 
     repo, people = await make_contributors(db_session, test_user)
@@ -112,14 +113,18 @@ async def test_unmerge_keeps_new_records_and_refreshes_stats(test_client, db_ses
     new_alias = ContributorAlias(contributor_id=a.id, git_email="new@example.com", git_name="New alias")
     db_session.add_all([new_note, new_alias])
     repo.local_path = '/mock/repo'
-    await db_session.commit()
     now = datetime.now(timezone.utc)
-    monkeypatch.setattr(GitService, 'parse_commits', AsyncMock(return_value=[
-        {"author_email": "Alice@example.com", "insertions": 11, "deletions": 2, "date": now},
-        {"author_email": "Bob@example.com", "insertions": 20, "deletions": 3, "date": now},
-        {"author_email": "Bob@example.com", "insertions": 5, "deletions": 1, "date": now},
-        {"author_email": "new@example.com", "insertions": 4, "deletions": 0, "date": now},
-    ]))
+    # The recount reads what the last sync stored, never the clone.
+    await commit_snapshot_service.store(db_session, repo.id, [
+        {"hash": f"{i:040x}", "author_name": email.split("@")[0], "author_email": email,
+         "insertions": ins, "deletions": dels, "date": now}
+        for i, (email, ins, dels) in enumerate([
+            ("Alice@example.com", 11, 2), ("Bob@example.com", 20, 3),
+            ("Bob@example.com", 5, 1), ("new@example.com", 4, 0),
+        ])
+    ])
+    await db_session.commit()
+    monkeypatch.setattr(GitService, 'parse_commits', AsyncMock(side_effect=AssertionError("must not parse")))
     response = await test_client.post(f'/api/v1/contributors/{a.id}/unmerge', headers=auth_headers)
     assert response.status_code == 200
     restored = {p['id']: p for p in response.json()['contributors']}

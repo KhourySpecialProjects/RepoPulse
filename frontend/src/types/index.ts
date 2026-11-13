@@ -330,11 +330,11 @@ export interface PaginatedResponse<T> {
 }
 
 /**
- * Commits, plus whether they are live.
+ * Commits as of the last sync, plus whether that may be out of date.
  *
- * `stale` means the local clone could not be read and these came from the
- * snapshot written at the last successful sync — worth saying out loud, since
- * anything committed since then is missing.
+ * `stale` means the last sync failed (or there is no clone to sync into), so
+ * anything committed since the last successful sync is missing — worth saying
+ * out loud.
  */
 export interface CommitsResponse extends PaginatedResponse<Commit> {
   stale: boolean
@@ -668,7 +668,7 @@ export interface RepositoryActivity {
   id: string
   name: string
   available: boolean
-  /** True when the history came from the last sync's snapshot, not the clone. */
+  /** True when the last sync failed, so the history may be missing newer commits. */
   stale?: boolean
   activity: CommitActivityPoint[]
   students: StudentActivity[]

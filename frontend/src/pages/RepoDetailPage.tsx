@@ -1411,9 +1411,9 @@ export function RepoDetailPage() {
                 <p className="text-muted-foreground text-sm">No commits found.</p>
               ) : (
                 <div className="flex flex-col gap-2">
-                  {/* The clone could not be read, so these came from the last
-                      sync. Said out loud because anything committed since is
-                      missing, and a silently stale list looks live. */}
+                  {/* The last sync failed, so anything committed since the
+                      last successful one is missing. Said out loud because a
+                      silently stale list looks current. */}
                   {allCommitsData.stale && (
                     <p
                       data-testid="commits-stale-notice"
@@ -1421,8 +1421,8 @@ export function RepoDetailPage() {
                     >
                       <TriangleAlert className="mt-1.5 h-3.5 w-3.5 flex-shrink-0" />
                       <span>
-                        Showing the last synced history — the local clone could
-                        not be read. Sync the repository for anything newer.
+                        Showing the last synced history — the most recent sync
+                        did not complete. Sync the repository for anything newer.
                       </span>
                     </p>
                   )}

@@ -281,8 +281,8 @@ async def _index_repo(repo_id: uuid.UUID, *, force_clone: bool = False, token: s
             branches = await _git_service.get_active_branches(local_path)
 
             await _upsert_contributors(db, repo_id, commits)
-            # Kept so the Commits table and activity chart still have something
-            # to show if this clone is not readable next time.
+            # Every commit reader serves from this, not the clone — see
+            # commit_snapshot_service.
             await commit_snapshot_service.store(db, repo_id, commits)
             await db.refresh(repo)
             actual_count = len(repo.contributors)
@@ -750,49 +750,27 @@ async def get_repo_commits(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Repo not found",
         )
-    # The clone is the source of truth and is tried first. When it will not
-    # open — never cloned on this machine, recreated bind mount, corrupt
-    # checkout — the last sync's snapshot is served instead, flagged as stale.
-    # Only when there is no snapshot either does this stay an error: an empty
-    # table that looks normal hides the problem.
-    stale = False
-    all_commits: list[dict] = []
-
-    if repo.local_path:
-        try:
-            t0 = time.perf_counter()
-            all_commits = await _git_service.parse_commits(repo.local_path)
-            logger.debug(
-                "get_repo_commits: parse_commits returned %d commits in %.2fs (limit=%d offset=%d branch=%s) — %s",
-                len(all_commits), time.perf_counter() - t0, limit, offset, branch, repo.name,
-            )
-        except Exception as exc:
-            logger.warning(
-                "parse_commits failed for repo %s (%s); falling back to the "
-                "last synced snapshot: %s",
-                repo.name, repo.local_path, exc,
-            )
-            all_commits = await commit_snapshot_service.load(db, repo_id)
-            stale = True
-            if not all_commits:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Could not read commits: {exc}",
-                )
-    else:
-        all_commits = await commit_snapshot_service.load(db, repo_id)
-        stale = True
-        if not all_commits:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Repo has no local path. Add and sync the repo first.",
-            )
+    # Stored by the last sync; a repo with nothing stored yet is parsed once
+    # here and stored. Only when there is no history at all is this an error:
+    # an empty table that looks normal hides the problem.
+    all_commits = await commit_snapshot_service.read(db, repo, _git_service)
+    if all_commits is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Could not read commits: the local clone is unreadable. Sync the repo to rebuild it."
+                if repo.local_path
+                else "Repo has no local path. Add and sync the repo first."
+            ),
+        )
+    stale = commit_snapshot_service.is_stale(repo)
 
     # Cached classifications for this repo, keyed by full SHA — which is
-    # exactly what parse_commits puts in c["hash"], so no conversion is needed.
-    # Queried on the indexed repo_id rather than `commit_hash.in_(hashes)`: the
-    # hash list runs to thousands on a real repo, and bind parameters are
-    # finite. Loaded after parse_commits so the 400/404 paths don't pay for it.
+    # exactly what the commits table stores in c["hash"], so no conversion is
+    # needed. Queried on the indexed repo_id rather than
+    # `commit_hash.in_(hashes)`: the hash list runs to thousands on a real repo,
+    # and bind parameters are finite. Loaded after the 400/404 paths so they
+    # don't pay for it.
     classification_rows = (
         await db.execute(
             select(
