@@ -651,8 +651,9 @@ async def test_repo_commits_type_filter_paginates_within_the_filtered_set(
     col = await _make_collection(db_session, test_user.id)
     repo = await _make_repo(db_session, col.id)
 
+    # Newest first, as parse_commits and the commits table both order them.
     commits = [
-        _commit(_sha(f"d{i}"), f"commit {i}", day=i + 1, branches=["main"])
+        _commit(_sha(f"d{i}"), f"commit {i}", day=10 - i, branches=["main"])
         for i in range(10)
     ]
     # First 6 substantive, last 4 logistical.
