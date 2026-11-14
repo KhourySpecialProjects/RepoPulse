@@ -1,13 +1,10 @@
-"""A snapshot of what the last successful sync parsed out of a clone.
+"""Each repo's commit history as of its last successful sync.
 
-Commits are read live from the local clone, which is the right default: the
-clone is the source of truth and nothing can go stale. But a clone is not
-durable — a fresh container, a recreated bind mount, or a machine that never
-did the clone all leave a repo that syncs cleanly and then shows an empty
-Commits table.
-
-These rows exist so that case degrades to "here is what we last saw" instead of
-"here is nothing". Nothing reads them while the clone is readable.
+Sync parses the clone and stores the result here (see
+`commit_snapshot_service`); every commit reader reads these rows instead of
+re-parsing the clone, which costs a `git diff` per commit. Rows are replaced
+wholesale on each sync, so they are derived data: a resync rebuilds them from
+the clone.
 """
 from __future__ import annotations
 

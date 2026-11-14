@@ -5,7 +5,6 @@ import logging
 import uuid
 from datetime import datetime
 
-from git.exc import GitError
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +13,7 @@ from app.models.contributor_alias import ContributorAlias
 from app.models.note import Note
 from app.models.repo import Repo
 from app.models.summary import Summary
-from app.services.git_service import GitService
+from app.services import commit_snapshot_service
 from app.services.permission_service import can_write_collection
 
 
@@ -121,30 +120,31 @@ async def unmerge_contributor(db: AsyncSession, contributor_id: uuid.UUID,
                 model.id.in_([uuid.UUID(value) for value in snapshot[key]]),
                 model.contributor_id == primary.id,
             ).values(contributor_id=c.id))
-    # A sync may have added commits since the merge. Recount using the restored
-    # alias ownership rather than replacing current totals with stale snapshots.
-    if repo.local_path:
-        try:
-            commits = await GitService().parse_commits(repo.local_path)
-        except (GitError, OSError):
-            logger.warning("History unavailable during unmerge; retaining saved contributor statistics")
-        else:
-            aliases = (await db.scalars(select(ContributorAlias).where(
-                ContributorAlias.contributor_id.in_([c.id for c in restored])
-            ))).all()
-            by_id = {c.id: c for c in restored}
-            by_email = {a.git_email.lower(): by_id[a.contributor_id] for a in aliases}
-            for c in restored:
-                c.commit_count = c.total_insertions = c.total_deletions = 0
-                c.last_commit_at = None
-            for commit in commits:
-                c = by_email.get(commit["author_email"].lower())
-                if c is None:
-                    continue
-                c.commit_count += 1
-                c.total_insertions += commit["insertions"]
-                c.total_deletions += commit["deletions"]
-                if c.last_commit_at is None or commit["date"] > c.last_commit_at:
-                    c.last_commit_at = commit["date"]
+    # A sync may have added commits since the merge. Recount from the commits
+    # the last sync stored, using the restored alias ownership, rather than
+    # replacing current totals with stale snapshots. `load`, not `read`: a
+    # backfill commits the session, which would end this transaction — and its
+    # repo lock — halfway through the unmerge.
+    commits = await commit_snapshot_service.load(db, repo.id)
+    if not commits:
+        logger.warning("History unavailable during unmerge; retaining saved contributor statistics")
+    else:
+        aliases = (await db.scalars(select(ContributorAlias).where(
+            ContributorAlias.contributor_id.in_([c.id for c in restored])
+        ))).all()
+        by_id = {c.id: c for c in restored}
+        by_email = {a.git_email.lower(): by_id[a.contributor_id] for a in aliases}
+        for c in restored:
+            c.commit_count = c.total_insertions = c.total_deletions = 0
+            c.last_commit_at = None
+        for commit in commits:
+            c = by_email.get(commit["author_email"].lower())
+            if c is None:
+                continue
+            c.commit_count += 1
+            c.total_insertions += commit["insertions"]
+            c.total_deletions += commit["deletions"]
+            if c.last_commit_at is None or commit["date"] > c.last_commit_at:
+                c.last_commit_at = commit["date"]
     await db.commit()
     return await _load(db, [c.id for c in restored])

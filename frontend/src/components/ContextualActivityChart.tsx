@@ -162,8 +162,8 @@ export function ContextualActivityChart({ collectionId, repoId, children, action
           has to re-render on expand anyway. */}
       {expanded && <CardContent id={contentId}>
         {isLoading ? <ChartLoading /> : isError ? <p role="alert">Could not load activity. <button onClick={() => refetch()} className="underline">Retry</button></p> : !repo?.available ? <p>Repository history unavailable. Sync the repository and try again.</p> : !repo.activity.length ? <p>No commit history available.</p> : <>
-          {/* Drawn from the last sync's snapshot, not the clone. */}
-          {repo.stale && <p className="mb-2 text-xs text-amber-700">Showing the last synced history — the local clone could not be read.</p>}
+          {/* The last sync failed, so newer commits may be missing. */}
+          {repo.stale && <p className="mb-2 text-xs text-amber-700">Showing the last synced history — the most recent sync did not complete.</p>}
           <p className="mb-2 text-sm font-medium">{authorLabel} — commits per day</p>
           {/* Distinct from the "No commit history available" state above: the
               repo has history, this filter just excludes all of it. Telling

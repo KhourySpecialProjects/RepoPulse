@@ -12,13 +12,13 @@ export const LOCAL_PHOENIX_URL = 'http://localhost:6006'
  * opened the page, so the deployed link dead-ended on the reader's own
  * machine. Same failure as pointing "Open in VS Code" at a container path.
  *
- * Note this is NOT keyed off `import.meta.env.DEV`. The deployment builds the
- * same frontend Dockerfile, which runs `npm run dev` — a Vite dev server —
- * so `DEV` is true there too and a mode check would quietly resolve to
- * localhost in production. `NODE_ENV=production` in the deploy compose does
- * not change that; only `vite build` does. The override has to be explicit.
+ * Note this is NOT keyed off `import.meta.env.DEV`. Local development and
+ * the deployment are both Vite builds of the same source; which one is
+ * "production" says nothing about where Phoenix lives, so the address has to
+ * be configured explicitly. The deployment passes it as the
+ * `VITE_PHOENIX_URL` build arg in spirostest-docker-compose.yml.
  *
- * Blank is treated as unset. An `environment:` key declared with no value
+ * Blank is treated as unset. A build arg declared with no value
  * arrives as `""`, and an empty href resolves to the current page — a link
  * that looks live and goes nowhere.
  */

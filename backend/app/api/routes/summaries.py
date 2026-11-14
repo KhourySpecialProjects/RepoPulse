@@ -15,6 +15,7 @@ from app.models.user import User
 from app.schemas.errors import ErrorResponse
 from app.schemas.llm_quota import TokenLimitExceeded
 from app.schemas.summaries import GenerateSummaryRequest, SummaryRead
+from app.services import commit_snapshot_service
 from app.services.git_service import GitService
 from app.services.health_service import HealthService
 from app.services.llm import get_llm_service
@@ -82,12 +83,7 @@ async def generate_summary(
                 detail="Repo not found",
             )
 
-        commits: list[dict] = []
-        if repo.local_path:
-            try:
-                commits = await _git_service.parse_commits(repo.local_path)
-            except Exception:
-                pass
+        commits = await commit_snapshot_service.read(db, repo, _git_service) or []
 
         repo_data = {
             "name": repo.name,
@@ -127,16 +123,13 @@ async def generate_summary(
 
         repo = await db.get(Repo, contributor.repo_id)
         commits_for_contributor: list[dict] = []
-        if repo and repo.local_path:
-            try:
-                all_commits = await _git_service.parse_commits(repo.local_path)
-                contributor_emails = {a.git_email for a in contributor.aliases}
-                commits_for_contributor = [
-                    c for c in all_commits
-                    if c["author_email"].lower() in contributor_emails
-                ]
-            except Exception:
-                pass
+        if repo is not None:
+            all_commits = await commit_snapshot_service.read(db, repo, _git_service) or []
+            contributor_emails = {a.git_email for a in contributor.aliases}
+            commits_for_contributor = [
+                c for c in all_commits
+                if c["author_email"].lower() in contributor_emails
+            ]
 
         contributor_data = {
             "display_name": contributor.display_name,

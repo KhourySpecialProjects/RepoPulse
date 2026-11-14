@@ -5,20 +5,20 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      # Vite inlines VITE_* at build time, so this must be a build arg: the
+      # image is a static bundle served by nginx, and a container environment
+      # variable would never reach it. Phoenix runs on the repopulse network,
+      # so the browser cannot reach it by service name; this is the address a
+      # reader's browser can resolve.
+      args:
+        - VITE_PHOENIX_URL=https://phoenix.repopulse.cs4535.cloud/projects?timeRangeKey=7d
     environment:
-      - NODE_ENV=production    #change from dev to prod
-      # Phoenix runs on the repopulse network, so the browser cannot reach it
-      # by service name. This is the address a reader's browser can resolve;
-      # left unset locally, where the fallback is the 6006 port mapping.
-      # NODE_ENV alone cannot stand in for this: the frontend image runs
-      # `npm run dev` here too, so import.meta.env.DEV is true in this
-      # environment as well.
-      - VITE_PHOENIX_URL=https://phoenix.repopulse.cs4535.cloud/projects?timeRangeKey=7d
-      # Where the dev server forwards /api; unset, the `backend` service. A
-      # Coolify preview renames its services (backend-pr-<n>) but shares this
+      # Where nginx forwards /api; unset, the `backend` service. A Coolify
+      # preview renames its services (backend-pr-<n>) but shares this
       # deployment's network, where `backend` is the main deployment's backend
       # — so in Coolify's *preview* environment variables set
-      # API_PROXY_TARGET=http://backend-pr-<n>:8000. See frontend/src/lib/apiProxyTarget.ts.
+      # API_PROXY_TARGET=http://backend-pr-<n>:8000. Read at container start by
+      # frontend/nginx.conf.template.
       - API_PROXY_TARGET=${API_PROXY_TARGET:-http://backend:8000}
     depends_on:
       - backend
