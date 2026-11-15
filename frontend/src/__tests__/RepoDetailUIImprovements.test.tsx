@@ -206,7 +206,7 @@ describe('RepoDetailPage - Author column with stacked diffstat', () => {
     renderPage()
     await waitFor(() => expect(screen.getByText('abc1234')).toBeInTheDocument())
 
-    // Author is leftmost so the vertical scrollbar cannot clip it.
+    // Author leads, with the diffstat folded into its cell.
     const headers = screen.getAllByRole('columnheader').map(th => th.textContent)
     expect(headers).toEqual(['Author', 'Commit', 'Branch', 'Score'])
   })
@@ -248,6 +248,31 @@ describe('RepoDetailPage - Author column with stacked diffstat', () => {
     await waitFor(() => {
       expect(document.querySelector('td[colspan]')).toHaveAttribute('colspan', '4')
     })
+  })
+})
+
+// ──────────────────────────────────────────────
+// 2b. Commit list scrolls with the page
+// ──────────────────────────────────────────────
+describe('RepoDetailPage - Commit list height', () => {
+  it('grows to fit its page of commits instead of scrolling inside the card', async () => {
+    setupHandlers()
+    renderPage()
+    await waitFor(() => expect(screen.getByText('abc1234')).toBeInTheDocument())
+
+    const region = screen.getByRole('region', { name: 'Commit list' })
+    // Nothing scrolls on its own any more, so the region is no longer a tab
+    // stop for keyboard scrolling.
+    expect(region).not.toHaveAttribute('tabindex')
+
+    // The header pins to the viewport as the page scrolls. Any clipping or
+    // height cap between it and the page would trap it, and the rows, in a
+    // nested scroller again.
+    const thead = within(region).getByRole('table').querySelector('thead')!
+    expect(thead).toHaveClass('sticky', 'top-0')
+    for (let el = thead.parentElement; el && el !== document.body; el = el.parentElement) {
+      expect(el.className).not.toMatch(/(^|\s)(max-h-\S+|overflow-(?!visible)\S+)/)
+    }
   })
 })
 
