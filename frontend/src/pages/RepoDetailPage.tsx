@@ -1470,20 +1470,22 @@ export function RepoDetailPage() {
                         {renderCommitPagination()}
                       </div>
                     </div>
-                  <div key={`${commitPage}-${COMMITS_PER_PAGE}`} role="region" aria-label="Commit list" tabIndex={0} className="max-h-[560px] overflow-auto overscroll-contain rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  {/* Grows to fit the page of commits, so only the page
+                      scrolls; the page-size control bounds its length. No
+                      overflow here or above: it would trap the sticky header
+                      in a nested scroller again. */}
+                  <div role="region" aria-label="Commit list">
                     <table className="w-full text-sm">
                       <thead className="sticky top-0 z-10 bg-card">
                         <tr className="border-b text-muted-foreground text-xs">
-                          {/* Leftmost so the vertical scrollbar cannot clip
-                              it, with a floor on its width so neither the name
-                              nor the counts get squeezed. The diffstat stacks
-                              underneath the name — one heading covers both,
-                              since they answer who changed how much. */}
+                          {/* Leftmost, with a floor on its width so neither
+                              the name nor the counts get squeezed. The
+                              diffstat stacks underneath the name — one heading
+                              covers both, since they answer who changed how
+                              much. */}
                           <th className="text-left pb-2 pr-6 font-medium min-w-[9rem]">Author</th>
                           <th className="text-left pb-2 font-medium">Commit</th>
                           <th className="text-left pb-2 font-medium">Branch</th>
-                          {/* Now the last column, so it needs its own gap from
-                              the scrollbar. */}
                           <th className="text-left pb-2 pr-2 font-medium">Score</th>
                         </tr>
                       </thead>

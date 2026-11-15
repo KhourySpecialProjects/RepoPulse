@@ -102,7 +102,10 @@ export function CollectionCommitActivityChart({ collectionId }: Props) {
           ) : (
             <div data-testid="commit-activity-chart" className="h-48">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData}>
+                {/* Room for the point labels: one line of text above the
+                    top gridline for a peak, and half a label's width past the
+                    last point. Recharts' default 5px clipped both. */}
+                <AreaChart data={chartData} margin={{ top: 20, right: 20, bottom: 5, left: 5 }}>
                   <defs>
                     <linearGradient id="collectionActivityGradient" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor={BRAND.violet} stopOpacity={0.3} />
