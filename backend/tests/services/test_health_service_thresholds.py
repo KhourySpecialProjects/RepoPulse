@@ -63,12 +63,22 @@ def test_the_composite_cutoffs_decide_the_badge() -> None:
     commits = _commits(40)
     branches = ["main", "dev"]
 
-    assert service.compute_health(commits, branches)["status"] == "green"
+    baseline = service.compute_health(commits, branches)
+    # Every signal is green, so the composite sits at its ceiling. The cutoffs
+    # below are placed relative to that, not to the defaults.
+    assert baseline["composite"] == 1.0
+    assert baseline["status"] == "green"
 
-    strict = service.compute_health(
+    # Cutoffs are inclusive: a composite equal to the yellow bound is yellow.
+    at_yellow = service.compute_health(
         commits, branches, thresholds={"composite": {"green": 1.01, "yellow": 1.0}}
     )
-    assert strict["status"] == "red"
+    assert at_yellow["status"] == "yellow"
+
+    out_of_reach = service.compute_health(
+        commits, branches, thresholds={"composite": {"green": 1.02, "yellow": 1.01}}
+    )
+    assert out_of_reach["status"] == "red"
 
 
 def test_a_partial_override_leaves_other_signals_scored_normally() -> None:

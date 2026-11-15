@@ -25,7 +25,12 @@ class Repo(Base):
         Enum("green", "yellow", "red", "unknown", name="healthstatus"),
         default="unknown",
     )
-    health_score: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # none_as_null: a Python None must be SQL NULL, not the JSON value `null`.
+    # Admin coverage counts unscored repos with `health_score IS NULL`, which a
+    # JSON `null` does not match.
+    health_score: Mapped[dict | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
     last_synced_at: Mapped[DateTime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

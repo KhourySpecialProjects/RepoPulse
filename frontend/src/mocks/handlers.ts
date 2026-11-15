@@ -462,6 +462,21 @@ const mockAdminSystem = {
   git_version: '2.43.0',
 }
 
+/**
+ * The UTC calendar day `n` days before today, in the API's `YYYY-MM-DD` form.
+ *
+ * LlmVolumeCard plots only the `window_days` ending today, so a fixed date
+ * eventually ages out of the window and the card drops to its empty state.
+ */
+function utcDaysAgo(n: number): string {
+  const date = new Date()
+  date.setUTCDate(date.getUTCDate() - n)
+  return date.toISOString().slice(0, 10)
+}
+
+/** The busiest day in the mocked LLM series; yesterday, so always in the window. */
+export const MOCK_LLM_BUSIEST_DAY = utcDaysAgo(1)
+
 const mockAdminLlmUsage = {
   window_days: 30,
   // Batched requests, not classified commits: the series below sum to this.
@@ -497,9 +512,9 @@ const mockAdminLlmUsage = {
     },
   ],
   daily: [
-    { day: '2026-09-13', kind: 'summary', calls: 2 },
-    { day: '2026-09-14', kind: 'commit_classification', calls: 12 },
-    { day: '2026-09-14', kind: 'commit_quality', calls: 2 },
+    { day: utcDaysAgo(2), kind: 'summary', calls: 2 },
+    { day: MOCK_LLM_BUSIEST_DAY, kind: 'commit_classification', calls: 12 },
+    { day: MOCK_LLM_BUSIEST_DAY, kind: 'commit_quality', calls: 2 },
   ],
   models_in_use: ['claude-sonnet-4-20250514', 'claude-sonnet-5'],
   retired_models_in_use: ['claude-sonnet-4-20250514'],

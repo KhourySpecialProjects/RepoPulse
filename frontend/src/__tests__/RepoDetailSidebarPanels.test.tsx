@@ -223,7 +223,8 @@ describe('a repo with nothing to filter', () => {
     renderPage()
     const first = await screen.findByRole('button', { name: 'Type and Date' })
     const branch = screen.getByRole('button', { name: 'Branch' })
-    const prs = screen.getByRole('button', { name: /pull requests/i })
+    // Exact: the panel also has a "Collapse pull requests" chevron button.
+    const prs = screen.getByRole('button', { name: 'Pull Requests' })
     const contributors = screen.getByRole('button', { name: 'Contributors' })
     for (const [a, b] of [[first, branch], [branch, prs], [prs, contributors]]) {
       expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()

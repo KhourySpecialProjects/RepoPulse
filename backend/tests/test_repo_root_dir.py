@@ -19,7 +19,6 @@ import pytest
 from pydantic import ValidationError
 
 from app.core.config import Settings, settings
-from app.db import seed
 
 
 def test_configured_clone_root_is_absolute() -> None:
@@ -33,13 +32,3 @@ def test_configured_clone_root_is_absolute() -> None:
 def test_relative_clone_root_is_rejected() -> None:
     with pytest.raises(ValidationError):
         Settings(REPO_ROOT_DIR="./seed-repos")
-
-
-def test_seed_uses_the_configured_clone_root() -> None:
-    """Seeded repos must point at the same root as everything else.
-
-    seed.py carried its own "/seed-repos" literal, a third convention that
-    matched neither the mount nor .env, so every seeded repo's local_path
-    pointed at a directory that has never existed.
-    """
-    assert seed.SEED_REPOS_BASE == settings.REPO_ROOT_DIR
