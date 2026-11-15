@@ -737,7 +737,6 @@ async def test_classify_commits_once_per_wave(
     join_transaction_mode="create_savepoint" a route commit is a RELEASE
     SAVEPOINT inside a never-committed outer transaction, so "wave 1 survived a
     crash" is unobservable here. Counting commits is the honest proxy.
-    crash" is unobservable here. Counting commits is the honest proxy.
 
     Each wave commits twice: once for its rows (`_persist`) and once for the
     tokens it spent (`record_usage`), so a client that disconnects mid-run is
