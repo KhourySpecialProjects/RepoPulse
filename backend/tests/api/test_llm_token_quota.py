@@ -84,6 +84,10 @@ async def _make_repo(db: AsyncSession, collection_id: uuid.UUID) -> Repo:
     )
     db.add(repo)
     await db.flush()
+    # The route must load its own copy, as a real request does: Repo.contributors
+    # is selectin, and this instance never ran that select, so the route's
+    # db.get would hand it back and the lazy load would fail outside greenlet.
+    db.expunge(repo)
     return repo
 
 

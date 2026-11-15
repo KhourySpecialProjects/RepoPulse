@@ -26,6 +26,7 @@ import { HttpResponse, http } from 'msw'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AdminPage } from '@/pages/AdminPage'
+import { MOCK_LLM_BUSIEST_DAY } from '@/mocks/handlers'
 import { server } from '@/mocks/server'
 import { LOCAL_PHOENIX_URL } from '@/lib/phoenixUrl'
 
@@ -409,7 +410,7 @@ describe('LLM call volume', () => {
     renderAdmin()
 
     const card = await openTable(user, 'llm-volume')
-    expect(card).toHaveTextContent('2026-09-14')
+    expect(card).toHaveTextContent(MOCK_LLM_BUSIEST_DAY)
     expect(card).toHaveTextContent('Commit classifications')
   })
 

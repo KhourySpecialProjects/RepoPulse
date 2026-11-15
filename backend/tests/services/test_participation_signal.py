@@ -6,6 +6,11 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.services.health_service import HealthService
+from app.services.health_thresholds import DEFAULT_HEALTH_THRESHOLDS
+
+# The unit tests below pin the default cutoffs; custom cutoffs are covered in
+# test_health_service_thresholds.py.
+BOUNDS = DEFAULT_HEALTH_THRESHOLDS["participation"]
 
 
 @pytest.fixture
@@ -38,32 +43,32 @@ def _commit(
 
 def test_participation_score_green_exact(svc: HealthService) -> None:
     """actual == expected → ratio 1.0 → score 2."""
-    assert svc._participation_score(4, 4) == 2
+    assert svc._participation_score(4, 4, BOUNDS) == 2
 
 
 def test_participation_score_green_exceeds(svc: HealthService) -> None:
     """actual > expected → ratio > 1.0 → score 2."""
-    assert svc._participation_score(5, 4) == 2
+    assert svc._participation_score(5, 4, BOUNDS) == 2
 
 
 def test_participation_score_yellow(svc: HealthService) -> None:
     """actual == 60% of expected → ratio 0.6 → score 1."""
-    assert svc._participation_score(3, 5) == 1
+    assert svc._participation_score(3, 5, BOUNDS) == 1
 
 
 def test_participation_score_yellow_just_above_threshold(svc: HealthService) -> None:
     """actual == 70% of expected → score 1."""
-    assert svc._participation_score(7, 10) == 1
+    assert svc._participation_score(7, 10, BOUNDS) == 1
 
 
 def test_participation_score_red(svc: HealthService) -> None:
     """actual < 60% of expected → score 0."""
-    assert svc._participation_score(2, 5) == 0
+    assert svc._participation_score(2, 5, BOUNDS) == 0
 
 
 def test_participation_score_zero_actual(svc: HealthService) -> None:
     """No actual contributors → score 0."""
-    assert svc._participation_score(0, 4) == 0
+    assert svc._participation_score(0, 4, BOUNDS) == 0
 
 
 # ---------------------------------------------------------------------------
