@@ -1,0 +1,37 @@
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # The SPA calls the API on its own origin (`baseURL: '/api/v1'` in
+    # src/services/api.ts). In dev the Vite proxy forwards it; in this image
+    # nginx must, or every request — login included — falls through to
+    # index.html below and never reaches the backend.
+    #
+    # ${API_PROXY_TARGET} is filled in from the environment when the container
+    # starts (the nginx image renders /etc/nginx/templates/*.template), so a
+    # Coolify preview can point at its own backend-pr-<n>. Defaults to
+    # http://backend:8000 in the Dockerfile.
+    location /api/ {
+        proxy_pass ${API_PROXY_TARGET};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # LLM summaries and repo syncs can outlast nginx's 60s default; the
+        # Vite proxy this replaces had no read timeout at all.
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+}

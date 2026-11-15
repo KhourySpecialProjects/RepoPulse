@@ -316,57 +316,18 @@ async def get_collection_commit_activity(
             detail="Collection not found",
         )
 
-    # Pathless repos are included rather than filtered out: they may still
-    # have a snapshot from a sync done elsewhere, and filtering them here would
-    # put that history out of reach.
     result = await db.execute(
         select(Repo).where(Repo.collection_id == collection_id)
     )
     repos = result.scalars().all()
 
-    seen_hashes: set[str] = set()
-    date_counts: dict[str, int] = {}
-
+    # Pathless repos stay in: they may still have history stored by a sync
+    # done elsewhere. Only a repo with nothing stored yet touches its clone.
     for repo in repos:
-        # The clone is the source of truth and is tried first. When it will not
-        # open — never cloned on this machine, recreated bind mount, a seeded
-        # database with no clones behind it — the last sync's snapshot stands in,
-        # matching what `get_repo_commits` and `collect_activity` already do.
-        # Without that fallback this endpoint was the one commit reader that
-        # returned a flat, empty graph next to a populated commits table.
-        commits: list[dict] = []
-        if repo.local_path:
-            try:
-                commits = await _git_service.parse_commits(repo.local_path)
-            except Exception as exc:
-                logger.warning(
-                    "commit-activity: parse_commits failed for repo %s (%s); "
-                    "falling back to the last synced snapshot: %s",
-                    repo.name, repo.local_path, exc,
-                )
-                commits = await commit_snapshot_service.load(db, repo.id)
-        else:
-            commits = await commit_snapshot_service.load(db, repo.id)
+        await commit_snapshot_service.ensure(db, repo, _git_service)
 
-        for commit in commits:
-            commit_hash = commit.get("hash", "")
-            if commit_hash in seen_hashes:
-                continue
-            seen_hashes.add(commit_hash)
-
-            raw_date = commit.get("date")
-            if raw_date is None:
-                continue
-            date_str = raw_date.strftime("%Y-%m-%d") if hasattr(raw_date, "strftime") else str(raw_date)[:10]
-            if not date_str:
-                continue
-
-            date_counts[date_str] = date_counts.get(date_str, 0) + 1
-
-    activity = [
-        CommitActivityPoint(date=date, count=count)
-        for date, count in sorted(date_counts.items())
-    ]
+    counts = await commit_snapshot_service.daily_counts(db, [r.id for r in repos])
+    activity = [CommitActivityPoint(date=date, count=count) for date, count in counts]
     return CollectionCommitActivity(activity=activity)
 
 

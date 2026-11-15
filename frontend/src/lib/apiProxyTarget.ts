@@ -1,5 +1,7 @@
 /**
- * Where the Vite dev server forwards /api — read by vite.config.ts.
+ * Where the Vite dev server forwards /api — read by vite.config.ts. The
+ * deployed nginx image reads the same API_PROXY_TARGET variable in
+ * frontend/nginx.conf.template, with the same default.
  *
  * The default, the `backend` Compose service, is right locally and on the main
  * deployment. A Coolify preview renames its services (`backend-pr-<n>`) yet
